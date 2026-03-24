@@ -1,0 +1,15 @@
+[package]
+name = "custody-signing"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+custody-common = { path = "../common" }
+k256 = { workspace = true }
+ed25519-dalek = { workspace = true }
+sha2 = { workspace = true }
+zeroize = { workspace = true }
+hex = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }

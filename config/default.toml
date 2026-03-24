@@ -1,0 +1,71 @@
+# Custody Service Configuration
+
+[api]
+bind = "0.0.0.0:8443"
+# HMAC secret for authenticating requests from the exchange
+# hmac_secret = "SET_VIA_ENV"
+
+[database]
+url = "postgres://localhost:5432/custody"
+max_connections = 10
+
+[exchange]
+# Exchange webhook URL for deposit/withdrawal notifications
+webhook_url = "http://localhost:8080/internal/custody/events"
+# webhook_secret = "SET_VIA_ENV"
+
+[key_manager]
+# "software" | "hsm" | "mpc"
+backend = "software"
+# For software backend: encrypted seed file path
+# seed_file = "/etc/custody/seed.enc"
+
+[limits]
+# Circuit breaker limits (USD equivalent)
+max_single_withdrawal_usd = 500000
+max_hourly_outflow_usd = 10000000
+max_daily_outflow_usd = 50000000
+# Auto-approve threshold (above this, manual approval required)
+auto_approve_threshold_usd = 1000
+
+[wallets]
+# Hot wallet target: max 5% of AUM
+hot_max_pct = 5
+# Warm wallet target: max 15% of AUM
+warm_max_pct = 15
+
+[chains.bitcoin]
+enabled = true
+rpc_url = "http://localhost:8332"
+# rpc_user = "SET_VIA_ENV"
+# rpc_password = "SET_VIA_ENV"
+required_confirmations = 3
+
+[chains.ethereum]
+enabled = true
+rpc_url = "http://localhost:8545"
+ws_url = "ws://localhost:8546"
+required_confirmations = 12
+max_gas_price_gwei = 200
+
+[chains.ethereum.tokens]
+# contract_address -> (symbol, decimals)
+"0xdAC17F958D2ee523a2206206994597C13D831ec7" = { symbol = "USDT", decimals = 6 }
+"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" = { symbol = "USDC", decimals = 6 }
+
+[chains.tron]
+enabled = true
+api_url = "https://api.trongrid.io"
+required_confirmations = 20
+
+[chains.tron.tokens]
+"TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t" = { symbol = "USDT", decimals = 6 }
+
+[chains.solana]
+enabled = true
+rpc_url = "https://api.mainnet-beta.solana.com"
+commitment = "finalized"
+
+[chains.solana.tokens]
+"Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB" = { symbol = "USDT", decimals = 6 }
+"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" = { symbol = "USDC", decimals = 6 }

@@ -1,0 +1,21 @@
+[package]
+name = "custody-address-factory"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+custody-common = { path = "../common" }
+custody-db = { path = "../db" }
+k256 = { workspace = true }
+ed25519-dalek = { workspace = true }
+sha2 = { workspace = true }
+sha3 = { workspace = true }
+ripemd = { workspace = true }
+bech32 = { workspace = true }
+bs58 = { workspace = true }
+bip32 = { workspace = true }
+hex = { workspace = true }
+zeroize = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }

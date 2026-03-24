@@ -1,0 +1,13 @@
+[package]
+name = "custody-reconciliation"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+custody-common = { path = "../common" }
+custody-db = { path = "../db" }
+rust_decimal = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
