@@ -5,6 +5,7 @@
 
 pub mod admin_routes;
 pub mod auth;
+pub mod exchange_routes;
 pub mod errors;
 pub mod middleware;
 pub mod rate_limit;

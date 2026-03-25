@@ -268,13 +268,14 @@ async fn main() -> anyhow::Result<()> {
     let app = if hmac_secret.is_empty() {
         tracing::warn!("No HMAC_SECRET — running WITHOUT auth middleware (dev mode)");
         let mut r = custody_gateway::routes::router(app_state.clone());
-        // Merge admin routes
-        r = r.merge(custody_gateway::admin_routes::admin_router(app_state));
+        r = r.merge(custody_gateway::admin_routes::admin_router(app_state.clone()));
+        r = r.merge(custody_gateway::exchange_routes::exchange_router(app_state));
         r
     } else {
         tracing::info!("HMAC auth middleware ENABLED");
         let mut r = custody_gateway::routes::router_with_middleware(app_state.clone(), hmac_secret.as_bytes());
-        r = r.merge(custody_gateway::admin_routes::admin_router(app_state));
+        r = r.merge(custody_gateway::admin_routes::admin_router(app_state.clone()));
+        r = r.merge(custody_gateway::exchange_routes::exchange_router(app_state));
         r
     };
 
