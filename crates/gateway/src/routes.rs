@@ -30,6 +30,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/withdrawals/{id}", get(get_withdrawal_status))
         .route("/v1/withdrawals/{id}/approve", post(approve_withdrawal))
         .route("/v1/wallets/{asset}", get(get_wallet_balance))
+        .route("/metrics", get(prometheus_metrics))
         .with_state(state)
 }
 
@@ -205,6 +206,11 @@ async fn approve_withdrawal(
         tracing::info!(id = %id, approver, "Withdrawal rejected");
         Ok(Json(serde_json::json!({ "status": "rejected", "withdrawal_id": id })))
     }
+}
+
+/// Prometheus metrics endpoint.
+async fn prometheus_metrics() -> String {
+    custody_common::prometheus_metrics::render_metrics()
 }
 
 /// Per-chain health check.
