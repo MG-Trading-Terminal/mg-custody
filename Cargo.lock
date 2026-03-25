@@ -1994,10 +1994,12 @@ dependencies = [
  "ed25519-dalek",
  "frost-core",
  "frost-ed25519",
+ "futures",
  "generic-ec",
  "hex",
  "k256",
  "rand 0.8.5",
+ "round-based",
  "serde",
  "serde_json",
  "sha2",
@@ -4872,6 +4874,8 @@ dependencies = [
  "phantom-type 0.3.1",
  "round-based-derive",
  "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
  "tracing",
 ]
 
