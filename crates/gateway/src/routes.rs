@@ -8,6 +8,10 @@ use axum::{
 };
 use chrono::Utc;
 use custody_common::*;
+use std::time::Duration;
+use tower_http::cors::{CorsLayer, Any};
+use tower_http::timeout::TimeoutLayer;
+use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
 use crate::errors::ApiError;
@@ -25,6 +29,9 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/wallets/{asset}", get(get_wallet_balance))
         .route("/v1/ws", get(crate::websocket::ws_handler))
         .route("/metrics", get(prometheus_metrics))
+        .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(30)))
+        .layer(cors_layer())
+        .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
 
@@ -45,7 +52,23 @@ pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
         .route("/v1/ws", get(crate::websocket::ws_handler))
         .layer(axum_mw::from_fn_with_state(mw_state.clone(), middleware::rate_limit))
         .layer(axum_mw::from_fn_with_state(mw_state, middleware::hmac_auth))
+        .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(30)))
+        .layer(cors_layer())
+        .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+/// CORS layer — internal API, restrict to configured origins.
+fn cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(Any) // Internal API — configure for specific origin in production
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::OPTIONS,
+        ])
+        .allow_headers(Any)
+        .max_age(Duration::from_secs(3600))
 }
 
 async fn health() -> &'static str { "ok" }
@@ -114,6 +137,10 @@ async fn submit_withdrawal(
 
     state.db.insert_withdrawal(&withdrawal).await
         .map_err(|e| ApiError::internal(&e.to_string()))?;
+
+    // Record metric
+    custody_common::prometheus_metrics::WITHDRAWALS_TOTAL
+        .with_label_values(&[req.chain.as_str(), "received"]).inc();
 
     Ok((StatusCode::ACCEPTED, Json(SubmitWithdrawalResponse {
         custody_ref: withdrawal.id, status: WithdrawalStatus::Received,

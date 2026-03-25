@@ -19,7 +19,45 @@ pub struct CustodyConfig {
     pub limits: LimitsConfig,
     pub wallets: WalletsConfig,
     pub chains: ChainsConfig,
+    #[serde(default)]
+    pub background: BackgroundConfig,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BackgroundConfig {
+    #[serde(default = "default_12")]
+    pub confirmation_interval_secs: u64,
+    #[serde(default = "default_5")]
+    pub pipeline_interval_secs: u64,
+    #[serde(default = "default_30")]
+    pub webhook_retry_interval_secs: u64,
+    #[serde(default = "default_600")]
+    pub reconciliation_interval_secs: u64,
+    #[serde(default = "default_120")]
+    pub gas_station_interval_secs: u64,
+    #[serde(default = "default_30_days")]
+    pub webhook_cleanup_days: i32,
+}
+
+impl Default for BackgroundConfig {
+    fn default() -> Self {
+        Self {
+            confirmation_interval_secs: 12,
+            pipeline_interval_secs: 5,
+            webhook_retry_interval_secs: 30,
+            reconciliation_interval_secs: 600,
+            gas_station_interval_secs: 120,
+            webhook_cleanup_days: 30,
+        }
+    }
+}
+
+fn default_12() -> u64 { 12 }
+fn default_5() -> u64 { 5 }
+fn default_30() -> u64 { 30 }
+fn default_600() -> u64 { 600 }
+fn default_120() -> u64 { 120 }
+fn default_30_days() -> i32 { 30 }
 
 impl CustodyConfig {
     /// Load config from default.toml + environment overrides.

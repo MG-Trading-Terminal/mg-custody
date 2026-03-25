@@ -69,6 +69,10 @@ async fn main() -> anyhow::Result<()> {
 
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(config.database.max_connections)
+        .min_connections(2)
+        .max_lifetime(Some(Duration::from_secs(1800)))
+        .idle_timeout(Some(Duration::from_secs(600)))
+        .acquire_timeout(Duration::from_secs(10))
         .connect(&db_url)
         .await;
 
@@ -76,12 +80,17 @@ async fn main() -> anyhow::Result<()> {
         Ok(pool) => {
             tracing::info!("Connected to PostgreSQL");
 
-            // Run migrations
-            let migration_sql = include_str!("../../db/migrations/001_initial_schema.sql");
-            if let Err(e) = sqlx::raw_sql(migration_sql).execute(&pool).await {
-                tracing::warn!(error = %e, "Migration warning (tables may already exist)");
-            } else {
-                tracing::info!("Database migrations applied");
+            // Run all migrations in order
+            let migrations: &[(&str, &str)] = &[
+                ("001_initial_schema", include_str!("../../db/migrations/001_initial_schema.sql")),
+                ("002_signed_tx_bytes", include_str!("../../db/migrations/002_signed_tx_bytes.sql")),
+            ];
+            for (name, sql) in migrations {
+                if let Err(e) = sqlx::raw_sql(sql).execute(&pool).await {
+                    tracing::warn!(migration = name, error = %e, "Migration warning (may already exist)");
+                } else {
+                    tracing::info!(migration = name, "Migration applied");
+                }
             }
 
             CustodyDb::new(pool)
@@ -423,9 +432,15 @@ async fn main() -> anyhow::Result<()> {
                                 to = next_block,
                                 "New deposits detected"
                             );
+                            for d in &deposits {
+                                custody_common::prometheus_metrics::DEPOSITS_TOTAL
+                                    .with_label_values(&[d.chain.as_str(), "detected"]).inc();
+                            }
                         }
                         if next_block > from_block {
                             let _ = db_scan.set_scan_progress(Chain::Ethereum, next_block).await;
+                            custody_common::prometheus_metrics::CHAIN_BLOCK_HEIGHT
+                                .with_label_values(&["ethereum"]).set(next_block as f64);
                             from_block = next_block;
                         }
                     }
@@ -550,23 +565,31 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Confirmation tracker loop (every 12 seconds)
+    // Capture background config intervals for spawned tasks
+    let bg = &config.background;
+    let confirmation_interval = bg.confirmation_interval_secs;
+    let pipeline_interval = bg.pipeline_interval_secs;
+    let webhook_retry_interval = bg.webhook_retry_interval_secs;
+    let reconciliation_interval = bg.reconciliation_interval_secs;
+    let webhook_cleanup_days = bg.webhook_cleanup_days;
+
+    // Confirmation tracker loop
     {
         let tracker = confirmation_tracker.clone();
         tokio::spawn(async move {
             tracing::info!("Starting confirmation tracker loop");
-            if let Err(e) = tracker.run(Duration::from_secs(12)).await {
+            if let Err(e) = tracker.run(Duration::from_secs(confirmation_interval)).await {
                 tracing::error!(error = %e, "Confirmation tracker failed");
             }
         });
     }
 
-    // Withdrawal pipeline loop (every 5 seconds)
+    // Withdrawal pipeline loop
     {
         let pipeline = withdrawal_pipeline.clone();
         tokio::spawn(async move {
             tracing::info!("Starting withdrawal pipeline loop");
-            if let Err(e) = pipeline.run(Duration::from_secs(5)).await {
+            if let Err(e) = pipeline.run(Duration::from_secs(pipeline_interval)).await {
                 tracing::error!(error = %e, "Withdrawal pipeline failed");
             }
         });
@@ -581,7 +604,7 @@ async fn main() -> anyhow::Result<()> {
                 if let Err(e) = sender.retry_pending().await {
                     tracing::error!(error = %e, "Webhook retry failed");
                 }
-                tokio::time::sleep(Duration::from_secs(30)).await;
+                tokio::time::sleep(Duration::from_secs(webhook_retry_interval)).await;
             }
         });
     }
@@ -596,7 +619,7 @@ async fn main() -> anyhow::Result<()> {
                 service = service.with_eth_rpc(&rpc);
             }
             tracing::info!("Starting reconciliation service");
-            if let Err(e) = service.run(Duration::from_secs(600)).await {
+            if let Err(e) = service.run(Duration::from_secs(reconciliation_interval)).await {
                 tracing::error!(error = %e, "Reconciliation service failed");
             }
         });
@@ -614,6 +637,21 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!("Starting gas station service");
             if let Err(e) = service.run().await {
                 tracing::error!(error = %e, "Gas station service failed");
+            }
+        });
+    }
+
+    // Sweep scheduler loop (every 60 seconds)
+    {
+        let sweep_db = db.clone();
+        tokio::spawn(async move {
+            let scheduler = custody_wallet_manager::sweep_scheduler::SweepScheduler::new(
+                Default::default(),
+                sweep_db,
+            );
+            tracing::info!("Starting sweep scheduler");
+            if let Err(e) = scheduler.run().await {
+                tracing::error!(error = %e, "Sweep scheduler failed");
             }
         });
     }
@@ -679,7 +717,7 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!("Starting webhook cleanup loop");
             loop {
                 tokio::time::sleep(Duration::from_secs(3600)).await;
-                match cleanup_db.purge_old_deliveries(30).await {
+                match cleanup_db.purge_old_deliveries(webhook_cleanup_days).await {
                     Ok(count) if count > 0 => tracing::info!(purged = count, "Old webhooks purged"),
                     Ok(_) => {}
                     Err(e) => tracing::warn!(error = %e, "Webhook purge failed"),

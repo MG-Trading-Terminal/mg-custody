@@ -164,6 +164,8 @@ impl WithdrawalPipeline {
             if let Some(ref checker) = self.sanctions_checker {
                 let result = checker.check(&w.destination_address);
                 if result.is_sanctioned {
+                    custody_common::prometheus_metrics::COMPLIANCE_SCREENINGS
+                        .with_label_values(&["ofac", "blocked"]).inc();
                     tracing::error!(id = %w.id, addr = %w.destination_address, "SANCTIONED — blocked");
                     self.db.update_withdrawal_status(w.id, WithdrawalStatus::Failed).await?;
                     continue;
@@ -175,6 +177,8 @@ impl WithdrawalPipeline {
                 match screener.screen_address(&w.destination_address, w.chain).await {
                     Ok(result) => {
                         if result.should_block() {
+                            custody_common::prometheus_metrics::COMPLIANCE_SCREENINGS
+                                .with_label_values(&["chainalysis", "blocked"]).inc();
                             tracing::error!(
                                 id = %w.id, addr = %w.destination_address,
                                 risk = ?result.risk_level, categories = ?result.categories,
@@ -213,11 +217,15 @@ impl WithdrawalPipeline {
             if let Some(ref engine) = self.policy_engine {
                 match engine.evaluate(w.chain, &w.asset, w.amount, &DestinationType::Any, &Role::Editor).action {
                     PolicyAction::Deny { ref reason } => {
+                        custody_common::prometheus_metrics::POLICY_DECISIONS
+                            .with_label_values(&[w.chain.as_str(), "deny"]).inc();
                         tracing::warn!(id = %w.id, reason, "Policy denied");
                         self.db.update_withdrawal_status(w.id, WithdrawalStatus::Failed).await?;
                         continue;
                     }
                     PolicyAction::RequireApproval { quorum, .. } => {
+                        custody_common::prometheus_metrics::POLICY_DECISIONS
+                            .with_label_values(&[w.chain.as_str(), "require_approval"]).inc();
                         tracing::info!(id = %w.id, quorum, "Approval required");
                         self.db.update_withdrawal_status(w.id, WithdrawalStatus::PendingApproval).await?;
                         continue;
