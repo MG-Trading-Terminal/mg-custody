@@ -47,6 +47,22 @@ async fn main() -> anyhow::Result<()> {
         "Configuration loaded"
     );
 
+    // Validate configuration
+    match custody_common::config_validation::validate_config(&config) {
+        Ok(warnings) => {
+            for w in &warnings {
+                tracing::warn!("Config warning: {}", w);
+            }
+            if warnings.is_empty() {
+                tracing::info!("Configuration validated OK");
+            }
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "Configuration validation FAILED");
+            anyhow::bail!("Invalid configuration: {e}");
+        }
+    }
+
     // ─── Database ────────────────────────────────────────────────────
     let db_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| config.database.url.clone());
@@ -224,7 +240,17 @@ async fn main() -> anyhow::Result<()> {
         withdrawal_pipeline: withdrawal_pipeline.clone(),
     };
 
-    let app = custody_gateway::routes::router(app_state);
+    // Use middleware if HMAC secret is configured
+    let hmac_secret = std::env::var("CUSTODY_HMAC_SECRET")
+        .unwrap_or_else(|_| "".to_string());
+
+    let app = if hmac_secret.is_empty() {
+        tracing::warn!("No HMAC_SECRET — running WITHOUT auth middleware (dev mode)");
+        custody_gateway::routes::router(app_state)
+    } else {
+        tracing::info!("HMAC auth middleware ENABLED");
+        custody_gateway::routes::router_with_middleware(app_state, hmac_secret.as_bytes())
+    };
 
     // ─── Background Tasks ────────────────────────────────────────────
 
