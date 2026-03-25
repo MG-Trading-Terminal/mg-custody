@@ -2075,6 +2075,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "axum",
+ "bs58",
  "chrono",
  "custody-address-factory",
  "custody-broadcaster",
@@ -2106,6 +2107,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]

@@ -11,6 +11,10 @@ path = "src/main.rs"
 name = "custody-admin"
 path = "src/admin.rs"
 
+[[bin]]
+name = "custody-seed"
+path = "src/seed_cli.rs"
+
 [dependencies]
 custody-common = { path = "../common" }
 custody-db = { path = "../db" }
@@ -23,8 +27,14 @@ custody-broadcaster = { path = "../broadcaster" }
 custody-withdrawal-pipeline = { path = "../withdrawal-pipeline" }
 custody-wallet-manager = { path = "../wallet-manager" }
 custody-reconciliation = { path = "../reconciliation" }
+custody-mpc = { path = "../mpc" }
 tokio = { workspace = true }
 axum = { workspace = true }
+rand = { workspace = true }
+zeroize = { workspace = true }
+bs58 = { workspace = true }
+serde_json = { workspace = true }
+hex = { workspace = true }
 sqlx = { workspace = true }
 figment = { workspace = true }
 rust_decimal = { workspace = true }
