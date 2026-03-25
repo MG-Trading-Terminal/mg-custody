@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-25) — Level 7: Connectivity & Integrations
+- **Exchange connections** (`connectivity.rs`, `db/connections.rs`, `gateway/connectivity_routes.rs`)
+  - CRUD for exchange/OTC/custodian connections with heartbeat monitoring
+  - `GET/POST /v1/connections`, `GET/PUT/DELETE /v1/connections/{id}`, `POST /v1/connections/{id}/heartbeat`
+- **API key management** — create, list, revoke, delete with SHA-256 hashed storage
+  - Raw key returned only on creation, scoped permissions (10 types), IP whitelist, rate limit
+  - `GET/POST /v1/api-keys`, `GET /v1/api-keys/{id}`, `POST /v1/api-keys/{id}/revoke`
+- **Notification channels** — Telegram, Slack, Email, Webhook, PagerDuty
+  - Typed config per channel, min severity filter, enable/disable toggle, test delivery
+  - `GET/POST /v1/notifications/channels`, `DELETE/POST toggle`, `POST test`
+- **System configuration API** — runtime config via REST
+  - Withdrawal limits (single/hourly/daily), pause withdrawals/deposits, maintenance mode
+  - Confirmation overrides per chain
+  - `GET/PUT /v1/system/config`
+- **Network fees & status** — real-time fee cache per chain with block numbers
+  - `GET /v1/network/fees`, `GET /v1/network/status`
+- **DB migration 005_connectivity.sql**: 4 new tables (exchange_connections, api_keys, notification_channels, system_config)
+- **20+ new API endpoints**, 13 new tests (553 total)
+
 ### Added (2026-03-25) — Level 6: Operational API
 - **Webhook management API** (`common/webhook.rs`, `db/webhook_endpoints.rs`, `gateway/ops_routes.rs`)
   - Register endpoints with URL, event filters, chain filters

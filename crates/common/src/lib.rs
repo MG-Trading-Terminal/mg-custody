@@ -2,6 +2,7 @@ pub mod alerts;
 pub mod chain_adapter;
 pub mod config;
 pub mod config_validation;
+pub mod connectivity;
 pub mod cosmos;
 pub mod defi;
 pub mod error;

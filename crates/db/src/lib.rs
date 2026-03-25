@@ -5,11 +5,14 @@
 
 pub mod address_book;
 pub mod addresses;
+pub mod api_keys;
 pub mod assets;
 pub mod audit;
+pub mod connections;
 pub mod custody_ledger;
 pub mod deposits;
 pub mod nonces;
+pub mod notification_channels;
 pub mod policy;
 pub mod scan_progress;
 pub mod transactions;

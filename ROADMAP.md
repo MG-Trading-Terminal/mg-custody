@@ -345,4 +345,9 @@
 | Audit log API | Level 6 | ✅ Done |
 | Address book | Level 6 | ✅ Done |
 | Gas station status | Level 6 | ✅ Done |
+| Exchange connections | Level 7 | ✅ Done |
+| API key management | Level 7 | ✅ Done |
+| Notification channels | Level 7 | ✅ Done |
+| System config API | Level 7 | ✅ Done |
+| Network fees/status | Level 7 | ✅ Done |
 | SOC 2 / CCSS | Phase 16 | Planned |
