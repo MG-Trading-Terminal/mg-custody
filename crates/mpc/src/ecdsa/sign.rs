@@ -1,76 +1,84 @@
 //! CGGMP21 threshold ECDSA signing.
 //!
-//! Given 2 (or more) key shares from DKG, produces a standard ECDSA signature
-//! that is indistinguishable from a single-party signature on-chain.
-//!
-//! The signing protocol has two phases:
-//! 1. Presigning (offline, can be done ahead of time)
-//! 2. Signing (online, uses presignature + message)
+//! REAL implementation using round_based::sim::async_env for local MPC simulation.
 
 use anyhow::Result;
-
 use crate::ThresholdSignature;
+use super::keygen::FullKeyShare;
 
-/// Sign a message hash using threshold ECDSA with the given key shares.
-///
-/// `shares` must contain at least `threshold` serialized key shares.
-/// `message` is the 32-byte hash to sign (Keccak-256 for ETH, SHA256d for BTC).
-///
-/// Returns a standard ECDSA signature (r, s) as 64 bytes + recovery id.
-pub fn threshold_sign(
-    shares: &[Vec<u8>],
+/// Message type for the CGGMP21 signing protocol.
+type SignMsg = cggmp21::signing::msg::Msg<cggmp21::supported_curves::Secp256k1, sha2::Sha256>;
+
+/// Sign a message using CGGMP21 threshold ECDSA (async).
+pub async fn threshold_sign_async(
+    share_jsons: &[Vec<u8>],
     message: &[u8; 32],
     threshold: u16,
 ) -> Result<ThresholdSignature> {
-    anyhow::ensure!(
-        shares.len() >= threshold as usize,
-        "Need at least {} shares, got {}",
-        threshold,
-        shares.len()
-    );
+    anyhow::ensure!(share_jsons.len() >= threshold as usize, "Need {} shares", threshold);
 
-    // TODO: Implement using cggmp21::signing()
-    // 1. Deserialize key shares
-    // 2. Generate presignature (or use cached one)
-    // 3. Run signing protocol with the message
-    // 4. Aggregate partial signatures into final ECDSA signature
-    //
-    // For local signing (both shares on same machine):
-    //   Run the protocol rounds in-memory.
-    // For distributed signing (app + HSM):
-    //   Exchange protocol messages via coordinator.
+    let shares: Vec<FullKeyShare> = share_jsons.iter()
+        .map(|s| serde_json::from_slice(s).map_err(|e| anyhow::anyhow!("Deserialize: {e}")))
+        .collect::<Result<_>>()?;
 
-    let signers: Vec<u16> = (1..=shares.len() as u16).collect();
+    let n = shares.len() as u16;
+    let party_indices: Vec<u16> = (0..n).collect();
+    let data = cggmp21::signing::DataToSign::<cggmp21::supported_curves::Secp256k1>::digest::<sha2::Sha256>(message);
 
-    tracing::info!(
-        signers = ?signers,
-        msg_prefix = hex::encode(&message[..4]),
-        "Threshold ECDSA sign (stub)"
-    );
+    // Clone data for each party (needed because closures move)
+    let shares_ref: Vec<_> = shares.iter().collect();
 
-    // Stub: return a placeholder signature
-    // Real implementation will produce a valid ECDSA(r, s, v) signature
+    // Run MPC protocol
+    let results = round_based::sim::async_env::run::<SignMsg, _>(n, |i, party| {
+        let share = shares_ref[i as usize];
+        let pi = party_indices.clone();
+        async move {
+            let eid = cggmp21::ExecutionId::new(b"mg-custody-sign");
+            let mut rng = rand::thread_rng();
+            cggmp21::signing(eid, i, &pi, share)
+                .set_digest::<sha2::Sha256>()
+                .sign(&mut rng, party, data)
+                .await
+        }
+    }).await;
+
+    // Get first successful signature
+    let sig = results.into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("No results"))?
+        .map_err(|e| anyhow::anyhow!("Signing failed: {e}"))?;
+
+    // Extract r and s as 32-byte arrays
+    // sig.r is NonZero<Scalar> (the x-coordinate), sig.s is NonZero<Scalar>
+    let r_bytes = sig.r.to_be_bytes();
+    let s_bytes = sig.s.to_be_bytes();
+
+    let mut sig_bytes = Vec::with_capacity(64);
+    sig_bytes.extend_from_slice(r_bytes.as_ref());
+    sig_bytes.extend_from_slice(s_bytes.as_ref());
+
     Ok(ThresholdSignature {
-        signature: vec![0u8; 65], // 32 (r) + 32 (s) + 1 (v)
-        signers,
+        signature: sig_bytes,
+        signers: (0..n).collect(),
     })
 }
 
-/// Verify that an ECDSA signature was produced by the given group public key.
-pub fn verify_ecdsa_signature(
-    public_key: &[u8],
-    message: &[u8; 32],
-    signature: &[u8],
-) -> Result<bool> {
-    anyhow::ensure!(signature.len() >= 64, "Signature must be at least 64 bytes");
+/// Sync wrapper.
+pub fn threshold_sign(shares: &[Vec<u8>], message: &[u8; 32], threshold: u16) -> Result<ThresholdSignature> {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(threshold_sign_async(shares, message, threshold))
+}
 
-    // TODO: Use k256::ecdsa::VerifyingKey to verify
-    // 1. Parse compressed public key
-    // 2. Parse r, s from signature bytes
-    // 3. Verify signature against message
-
-    let _ = (public_key, message, signature);
-    Ok(true) // Stub
+/// Verify ECDSA signature against compressed secp256k1 pubkey.
+pub fn verify_ecdsa_signature(pubkey: &[u8], message: &[u8; 32], sig: &[u8]) -> Result<bool> {
+    use k256::ecdsa::{signature::hazmat::PrehashVerifier, Signature, VerifyingKey};
+    anyhow::ensure!(pubkey.len() == 33 && sig.len() >= 64);
+    let vk = VerifyingKey::from_sec1_bytes(pubkey).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let s = Signature::from_scalars(
+        <[u8;32]>::try_from(&sig[..32]).unwrap(),
+        <[u8;32]>::try_from(&sig[32..64]).unwrap(),
+    ).map_err(|e| anyhow::anyhow!("{e}"))?;
+    Ok(vk.verify_prehash(message, &s).is_ok())
 }
 
 #[cfg(test)]
@@ -78,26 +86,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn threshold_sign_with_enough_shares() {
-        let shares = vec![vec![1], vec![2]]; // 2 stub shares
-        let message = [0xABu8; 32];
-        let sig = threshold_sign(&shares, &message, 2).unwrap();
-        assert_eq!(sig.signers.len(), 2);
-        assert_eq!(sig.signature.len(), 65); // r + s + v
+    fn rejects_insufficient_shares() {
+        assert!(threshold_sign(&[vec![1]], &[0u8; 32], 2).is_err());
     }
 
-    #[test]
-    fn threshold_sign_rejects_insufficient_shares() {
-        let shares = vec![vec![1]]; // only 1 share
-        let message = [0xABu8; 32];
-        assert!(threshold_sign(&shares, &message, 2).is_err());
-    }
+    // Full test: keygen + sign + verify. ~3 minutes due to Paillier keygen.
+    // Run: cargo test -p custody-mpc -- --ignored real_threshold
+    #[tokio::test]
+    #[ignore]
+    async fn real_threshold_sign_and_verify() {
+        use sha2::Digest;
+        let (gk, shares) = crate::ecdsa::trusted_dealer_keygen(2, 3).unwrap();
+        let msg = sha2::Sha256::digest(b"REAL CGGMP21 MPC!");
+        let mut message = [0u8; 32];
+        message.copy_from_slice(&msg);
 
-    #[test]
-    fn threshold_sign_accepts_extra_shares() {
-        let shares = vec![vec![1], vec![2], vec![3]]; // 3 shares for 2-of-3
-        let message = [0xABu8; 32];
-        let sig = threshold_sign(&shares, &message, 2).unwrap();
-        assert_eq!(sig.signers.len(), 3);
+        let sig = threshold_sign_async(&shares[..2], &message, 2).await.unwrap();
+        assert_eq!(sig.signature.len(), 64);
+
+        let valid = verify_ecdsa_signature(&gk.public_key, &message, &sig.signature).unwrap();
+        assert!(valid, "CGGMP21 threshold signature MUST verify!");
     }
 }
