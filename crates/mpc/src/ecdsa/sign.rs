@@ -23,7 +23,9 @@ pub async fn threshold_sign_async(
 
     let n = shares.len() as u16;
     let party_indices: Vec<u16> = (0..n).collect();
-    let data = cggmp21::signing::DataToSign::<cggmp21::supported_curves::Secp256k1>::digest::<sha2::Sha256>(message);
+    // message is already a 32-byte hash. Use from_scalar to avoid double-hashing.
+    let scalar = generic_ec::Scalar::<cggmp21::supported_curves::Secp256k1>::from_be_bytes_mod_order(message);
+    let data = cggmp21::signing::DataToSign::from_scalar(scalar);
 
     // Clone data for each party (needed because closures move)
     let shares_ref: Vec<_> = shares.iter().collect();
@@ -102,7 +104,11 @@ mod tests {
         message.copy_from_slice(&msg);
 
         let sig = threshold_sign_async(&shares[..2], &message, 2).await.unwrap();
-        assert_eq!(sig.signature.len(), 64);
+        assert_eq!(sig.signature.len(), 64, "sig len = {}", sig.signature.len());
+
+        println!("Group pubkey: {}", hex::encode(&gk.public_key));
+        println!("Signature r: {}", hex::encode(&sig.signature[..32]));
+        println!("Signature s: {}", hex::encode(&sig.signature[32..64]));
 
         let valid = verify_ecdsa_signature(&gk.public_key, &message, &sig.signature).unwrap();
         assert!(valid, "CGGMP21 threshold signature MUST verify!");
