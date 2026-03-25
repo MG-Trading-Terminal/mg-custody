@@ -197,8 +197,15 @@ impl WithdrawalPipeline {
             None => 0,
         };
 
-        let to: alloy::primitives::Address = w.destination_address.parse()
-            .map_err(|_| anyhow::anyhow!("Bad ETH address"))?;
+        let to: alloy::primitives::Address = match w.destination_address.parse() {
+            Ok(addr) => addr,
+            Err(_) => {
+                // Mark as failed — invalid address should have been caught in validation
+                self.db.update_withdrawal_status(w.id, WithdrawalStatus::Failed).await?;
+                tracing::error!(id = %w.id, addr = %w.destination_address, "Invalid ETH address — marking failed");
+                return Ok(());
+            }
+        };
 
         let signed_tx = if w.asset.as_str() == "ETH" {
             sign_eth_transfer(seed, 0, &EthTransferParams {

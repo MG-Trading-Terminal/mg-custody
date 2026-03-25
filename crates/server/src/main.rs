@@ -95,9 +95,30 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // ─── Seed (dev mode) ─────────────────────────────────────────────
-    let seed_arr = [0u8; 64]; // TODO: Load real seed from encrypted storage
+    // Load seed from encrypted file or use test seed
+    let seed_arr = if let Ok(seed_file) = std::env::var("CUSTODY_SEED_FILE") {
+        if let Ok(encrypted) = std::fs::read(&seed_file) {
+            let password = std::env::var("CUSTODY_SEED_PASSWORD")
+                .expect("CUSTODY_SEED_PASSWORD required when CUSTODY_SEED_FILE is set");
+            let pw = custody_signing::Password::from_str(&password);
+            match custody_signing::decrypt_seed(&encrypted, &pw) {
+                Ok(seed) => {
+                    tracing::info!("Seed loaded from encrypted file");
+                    seed
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "Failed to decrypt seed file");
+                    anyhow::bail!("Seed decryption failed: {e}");
+                }
+            }
+        } else {
+            anyhow::bail!("Cannot read seed file: {seed_file}");
+        }
+    } else {
+        tracing::warn!("No CUSTODY_SEED_FILE — using zeroed test seed (NOT FOR PRODUCTION)");
+        [0u8; 64]
+    };
     let seed = Arc::new(SeedBytes(seed_arr));
-    tracing::warn!("Using zeroed test seed — NOT FOR PRODUCTION");
 
     // ─── Services ────────────────────────────────────────────────────
     let address_factory_config = AddressFactoryConfig::default();
@@ -283,7 +304,10 @@ async fn main() -> anyhow::Result<()> {
                         }
                     }
                     Err(e) => {
-                        tracing::error!(error = %e, "Ethereum scan failed");
+                        tracing::warn!(error = %e, "Ethereum scan failed (will retry)");
+                        // Back off on RPC failure to avoid log spam
+                        tokio::time::sleep(Duration::from_secs(60)).await;
+                        continue;
                     }
                 }
                 tokio::time::sleep(Duration::from_secs(12)).await;

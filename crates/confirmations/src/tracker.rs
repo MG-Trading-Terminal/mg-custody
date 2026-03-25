@@ -65,7 +65,13 @@ impl ConfirmationTracker {
                 continue;
             };
 
-            let current_height = height_fn().await?;
+            let current_height = match height_fn().await {
+                Ok(h) => h,
+                Err(e) => {
+                    tracing::debug!(chain = ?deposit.chain, error = %e, "Block height unavailable, skipping");
+                    continue;
+                }
+            };
             let confirmations = current_height.saturating_sub(deposit.block_height);
 
             if confirmations >= deposit.required_confirmations {
@@ -122,7 +128,10 @@ impl ConfirmationTracker {
                 continue;
             };
 
-            let current_height = height_fn().await?;
+            let current_height = match height_fn().await {
+                Ok(h) => h,
+                Err(_) => continue, // RPC down, skip this chain
+            };
             let block_height = withdrawal.block_height.unwrap_or(0);
             let confirmations = current_height.saturating_sub(block_height);
             let required = withdrawal.chain.required_confirmations();
