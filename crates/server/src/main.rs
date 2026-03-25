@@ -251,15 +251,40 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // ─── HTTP Server ─────────────────────────────────────────────────
+    // ─── HTTP Server with graceful shutdown ─────────────────────────
     let bind_addr = &config.api.bind;
     tracing::info!(
         addr = %bind_addr,
         background_tasks = 4,
         "Custody service ready — listening"
     );
-    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
-    axum::serve(listener, app).await?;
 
+    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
+
+    // Graceful shutdown: wait for SIGTERM/SIGINT
+    let shutdown_signal = async {
+        let ctrl_c = tokio::signal::ctrl_c();
+        #[cfg(unix)]
+        let terminate = async {
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("SIGTERM handler")
+                .recv()
+                .await;
+        };
+        #[cfg(not(unix))]
+        let terminate = std::future::pending::<()>();
+
+        tokio::select! {
+            _ = ctrl_c => tracing::info!("Received SIGINT"),
+            _ = terminate => tracing::info!("Received SIGTERM"),
+        }
+        tracing::info!("Shutting down gracefully...");
+    };
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal)
+        .await?;
+
+    tracing::info!("Custody service stopped");
     Ok(())
 }

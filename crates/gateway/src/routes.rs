@@ -20,6 +20,9 @@ use uuid::Uuid;
 use crate::state::AppState;
 
 /// Build the API router with shared state.
+///
+/// Includes HMAC auth + rate limiting middleware on /v1/* routes.
+/// Health and metrics endpoints are public (no auth).
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
@@ -30,6 +33,27 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/withdrawals/{id}/approve", post(approve_withdrawal))
         .route("/v1/wallets/{asset}", get(get_wallet_balance))
         .route("/metrics", get(prometheus_metrics))
+        .with_state(state)
+}
+
+/// Build the API router WITH middleware (for production use).
+pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
+    use axum::middleware as axum_mw;
+    use crate::middleware::{self, MiddlewareState};
+
+    let mw_state = MiddlewareState::new(hmac_secret);
+
+    Router::new()
+        .route("/health", get(health))
+        .route("/health/chains", get(health_chains))
+        .route("/metrics", get(prometheus_metrics))
+        .route("/v1/addresses", post(create_address))
+        .route("/v1/withdrawals", post(submit_withdrawal))
+        .route("/v1/withdrawals/{id}", get(get_withdrawal_status))
+        .route("/v1/withdrawals/{id}/approve", post(approve_withdrawal))
+        .route("/v1/wallets/{asset}", get(get_wallet_balance))
+        .layer(axum_mw::from_fn_with_state(mw_state.clone(), middleware::rate_limit))
+        .layer(axum_mw::from_fn_with_state(mw_state, middleware::hmac_auth))
         .with_state(state)
 }
 

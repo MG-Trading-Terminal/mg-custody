@@ -105,6 +105,8 @@ impl WithdrawalPipeline {
                     ) {
                         Ok(()) => {
                             self.db.update_withdrawal_status(w.id, WithdrawalStatus::Validated).await?;
+                            custody_common::prometheus_metrics::WITHDRAWALS_TOTAL
+                                .with_label_values(&[w.chain.as_str(), "validated"]).inc();
                             tracing::info!(id = %w.id, "Validated");
                         }
                         Err(e) => tracing::warn!(id = %w.id, error = %e, "Circuit breaker"),
@@ -218,6 +220,10 @@ impl WithdrawalPipeline {
         let gas_gwei = custody_fee_estimator::ethereum::wei_to_gwei(max_fee);
         self.db.set_signed_tx(w.id, &signed_tx, nonce, gas_gwei).await?;
         self.db.update_withdrawal_status(w.id, WithdrawalStatus::Signed).await?;
+        custody_common::prometheus_metrics::WITHDRAWALS_TOTAL
+            .with_label_values(&[w.chain.as_str(), "signed"]).inc();
+        custody_common::prometheus_metrics::SIGNING_TOTAL
+            .with_label_values(&[w.chain.as_str(), "success"]).inc();
         tracing::info!(id = %w.id, nonce, "Signed");
         Ok(())
     }
