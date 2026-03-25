@@ -1852,6 +1852,7 @@ dependencies = [
  "anyhow",
  "bitcoin",
  "bitcoincore-rpc",
+ "bs58",
  "chrono",
  "custody-common",
  "custody-db",
