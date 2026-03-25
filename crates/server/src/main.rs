@@ -79,7 +79,8 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // ─── Seed (dev mode) ─────────────────────────────────────────────
-    let seed = Arc::new(SeedBytes([0u8; 64]));
+    let seed_arr = [0u8; 64]; // TODO: Load real seed from encrypted storage
+    let seed = Arc::new(SeedBytes(seed_arr));
     tracing::warn!("Using zeroed test seed — NOT FOR PRODUCTION");
 
     // ─── Services ────────────────────────────────────────────────────
@@ -89,13 +90,62 @@ async fn main() -> anyhow::Result<()> {
         address_factory_config,
     ));
 
+    // ─── Token Registry from config ────────────────────────────────
+    let mut token_registry = custody_common::token_registry::TokenRegistry::with_defaults();
+    // Add tokens from Ethereum config
+    if let Some(ref eth) = config.chains.ethereum {
+        for (addr, token) in &eth.tokens {
+            token_registry.register(custody_common::token_registry::TokenInfo {
+                symbol: token.symbol.clone(),
+                chain: Chain::Ethereum,
+                contract_address: Some(addr.clone()),
+                decimals: token.decimals,
+                is_native: false,
+            });
+        }
+    }
+    let token_registry = Arc::new(token_registry);
+    tracing::info!(tokens = token_registry.len(), "Token registry loaded");
+
+    // ─── Nonce Manager ───────────────────────────────────────────────
+    let nonce_manager = if let Some(ref eth) = config.chains.ethereum {
+        let rpc_url = std::env::var("CUSTODY_CHAINS__ETHEREUM__RPC_URL")
+            .unwrap_or_else(|_| eth.rpc_url.clone());
+        match custody_withdrawal_pipeline::NonceManager::new(db.clone(), &rpc_url) {
+            Ok(nm) => {
+                tracing::info!("Nonce manager initialized");
+                Some(Arc::new(nm))
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Nonce manager init failed");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // ─── Withdrawal Pipeline with all deps ───────────────────────────
     let limits = &config.limits;
-    let withdrawal_pipeline = Arc::new(WithdrawalPipeline::new(
+    let mut pipeline_builder = WithdrawalPipeline::new(
         db.clone(),
         limits.max_single_withdrawal_usd,
         limits.max_hourly_outflow_usd,
         limits.max_daily_outflow_usd,
-    ));
+    )
+    .with_seed(Arc::new(seed_arr))
+    .with_eth_chain_id(
+        config.chains.ethereum.as_ref().map(|_| {
+            // Use Sepolia for testnet, mainnet otherwise
+            if std::env::var("CUSTODY_TESTNET").is_ok() { 11155111u64 } else { 1u64 }
+        }).unwrap_or(1)
+    );
+
+    if let Some(ref nm) = nonce_manager {
+        pipeline_builder = pipeline_builder.with_nonce_manager(nm.clone());
+    }
+
+    let withdrawal_pipeline = Arc::new(pipeline_builder);
 
     // ─── Ethereum Scanner ────────────────────────────────────────────
     let eth_config = config.chains.ethereum.as_ref();
