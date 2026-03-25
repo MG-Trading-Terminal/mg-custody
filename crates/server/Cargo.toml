@@ -7,6 +7,10 @@ edition.workspace = true
 name = "custody"
 path = "src/main.rs"
 
+[[bin]]
+name = "custody-admin"
+path = "src/admin.rs"
+
 [dependencies]
 custody-common = { path = "../common" }
 custody-db = { path = "../db" }
