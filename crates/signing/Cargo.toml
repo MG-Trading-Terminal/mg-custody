@@ -6,8 +6,10 @@ edition.workspace = true
 [dependencies]
 custody-common = { path = "../common" }
 alloy = { workspace = true }
+bitcoin = { workspace = true }
 bip32 = { workspace = true }
 k256 = { workspace = true }
+ripemd = { workspace = true }
 ed25519-dalek = { workspace = true }
 sha2 = { workspace = true }
 hmac = { workspace = true }

@@ -82,12 +82,16 @@ impl WithdrawalPipeline {
     // ── Received → Validated ─────────────────────────────────────────
 
     async fn process_received(&self) -> Result<()> {
+        // Query real outflow from DB for circuit breaker
+        let hourly_used = self.db.hourly_outflow().await.unwrap_or(Decimal::ZERO);
+        let daily_used = self.db.daily_outflow().await.unwrap_or(Decimal::ZERO);
+
         for w in self.db.withdrawals_by_status(WithdrawalStatus::Received).await? {
             match validation::validate_withdrawal(&w) {
                 Ok(()) => {
                     match validation::check_circuit_breaker(
-                        w.amount, self.max_single_usd, Decimal::ZERO,
-                        self.max_hourly_usd, Decimal::ZERO, self.max_daily_usd,
+                        w.amount, self.max_single_usd, hourly_used,
+                        self.max_hourly_usd, daily_used, self.max_daily_usd,
                     ) {
                         Ok(()) => {
                             self.db.update_withdrawal_status(w.id, WithdrawalStatus::Validated).await?;

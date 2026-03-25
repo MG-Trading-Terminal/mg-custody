@@ -150,6 +150,35 @@ impl CustodyDb {
 
         Ok(row.and_then(|(bytes,)| bytes))
     }
+
+    /// Get total outflow in the last N hours (for circuit breaker).
+    ///
+    /// Sums amounts of all non-failed, non-cancelled withdrawals created in the window.
+    pub async fn outflow_since(
+        &self,
+        hours: i64,
+    ) -> anyhow::Result<Decimal> {
+        let row: Option<(Option<Decimal>,)> = sqlx::query_as(
+            "SELECT SUM(amount) FROM withdrawals
+             WHERE created_at >= NOW() - INTERVAL '1 hour' * $1
+             AND status NOT IN ('failed', 'cancelled')",
+        )
+        .bind(hours)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.and_then(|(s,)| s).unwrap_or(Decimal::ZERO))
+    }
+
+    /// Get hourly outflow (last 1 hour).
+    pub async fn hourly_outflow(&self) -> anyhow::Result<Decimal> {
+        self.outflow_since(1).await
+    }
+
+    /// Get daily outflow (last 24 hours).
+    pub async fn daily_outflow(&self) -> anyhow::Result<Decimal> {
+        self.outflow_since(24).await
+    }
 }
 
 #[derive(sqlx::FromRow)]
