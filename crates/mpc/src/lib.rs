@@ -16,6 +16,7 @@
 //! - `cggmp21` v0.6 (audited by Kudelski Security) for ECDSA
 //! - `frost-ed25519` v2.2 (audited by NCC Group, IETF RFC 9591) for EdDSA
 
+pub mod ceremony;
 pub mod ecdsa;
 pub mod frost;
 pub mod hsm;

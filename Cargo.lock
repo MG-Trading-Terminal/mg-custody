@@ -1985,6 +1985,7 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "cggmp21",
+ "chrono",
  "custody-common",
  "ed25519-dalek",
  "frost-core",

@@ -8,6 +8,7 @@
 //! - Role-based access control (Owner/Admin/Signer/Editor/Viewer)
 
 pub mod approval;
+pub mod composite;
 pub mod engine;
 pub mod rbac;
 pub mod rule;
