@@ -115,7 +115,7 @@
 - [x] Whitelist expiry (datetime-based)
 - [x] Add/remove operations
 - [ ] Multi-admin approval to add addresses
-- [ ] Internal vs external address categorization
+- [x] Internal vs external address categorization
 
 ### 5D — Admin Governance
 - [x] Role-based access: Owner / Admin / Signer / Editor / Viewer
@@ -129,7 +129,7 @@
 - [x] DB persistence stubs (rules, whitelists, approvals)
 - [x] CRUD API for rules, whitelists, approval workflows
 - [x] Policy export/import (JSON/TOML)
-- [ ] Webhook on policy changes
+- [x] Webhook on policy changes (event broadcaster)
 
 ## Phase 6 — Compliance & AML (4-6 weeks) ✅ DONE
 > New crate: `custody-compliance` (17th workspace crate)
@@ -172,7 +172,7 @@
 - [x] USDT decimal validation per chain (BSC=18, others=6)
 - [x] Custom chain registration API
 - [x] Unique chain_id enforcement
-- [ ] Linea, Scroll, Mantle configs
+- [x] Linea, Scroll, Mantle configs
 
 ### 8B — Non-EVM L1 Chains
 - [ ] Cosmos SDK chains (ATOM, OSMO) — Tendermint signing

@@ -11,6 +11,22 @@ use custody_common::Chain;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Address category.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AddressCategory {
+    /// Our own wallets (hot, warm, cold, fee).
+    Internal,
+    /// Third-party addresses (exchange counterparties, users).
+    External,
+    /// Smart contract addresses (DeFi protocols).
+    Contract,
+}
+
+impl Default for AddressCategory {
+    fn default() -> Self { Self::External }
+}
+
 /// A whitelisted address entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WhitelistEntry {
@@ -20,6 +36,8 @@ pub struct WhitelistEntry {
     pub label: String,
     pub added_by: String,
     pub approved_by: Vec<String>,
+    /// Address category: Internal (our wallets) or External (third-party).
+    pub category: AddressCategory,
     /// Optional expiry. None = permanent.
     pub expires_at: Option<DateTime<Utc>>,
     /// One-time use: auto-removed after first withdrawal.
@@ -120,6 +138,7 @@ mod tests {
             label: "test".to_string(),
             added_by: "admin@test.com".to_string(),
             approved_by: vec!["admin1@test.com".to_string()],
+            category: AddressCategory::External,
             expires_at: None,
             one_time,
             used: false,
