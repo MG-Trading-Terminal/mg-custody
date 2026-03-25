@@ -6,6 +6,8 @@ pub mod defi;
 pub mod error;
 pub mod events;
 pub mod evm_chains;
+pub mod incident;
+pub mod load_test;
 pub mod metrics;
 pub mod price_feeds;
 pub mod price_oracle;

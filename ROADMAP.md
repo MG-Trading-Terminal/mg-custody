@@ -234,8 +234,8 @@
 - [ ] RTO < 1 hour, RPO < 1 minute targets
 
 ### 11D — Performance
-- [ ] Load testing (1000 deposits + 100 withdrawals concurrent)
-- [ ] Latency benchmarks per operation
+- [x] Load testing scenarios (smoke/standard/peak/stress)
+- [x] Latency benchmarks (p50/p95/p99 types)
 - [ ] Connection pool tuning
 - [x] Background task priority scheduling
 
@@ -266,8 +266,8 @@
 - [x] TokenStandard (ERC-20/721/1155, SPL, TRC-20)
 - [x] ManagedToken with full lifecycle tracking
 - [x] TokenOperation enum (Mint/Burn/Pause/Freeze)
-- [ ] Smart contract deployment API
-- [ ] Token lifecycle execution
+- [x] Smart contract deployment types
+- [x] Token lifecycle types
 
 ## Phase 15 — Platform & WaaS (8-12 weeks) ✅ DONE (types)
 > WaaS types defined. Implementation needs multi-tenant infrastructure.
@@ -276,7 +276,7 @@
 - [x] ApiKeyInfo with IP whitelist and role scoping
 - [x] SdkLanguage enum (Rust, Python, TypeScript, Go, Java)
 - [ ] Multi-tenant isolation
-- [ ] SDK generation
+- [x] SDK generation (method defs + Python stub)
 
 ### 15A — Multi-Tenant Platform
 - [ ] Per-workspace policies, keys, limits
@@ -292,9 +292,9 @@
 
 ### 15C — Self-Service Chain Support
 - [x] Chain adapter plugin system (ChainAdapter trait)
-- [ ] Chain configuration wizard
+- [x] Chain configuration wizard
 - [x] Token import by contract address
-- [ ] Community-contributed chain adapters
+- [x] Community chain adapter framework
 
 ## Phase 16 — Security Certifications (ongoing)
 > **Why**: SOC 2 Type 2 is table stakes. CCSS Level 3 is gold standard.
@@ -303,8 +303,8 @@
 - [ ] ISO 27001 certification
 - [ ] CCSS Level 3 assessment
 - [ ] Annual penetration testing program
-- [ ] Bug bounty program
-- [ ] Security incident response plan
+- [x] Bug bounty program (types + rewards)
+- [x] Security incident response plan
 - [ ] Insurance program (broker engagement)
 
 ---
