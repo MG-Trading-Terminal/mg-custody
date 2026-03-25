@@ -602,11 +602,97 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Gas station loop (every 2 minutes)
+    {
+        let gas_db = db.clone();
+        let eth_rpc = config.chains.ethereum.as_ref().map(|e| e.rpc_url.clone());
+        tokio::spawn(async move {
+            let mut service = custody_wallet_manager::gas_station_loop::GasStationService::new(gas_db);
+            if let Some(rpc) = eth_rpc {
+                service = service.with_eth_rpc(&rpc);
+            }
+            tracing::info!("Starting gas station service");
+            if let Err(e) = service.run().await {
+                tracing::error!(error = %e, "Gas station service failed");
+            }
+        });
+    }
+
+    // EVM L2 scanner loops (Arbitrum, Optimism, Base, Polygon)
+    {
+        let evm_registry = custody_common::EvmChainRegistry::with_defaults();
+        let l2_chains = ["arbitrum", "optimism", "base", "polygon"];
+        for chain_id in &l2_chains {
+            if let Some(chain_def) = evm_registry.get(chain_id) {
+                if chain_def.enabled && !chain_def.testnet {
+                    let db_l2 = db.clone();
+                    let name = chain_def.id.clone();
+                    let cid = chain_def.chain_id;
+                    let rpc = chain_def.rpc_url.clone();
+                    let confs = chain_def.required_confirmations;
+                    let block_time = chain_def.block_time_secs;
+
+                    tokio::spawn(async move {
+                        let address_cache = custody_scanner::address_cache::AddressCache::new(
+                            db_l2.clone(), Chain::Ethereum, 10,
+                        );
+                        let scanner = match custody_scanner::evm::EvmScanner::new(
+                            &name, cid, &rpc, db_l2.clone(), address_cache, vec![], confs,
+                        ) {
+                            Ok(s) => s,
+                            Err(e) => {
+                                tracing::error!(chain = %name, error = %e, "Failed to create EVM L2 scanner");
+                                return;
+                            }
+                        };
+
+                        let mut from_block = db_l2.get_scan_progress(Chain::Ethereum).await
+                            .unwrap_or(None).unwrap_or(0);
+                        tracing::info!(chain = %name, chain_id = cid, from_block, "Starting EVM L2 scanner");
+
+                        loop {
+                            match scanner.scan(from_block).await {
+                                Ok((deposits, next)) => {
+                                    if !deposits.is_empty() {
+                                        tracing::info!(chain = %name, count = deposits.len(), "L2 deposits");
+                                    }
+                                    if next > from_block { from_block = next; }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(chain = %name, error = %e, "L2 scan failed");
+                                    tokio::time::sleep(Duration::from_secs(60)).await;
+                                    continue;
+                                }
+                            }
+                            tokio::time::sleep(Duration::from_secs(block_time.max(1))).await;
+                        }
+                    });
+                }
+            }
+        }
+    }
+
+    // Webhook cleanup loop (every hour — purge delivered webhooks older than 30 days)
+    {
+        let cleanup_db = db.clone();
+        tokio::spawn(async move {
+            tracing::info!("Starting webhook cleanup loop");
+            loop {
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+                match cleanup_db.purge_old_deliveries(30).await {
+                    Ok(count) if count > 0 => tracing::info!(purged = count, "Old webhooks purged"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(error = %e, "Webhook purge failed"),
+                }
+            }
+        });
+    }
+
     // ─── HTTP Server with graceful shutdown ─────────────────────────
     let bind_addr = &config.api.bind;
     tracing::info!(
         addr = %bind_addr,
-        background_tasks = 8,
+        background_tasks = 12,
         "Custody service ready — listening"
     );
 

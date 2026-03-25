@@ -17,6 +17,7 @@ pub fn admin_router(state: AppState) -> Router {
         .route("/admin/withdrawals", get(list_withdrawals))
         .route("/admin/pending-approvals", get(pending_approvals))
         .route("/admin/ledger", get(ledger_entries))
+        .route("/admin/webhooks/failed", get(failed_webhooks))
         .route("/admin/ws-clients", get(ws_client_count))
         .with_state(state)
 }
@@ -149,6 +150,27 @@ async fn ledger_entries(
         "account": query.account,
         "count": items.len(),
         "entries": items,
+    })))
+}
+
+async fn failed_webhooks(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let failed = state.db.failed_webhook_deliveries(50).await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+
+    let items: Vec<_> = failed.iter().map(|w| serde_json::json!({
+        "id": w.id,
+        "event_type": w.event_type,
+        "attempts": w.attempts,
+        "max_attempts": w.max_attempts,
+        "last_error": w.last_error,
+        "created_at": w.created_at.to_rfc3339(),
+    })).collect();
+
+    Ok(Json(serde_json::json!({
+        "count": items.len(),
+        "failed_deliveries": items,
     })))
 }
 

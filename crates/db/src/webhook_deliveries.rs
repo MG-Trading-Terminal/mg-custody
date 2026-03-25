@@ -84,6 +84,45 @@ impl CustodyDb {
         .await?;
         Ok(())
     }
+
+    /// Get failed webhook deliveries (dead letter queue).
+    pub async fn failed_webhook_deliveries(&self, limit: i64) -> anyhow::Result<Vec<WebhookDelivery>> {
+        let rows: Vec<WebhookDeliveryRow> = sqlx::query_as(
+            "SELECT id, event_type, payload::text, attempts, max_attempts, status,
+                    next_retry_at, last_error, created_at, delivered_at
+             FROM webhook_deliveries
+             WHERE status = 'failed'
+             ORDER BY created_at DESC
+             LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| r.into_delivery()).collect())
+    }
+
+    /// Purge old delivered webhooks (older than days).
+    pub async fn purge_old_deliveries(&self, older_than_days: i32) -> anyhow::Result<u64> {
+        let result = sqlx::query(
+            "DELETE FROM webhook_deliveries
+             WHERE status = 'delivered' AND delivered_at < NOW() - ($1 || ' days')::interval",
+        )
+        .bind(older_than_days)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Retry a specific failed webhook delivery.
+    pub async fn retry_failed_delivery(&self, id: Uuid) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE webhook_deliveries SET status = 'pending', next_retry_at = NOW() WHERE id = $1 AND status = 'failed'",
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
 }
 
 #[derive(sqlx::FromRow)]

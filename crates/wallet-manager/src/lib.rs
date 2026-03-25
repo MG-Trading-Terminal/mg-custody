@@ -9,6 +9,7 @@
 //! Also implements a Gas Station for auto-funding deposit addresses.
 
 pub mod gas_station;
+pub mod gas_station_loop;
 pub mod sweep;
 pub mod sweep_scheduler;
 pub mod tiers;
