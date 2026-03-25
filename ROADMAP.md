@@ -114,7 +114,7 @@
 - [x] One-time addresses (auto-expire after single use)
 - [x] Whitelist expiry (datetime-based)
 - [x] Add/remove operations
-- [ ] Multi-admin approval to add addresses
+- [x] Multi-admin approval to add addresses
 - [x] Internal vs external address categorization
 
 ### 5D — Admin Governance
@@ -140,7 +140,7 @@
 - [x] Travel Rule: NotabeneProvider stub, threshold checks (EU €1K / US $3K)
 - [x] RiskAssessment aggregation (worst-of all checks, sanctions override)
 - [ ] Full Chainalysis/Elliptic API integration (needs API keys)
-- [ ] OFAC auto-refresh, alerting
+- [x] OFAC auto-refresh (scheduled daily)
 - [ ] Full Notabene VASP discovery
 
 ## Phase 7 — Wallet Infrastructure (4-6 weeks) ✅ DONE
@@ -152,8 +152,8 @@
 - [x] SweepRecommendation: direction, amount, priority (Low/Medium/High)
 - [x] GasStation: per-chain config (ETH/TRX/SOL), threshold-based auto-funding
 - [x] GasStationConfig defaults for Ethereum, Tron, Solana
-- [ ] Sweep scheduler (background task)
-- [ ] UTXO consolidation sweeps
+- [x] Sweep scheduler (background task)
+- [x] UTXO consolidation sweeps
 - [x] Multi-vault architecture
 
 ## Phase 8 — Extended Chain Support (ongoing) ✅ DONE (foundation)
@@ -182,7 +182,7 @@
 ### 8C — Chain Infrastructure
 - [x] Dynamic token registry (EvmTokenDef per chain)
 - [x] Fallback RPC URL support
-- [ ] Chain configuration hot-reload
+- [x] Chain configuration hot-reload
 - [x] Multi-RPC failover logic
 - [ ] Chain health monitoring dashboard
 
@@ -220,9 +220,9 @@
 - [x] Health endpoints per chain (/health/chains)
 
 ### 11B — Operational Tools
-- [ ] Stuck withdrawal recovery CLI
-- [ ] Historical deposit rescan tool
-- [ ] Manual UTXO management CLI (Bitcoin)
+- [x] Stuck withdrawal recovery CLI
+- [x] Historical deposit rescan tool
+- [x] Manual UTXO management CLI (Bitcoin)
 - [x] Database migration tooling
 - [x] Graceful shutdown with in-flight transaction handling
 
@@ -248,8 +248,8 @@
 - [x] Merkle-tree Proof of Reserves (BalanceLeaf → merkle_root)
 - [x] User-verifiable MerkleProof with verify() function
 - [x] ReservesAttestation with per-asset reserve ratios
-- [ ] Background reconciliation scheduler
-- [ ] Auditor export format
+- [x] Background reconciliation scheduler
+- [x] Auditor export format
 
 ## Phase 13 — Settlement & Counterparty Network (8-12 weeks) ✅ DONE (types)
 > Settlement types defined. Implementation needs counterparty API integration.
@@ -285,15 +285,15 @@
 
 ### 15B — Developer Experience
 - [ ] SDK: Rust, Python, TypeScript, Go
-- [ ] API reference documentation (OpenAPI 3.0)
+- [x] API reference documentation (OpenAPI 3.0)
 - [ ] Sandbox environment with testnet
 - [ ] Webhook testing tools
-- [ ] Rate limiting and API key management
+- [x] Rate limiting and API key management
 
 ### 15C — Self-Service Chain Support
 - [ ] Chain adapter plugin system
 - [ ] Chain configuration wizard
-- [ ] Token import by contract address
+- [x] Token import by contract address
 - [ ] Community-contributed chain adapters
 
 ## Phase 16 — Security Certifications (ongoing)

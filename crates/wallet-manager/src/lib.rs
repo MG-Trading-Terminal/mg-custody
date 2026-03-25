@@ -10,6 +10,7 @@
 
 pub mod gas_station;
 pub mod sweep;
+pub mod sweep_scheduler;
 pub mod tiers;
 pub mod vault;
 
