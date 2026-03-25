@@ -75,14 +75,30 @@ impl SweepScheduler {
     }
 
     async fn tick(&self) -> Result<()> {
-        // Query hot wallet balance from DB ledger
-        let hot_balance = self.db.account_balance("hot:eth", "ETH").await.unwrap_or(Decimal::ZERO);
-        let warm_balance = self.db.account_balance("warm:eth", "ETH").await.unwrap_or(Decimal::ZERO);
-        let cold_balance = self.db.account_balance("cold:eth", "ETH").await.unwrap_or(Decimal::ZERO);
+        // Check all assets across all chains
+        let assets = [
+            ("ETH", Chain::Ethereum),
+            ("BTC", Chain::Bitcoin),
+            ("SOL", Chain::Solana),
+            ("TRX", Chain::Tron),
+            ("USDT", Chain::Ethereum),
+            ("USDC", Chain::Ethereum),
+        ];
 
-        let recommendations = self.check_and_recommend(
-            "ETH", Chain::Ethereum, hot_balance, warm_balance, cold_balance,
-        );
+        let mut all_recommendations = Vec::new();
+        for (asset, chain) in &assets {
+            let key = asset.to_lowercase();
+            let hot = self.db.account_balance(&format!("hot:{key}"), asset).await.unwrap_or(Decimal::ZERO);
+            let warm = self.db.account_balance(&format!("warm:{key}"), asset).await.unwrap_or(Decimal::ZERO);
+            let cold = self.db.account_balance(&format!("cold:{key}"), asset).await.unwrap_or(Decimal::ZERO);
+
+            if hot + warm + cold > Decimal::ZERO {
+                let recs = self.check_and_recommend(asset, *chain, hot, warm, cold);
+                all_recommendations.extend(recs);
+            }
+        }
+
+        let recommendations = all_recommendations;
 
         for rec in &recommendations {
             tracing::info!(
@@ -92,8 +108,20 @@ impl SweepScheduler {
                 priority = ?rec.priority,
                 "Sweep recommended"
             );
-            // TODO: Create a sweep withdrawal record in DB
-            // The withdrawal pipeline will pick it up and process it
+
+            // Record sweep in the double-entry ledger
+            let (from_tier, to_tier) = match rec.direction {
+                SweepDirection::WarmToHot => ("warm", "hot"),
+                SweepDirection::HotToWarm => ("hot", "warm"),
+                SweepDirection::WarmToCold => ("warm", "cold"),
+                SweepDirection::ColdToWarm => ("cold", "warm"),
+            };
+            let sweep_id = uuid::Uuid::new_v4();
+            if let Err(e) = self.db.record_sweep(
+                sweep_id, from_tier, to_tier, &rec.asset, rec.chain, rec.amount,
+            ).await {
+                tracing::error!(error = %e, "Failed to record sweep");
+            }
         }
 
         Ok(())

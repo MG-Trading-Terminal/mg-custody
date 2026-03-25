@@ -79,6 +79,7 @@ async fn full_stack_app() -> Option<(axum::Router, custody_db::CustodyDb)> {
         address_allocator: allocator,
         seed,
         withdrawal_pipeline: pipeline.clone(),
+        event_broadcaster: std::sync::Arc::new(custody_common::events::EventBroadcaster::with_default_capacity()),
     };
 
     // Use router WITH middleware

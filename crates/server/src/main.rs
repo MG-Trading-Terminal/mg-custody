@@ -162,6 +162,48 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    // ─── Event Broadcaster (WebSocket) ─────────────────────────────
+    let event_broadcaster = Arc::new(custody_common::events::EventBroadcaster::with_default_capacity());
+
+    // ─── Policy Engine ─────────────────────────────────────────────
+    let policy_rules = vec![
+        custody_policy::PolicyRule::new(
+            "auto_approve_small", 100,
+            custody_policy::PolicyCondition {
+                max_amount_usd: Some(config.limits.auto_approve_threshold_usd),
+                ..Default::default()
+            },
+            custody_policy::PolicyAction::Allow,
+        ),
+        custody_policy::PolicyRule::new(
+            "require_approval_medium", 200,
+            custody_policy::PolicyCondition {
+                min_amount_usd: Some(config.limits.auto_approve_threshold_usd),
+                max_amount_usd: Some(rust_decimal::Decimal::new(100_000, 0)),
+                ..Default::default()
+            },
+            custody_policy::PolicyAction::RequireApproval {
+                quorum: 1, approver_role: custody_policy::rbac::Role::Signer,
+            },
+        ),
+        custody_policy::PolicyRule::new(
+            "require_2_approvals_large", 300,
+            custody_policy::PolicyCondition {
+                min_amount_usd: Some(rust_decimal::Decimal::new(100_000, 0)),
+                ..Default::default()
+            },
+            custody_policy::PolicyAction::RequireApproval {
+                quorum: 2, approver_role: custody_policy::rbac::Role::Signer,
+            },
+        ),
+    ];
+    let policy_engine = Arc::new(custody_policy::PolicyEngine::new(policy_rules));
+    tracing::info!("Policy engine loaded with default rules");
+
+    // ─── OFAC / Sanctions Checker ───────────────────────────────────
+    let sanctions_checker = Arc::new(custody_compliance::ofac::ofac_checker_with_known_addresses());
+    tracing::info!(addresses = sanctions_checker.total_addresses(), "OFAC sanctions checker loaded");
+
     // ─── Withdrawal Pipeline with all deps ───────────────────────────
     let limits = &config.limits;
     let mut pipeline_builder = WithdrawalPipeline::new(
@@ -171,15 +213,92 @@ async fn main() -> anyhow::Result<()> {
         limits.max_daily_outflow_usd,
     )
     .with_seed(Arc::new(seed_arr))
+    .with_policy_engine(policy_engine)
+    .with_sanctions_checker(sanctions_checker)
+    .with_event_broadcaster(event_broadcaster.clone())
     .with_eth_chain_id(
         config.chains.ethereum.as_ref().map(|_| {
-            // Use Sepolia for testnet, mainnet otherwise
             if std::env::var("CUSTODY_TESTNET").is_ok() { 11155111u64 } else { 1u64 }
         }).unwrap_or(1)
     );
 
     if let Some(ref nm) = nonce_manager {
         pipeline_builder = pipeline_builder.with_nonce_manager(nm.clone());
+    }
+
+    // Wire per-chain broadcasters + RPC URLs
+    if let Some(ref btc) = config.chains.bitcoin {
+        if btc.enabled {
+            let rpc_url = std::env::var("CUSTODY_CHAINS__BITCOIN__RPC_URL")
+                .unwrap_or_else(|_| btc.rpc_url.clone());
+            let rpc_user = std::env::var("CUSTODY_CHAINS__BITCOIN__RPC_USER").ok();
+            let rpc_pass = std::env::var("CUSTODY_CHAINS__BITCOIN__RPC_PASSWORD").ok();
+            let btc_bc = Arc::new(custody_broadcaster::bitcoin::BitcoinBroadcaster::new(
+                &rpc_url, rpc_user, rpc_pass,
+            ));
+            pipeline_builder = pipeline_builder.with_btc_broadcaster(btc_bc);
+        }
+    }
+    if let Some(ref trx) = config.chains.tron {
+        if trx.enabled {
+            let api_url = std::env::var("CUSTODY_CHAINS__TRON__API_URL")
+                .unwrap_or_else(|_| trx.api_url.clone());
+            let trx_bc = Arc::new(custody_broadcaster::tron::TronBroadcaster::new(&api_url));
+            pipeline_builder = pipeline_builder
+                .with_trx_broadcaster(trx_bc)
+                .with_trx_api_url(api_url);
+        }
+    }
+    if let Some(ref sol) = config.chains.solana {
+        if sol.enabled {
+            let rpc_url = std::env::var("CUSTODY_CHAINS__SOLANA__RPC_URL")
+                .unwrap_or_else(|_| sol.rpc_url.clone());
+            let sol_bc = Arc::new(custody_broadcaster::solana::SolanaBroadcaster::new(
+                &rpc_url, &sol.commitment,
+            ));
+            pipeline_builder = pipeline_builder
+                .with_sol_broadcaster(sol_bc)
+                .with_sol_rpc_url(rpc_url);
+        }
+    }
+
+    // Wire fee estimators
+    if let Some(ref btc) = config.chains.bitcoin {
+        if btc.enabled {
+            let rpc_url = std::env::var("CUSTODY_CHAINS__BITCOIN__RPC_URL")
+                .unwrap_or_else(|_| btc.rpc_url.clone());
+            let rpc_user = std::env::var("CUSTODY_CHAINS__BITCOIN__RPC_USER").ok();
+            let rpc_pass = std::env::var("CUSTODY_CHAINS__BITCOIN__RPC_PASSWORD").ok();
+            let est = Arc::new(custody_fee_estimator::bitcoin::BitcoinFeeEstimator::new(
+                &rpc_url, rpc_user, rpc_pass, 6,
+            ));
+            pipeline_builder = pipeline_builder.with_btc_fee_estimator(est);
+        }
+    }
+    if let Some(ref trx) = config.chains.tron {
+        if trx.enabled {
+            let api_url = std::env::var("CUSTODY_CHAINS__TRON__API_URL")
+                .unwrap_or_else(|_| trx.api_url.clone());
+            let est = Arc::new(custody_fee_estimator::tron::TronFeeEstimator::new(&api_url));
+            pipeline_builder = pipeline_builder.with_trx_fee_estimator(est);
+        }
+    }
+    if let Some(ref sol) = config.chains.solana {
+        if sol.enabled {
+            let rpc_url = std::env::var("CUSTODY_CHAINS__SOLANA__RPC_URL")
+                .unwrap_or_else(|_| sol.rpc_url.clone());
+            let est = Arc::new(custody_fee_estimator::solana::SolanaFeeEstimator::new(&rpc_url));
+            pipeline_builder = pipeline_builder.with_sol_fee_estimator(est);
+        }
+    }
+
+    // Wire Chainalysis screening (if API key available)
+    if let Ok(chainalysis_key) = std::env::var("CUSTODY_CHAINALYSIS_API_KEY") {
+        let screener = Arc::new(custody_compliance::screening::ChainalysisProvider::new(&chainalysis_key));
+        pipeline_builder = pipeline_builder.with_screening_provider(screener);
+        tracing::info!("Chainalysis KYT screening enabled");
+    } else {
+        tracing::warn!("No CUSTODY_CHAINALYSIS_API_KEY — AML screening disabled");
     }
 
     let withdrawal_pipeline = Arc::new(pipeline_builder);
@@ -259,6 +378,7 @@ async fn main() -> anyhow::Result<()> {
         address_allocator,
         seed,
         withdrawal_pipeline: withdrawal_pipeline.clone(),
+        event_broadcaster: event_broadcaster.clone(),
     };
 
     // Use middleware if HMAC secret is configured
@@ -321,6 +441,115 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Bitcoin scanner loop (every 60 seconds — ~10 min block time, scan in batches)
+    if let Some(ref btc) = config.chains.bitcoin {
+        if btc.enabled {
+            let rpc_url = std::env::var("CUSTODY_CHAINS__BITCOIN__RPC_URL")
+                .unwrap_or_else(|_| btc.rpc_url.clone());
+            let rpc_user = std::env::var("CUSTODY_CHAINS__BITCOIN__RPC_USER").ok();
+            let rpc_pass = std::env::var("CUSTODY_CHAINS__BITCOIN__RPC_PASSWORD").ok();
+            let address_cache = AddressCache::new(db.clone(), Chain::Bitcoin, 10);
+            let scanner = custody_scanner::bitcoin::BitcoinScanner::new(
+                &rpc_url, rpc_user, rpc_pass, db.clone(), address_cache, btc.required_confirmations,
+            );
+            let db_scan = db.clone();
+            tokio::spawn(async move {
+                let mut from_block = db_scan.get_scan_progress(Chain::Bitcoin).await.unwrap_or(None).unwrap_or(0);
+                tracing::info!(from_block, "Starting Bitcoin scanner loop");
+                loop {
+                    match scanner.scan(from_block).await {
+                        Ok((deposits, next)) => {
+                            if !deposits.is_empty() {
+                                tracing::info!(count = deposits.len(), from = from_block, to = next, "BTC deposits");
+                            }
+                            if next > from_block {
+                                let _ = db_scan.set_scan_progress(Chain::Bitcoin, next).await;
+                                from_block = next;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "Bitcoin scan failed");
+                            tokio::time::sleep(Duration::from_secs(120)).await;
+                            continue;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                }
+            });
+        }
+    }
+
+    // Tron scanner loop (every 3 seconds — ~3s block time)
+    if let Some(ref trx) = config.chains.tron {
+        if trx.enabled {
+            let api_url = std::env::var("CUSTODY_CHAINS__TRON__API_URL")
+                .unwrap_or_else(|_| trx.api_url.clone());
+            let address_cache = AddressCache::new(db.clone(), Chain::Tron, 10);
+            let scanner = custody_scanner::tron::TronScanner::new(
+                &api_url, db.clone(), address_cache, trx.required_confirmations,
+            );
+            let db_scan = db.clone();
+            tokio::spawn(async move {
+                let mut from_block = db_scan.get_scan_progress(Chain::Tron).await.unwrap_or(None).unwrap_or(0);
+                tracing::info!(from_block, "Starting Tron scanner loop");
+                loop {
+                    match scanner.scan(from_block).await {
+                        Ok((deposits, next)) => {
+                            if !deposits.is_empty() {
+                                tracing::info!(count = deposits.len(), "TRX deposits");
+                            }
+                            if next > from_block {
+                                let _ = db_scan.set_scan_progress(Chain::Tron, next).await;
+                                from_block = next;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "Tron scan failed");
+                            tokio::time::sleep(Duration::from_secs(60)).await;
+                            continue;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                }
+            });
+        }
+    }
+
+    // Solana scanner loop (every 2 seconds — ~400ms slot time, batched)
+    if let Some(ref sol) = config.chains.solana {
+        if sol.enabled {
+            let rpc_url = std::env::var("CUSTODY_CHAINS__SOLANA__RPC_URL")
+                .unwrap_or_else(|_| sol.rpc_url.clone());
+            let scanner = custody_scanner::solana::SolanaScanner::new(
+                &rpc_url, db.clone(), &sol.commitment,
+            );
+            let db_scan = db.clone();
+            tokio::spawn(async move {
+                let mut from_slot = db_scan.get_scan_progress(Chain::Solana).await.unwrap_or(None).unwrap_or(0);
+                tracing::info!(from_slot, "Starting Solana scanner loop");
+                loop {
+                    match scanner.scan(from_slot).await {
+                        Ok((deposits, next)) => {
+                            if !deposits.is_empty() {
+                                tracing::info!(count = deposits.len(), "SOL deposits");
+                            }
+                            if next > from_slot {
+                                let _ = db_scan.set_scan_progress(Chain::Solana, next).await;
+                                from_slot = next;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "Solana scan failed");
+                            tokio::time::sleep(Duration::from_secs(30)).await;
+                            continue;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
+            });
+        }
+    }
+
     // Confirmation tracker loop (every 12 seconds)
     {
         let tracker = confirmation_tracker.clone();
@@ -357,11 +586,27 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Reconciliation loop (every 10 minutes for hot, 6 hours for cold)
+    {
+        let recon_db = db.clone();
+        let eth_rpc = config.chains.ethereum.as_ref().map(|e| e.rpc_url.clone());
+        tokio::spawn(async move {
+            let mut service = custody_reconciliation::ReconciliationService::new(recon_db);
+            if let Some(rpc) = eth_rpc {
+                service = service.with_eth_rpc(&rpc);
+            }
+            tracing::info!("Starting reconciliation service");
+            if let Err(e) = service.run(Duration::from_secs(600)).await {
+                tracing::error!(error = %e, "Reconciliation service failed");
+            }
+        });
+    }
+
     // ─── HTTP Server with graceful shutdown ─────────────────────────
     let bind_addr = &config.api.bind;
     tracing::info!(
         addr = %bind_addr,
-        background_tasks = 4,
+        background_tasks = 8,
         "Custody service ready — listening"
     );
 

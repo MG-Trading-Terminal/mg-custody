@@ -6,7 +6,6 @@
 //! The software backend holds the seed in memory (zeroized on drop)
 //! and derives signing keys on demand via BIP-32/SLIP-0010.
 
-use anyhow::Result;
 use custody_common::{Chain, CustodyError, CustodyResult};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -28,46 +27,93 @@ impl std::fmt::Debug for SoftwareSigningBackend {
 }
 
 impl SoftwareSigningBackend {
-    /// Create a new software signing backend from a seed.
-    ///
-    /// The seed is copied and the original should be zeroized by the caller.
     pub fn new(seed: [u8; 64]) -> Self {
         tracing::warn!("Using software signing backend — NOT for production");
         Self { seed }
     }
 
-    /// Get a reference to the seed (for address derivation coordination).
-    ///
-    /// # Safety
-    /// The caller must not log or persist the returned bytes.
     pub fn seed(&self) -> &[u8; 64] {
         &self.seed
+    }
+
+    /// Derive a secp256k1 signing key for a chain (BIP-32 path: m/44'/coin'/0'/0/0).
+    fn derive_secp256k1_key(&self, chain: Chain) -> CustodyResult<k256::ecdsa::SigningKey> {
+        use bip32::XPrv;
+
+        let coin_type = chain.coin_type();
+        let path_str = format!("m/44'/{coin_type}'/0'/0/0");
+        let path: bip32::DerivationPath = path_str.parse()
+            .map_err(|e| CustodyError::SigningError(format!("Bad path: {e}")))?;
+
+        let xprv = XPrv::derive_from_path(&self.seed, &path)
+            .map_err(|e| CustodyError::SigningError(format!("BIP-32 derivation: {e}")))?;
+
+        let key_bytes = xprv.to_bytes();
+        let signing_key = k256::ecdsa::SigningKey::from_bytes(key_bytes.as_slice().into())
+            .map_err(|e| CustodyError::SigningError(format!("Invalid key: {e}")))?;
+
+        Ok(signing_key)
     }
 }
 
 impl SigningBackend for SoftwareSigningBackend {
     fn sign(&self, chain: Chain, unsigned_tx: &[u8]) -> CustodyResult<Vec<u8>> {
-        // TODO: Implement actual transaction signing per chain:
-        //   - Bitcoin: sign SIGHASH with secp256k1 key at derivation path
-        //   - Ethereum: sign RLP-encoded tx with secp256k1 key
-        //   - Tron: sign protobuf tx with secp256k1 key
-        //   - Solana: sign message with Ed25519 key
-        //
-        // For now, return an error indicating this is not yet implemented.
-        // Phase 2 (Ethereum MVP) will implement ETH signing first.
-        let _ = (chain, unsigned_tx);
-        Err(CustodyError::SigningError(format!(
-            "Software signing for {chain:?} not yet implemented (Phase 2)"
-        )))
+        match chain {
+            Chain::Ethereum | Chain::Bitcoin | Chain::Tron => {
+                // For secp256k1 chains: unsigned_tx must be a 32-byte message hash.
+                if unsigned_tx.len() != 32 {
+                    return Err(CustodyError::SigningError(
+                        format!("{chain:?}: unsigned_tx must be 32-byte hash, got {} bytes", unsigned_tx.len())
+                    ));
+                }
+
+                let signing_key = self.derive_secp256k1_key(chain)?;
+                use k256::ecdsa::{signature::hazmat::PrehashSigner, Signature};
+                let (sig, _recid): (Signature, _) = signing_key.sign_prehash(unsigned_tx)
+                    .map_err(|e| CustodyError::SigningError(format!("Sign: {e}")))?;
+
+                Ok(sig.to_bytes().to_vec())
+            }
+            Chain::Solana => {
+                // Solana uses Ed25519. unsigned_tx is the serialized message to sign.
+                use ed25519_dalek::{SigningKey as Ed25519SigningKey, Signer};
+
+                // SLIP-0010 derivation for Ed25519 (m/44'/501'/0'/0')
+                use hmac::{Hmac, Mac};
+                type HmacSha512 = Hmac<sha2::Sha512>;
+
+                let mut key = HmacSha512::new_from_slice(b"ed25519 seed")
+                    .map_err(|e| CustodyError::SigningError(format!("HMAC: {e}")))?;
+                key.update(&self.seed);
+                let result = key.finalize().into_bytes();
+                let mut secret = [0u8; 32];
+                let mut chain_code = [0u8; 32];
+                secret.copy_from_slice(&result[..32]);
+                chain_code.copy_from_slice(&result[32..]);
+
+                // Derive through path: 44', 501', 0', 0'
+                for index in [44u32 | 0x80000000, 501 | 0x80000000, 0x80000000, 0x80000000] {
+                    let mut hmac_key = HmacSha512::new_from_slice(&chain_code)
+                        .map_err(|e| CustodyError::SigningError(format!("HMAC: {e}")))?;
+                    hmac_key.update(&[0x00]);
+                    hmac_key.update(&secret);
+                    hmac_key.update(&index.to_be_bytes());
+                    let derived = hmac_key.finalize().into_bytes();
+                    secret.copy_from_slice(&derived[..32]);
+                    chain_code.copy_from_slice(&derived[32..]);
+                }
+
+                let ed_key = Ed25519SigningKey::from_bytes(&secret);
+                let signature = ed_key.sign(unsigned_tx);
+                Ok(signature.to_bytes().to_vec())
+            }
+        }
     }
 }
 
 /// HSM signing backend stub.
-///
-/// Placeholder for PKCS#11-based HSM integration (SoftHSM2 for dev, Thales/Utimaco for prod).
-/// Will be implemented when HSM infrastructure is available.
 pub struct HsmSigningBackend {
-    _private: (), // prevent construction outside this module
+    _private: (),
 }
 
 impl std::fmt::Debug for HsmSigningBackend {
@@ -77,11 +123,7 @@ impl std::fmt::Debug for HsmSigningBackend {
 }
 
 impl HsmSigningBackend {
-    /// Create an HSM signing backend.
-    ///
-    /// # Errors
-    /// Currently always returns an error because HSM is not yet implemented.
-    pub fn new(_pkcs11_library_path: &str, _slot_id: u64) -> Result<Self> {
+    pub fn new(_pkcs11_library_path: &str, _slot_id: u64) -> anyhow::Result<Self> {
         anyhow::bail!("HSM signing backend not yet implemented — use SoftwareSigningBackend for development")
     }
 }
@@ -120,9 +162,45 @@ mod tests {
     }
 
     #[test]
-    fn software_backend_sign_not_yet_implemented() {
+    fn software_backend_sign_eth() {
         let backend = SoftwareSigningBackend::new(test_seed());
-        let result = backend.sign(Chain::Ethereum, &[0xDE, 0xAD]);
+        let msg = [0xABu8; 32];
+        let result = backend.sign(Chain::Ethereum, &msg);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 64); // r + s
+    }
+
+    #[test]
+    fn software_backend_sign_btc() {
+        let backend = SoftwareSigningBackend::new(test_seed());
+        let msg = [0xCDu8; 32];
+        let result = backend.sign(Chain::Bitcoin, &msg);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 64);
+    }
+
+    #[test]
+    fn software_backend_sign_trx() {
+        let backend = SoftwareSigningBackend::new(test_seed());
+        let msg = [0xEFu8; 32];
+        let result = backend.sign(Chain::Tron, &msg);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn software_backend_sign_sol() {
+        let backend = SoftwareSigningBackend::new(test_seed());
+        let msg = b"hello solana";
+        let result = backend.sign(Chain::Solana, msg);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 64); // Ed25519 signature
+    }
+
+    #[test]
+    fn software_backend_sign_invalid_length() {
+        let backend = SoftwareSigningBackend::new(test_seed());
+        let msg = [0xABu8; 16];
+        let result = backend.sign(Chain::Ethereum, &msg);
         assert!(result.is_err());
     }
 
@@ -134,11 +212,8 @@ mod tests {
 
     #[test]
     fn software_backend_zeroize_on_drop() {
-        // We can't easily test zeroize-on-drop in safe Rust,
-        // but we verify the type derives Zeroize + ZeroizeOnDrop
-        // by ensuring it compiles with those derives.
         let mut backend = SoftwareSigningBackend::new(test_seed());
-        backend.zeroize(); // explicit zeroize should work
-        assert_eq!(backend.seed(), &[0u8; 64]); // seed should be zeroed
+        backend.zeroize();
+        assert_eq!(backend.seed(), &[0u8; 64]);
     }
 }

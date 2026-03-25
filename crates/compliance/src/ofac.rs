@@ -98,12 +98,55 @@ impl SanctionsChecker {
         self.lists.iter().map(|l| l.len()).sum()
     }
 
-    /// Refresh a list from its source URL.
+    /// Refresh a list by downloading from its source URL.
+    /// Parses the SDN list for cryptocurrency addresses (lines containing "Digital Currency Address").
     pub async fn refresh_list(&mut self, list_name: &str) -> Result<()> {
-        // TODO: Download from source_url, parse addresses, update list
-        tracing::info!(list_name, "Sanctions list refresh (stub)");
-        if let Some(list) = self.lists.iter_mut().find(|l| l.name == list_name) {
-            list.last_updated = Utc::now();
+        let list = match self.lists.iter_mut().find(|l| l.name == list_name) {
+            Some(l) => l,
+            None => anyhow::bail!("Unknown list: {list_name}"),
+        };
+
+        tracing::info!(list_name, url = %list.source_url, "Downloading sanctions list");
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()?;
+
+        let resp = client.get(&list.source_url).send().await?;
+        if !resp.status().is_success() {
+            anyhow::bail!("OFAC download failed: HTTP {}", resp.status());
+        }
+
+        let body = resp.text().await?;
+        let mut count = 0;
+
+        // Parse SDN text format: lines with "Digital Currency Address" contain crypto addresses
+        for line in body.lines() {
+            // SDN format: addresses appear after "Digital Currency Address -" tags
+            if line.contains("Digital Currency Address") {
+                // Extract addresses (hex for ETH, base58 for BTC, etc.)
+                for word in line.split_whitespace() {
+                    let trimmed = word.trim_end_matches([';', '.', ',']);
+                    if is_crypto_address(trimmed) {
+                        list.add_address(trimmed);
+                        count += 1;
+                    }
+                }
+            }
+        }
+
+        list.last_updated = Utc::now();
+        tracing::info!(list_name, addresses = count, "Sanctions list updated");
+        Ok(())
+    }
+
+    /// Refresh all lists.
+    pub async fn refresh_all(&mut self) -> Result<()> {
+        let names: Vec<String> = self.lists.iter().map(|l| l.name.clone()).collect();
+        for name in names {
+            if let Err(e) = self.refresh_list(&name).await {
+                tracing::warn!(list = %name, error = %e, "Failed to refresh sanctions list");
+            }
         }
         Ok(())
     }
@@ -113,6 +156,25 @@ impl Default for SanctionsChecker {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Heuristic check if a string looks like a crypto address.
+fn is_crypto_address(s: &str) -> bool {
+    // Ethereum-style (0x + 40 hex)
+    if s.starts_with("0x") && s.len() == 42 && s[2..].chars().all(|c| c.is_ascii_hexdigit()) {
+        return true;
+    }
+    // Bitcoin (starts with 1, 3, or bc1, length 26-62)
+    if (s.starts_with('1') || s.starts_with('3') || s.starts_with("bc1"))
+        && s.len() >= 26 && s.len() <= 62
+        && s.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return true;
+    }
+    // Tron (starts with T, length 34)
+    if s.starts_with('T') && s.len() == 34 && s.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return true;
+    }
+    false
 }
 
 /// OFAC SDN list URL.

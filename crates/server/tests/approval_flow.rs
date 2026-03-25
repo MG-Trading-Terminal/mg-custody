@@ -40,7 +40,7 @@ async fn setup() -> Option<(axum::Router, custody_db::CustodyDb)> {
         .with_eth_chain_id(11155111)
     );
 
-    let state = custody_gateway::state::AppState { db: db.clone(), address_allocator: allocator, seed, withdrawal_pipeline: pipeline.clone() };
+    let state = custody_gateway::state::AppState { db: db.clone(), address_allocator: allocator, seed, withdrawal_pipeline: pipeline.clone(), event_broadcaster: std::sync::Arc::new(custody_common::events::EventBroadcaster::with_default_capacity()) };
     Some((custody_gateway::routes::router(state), db))
 }
 

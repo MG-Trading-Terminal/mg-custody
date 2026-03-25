@@ -62,6 +62,18 @@ impl CustodyDb {
         Ok(rows.into_iter().map(|(addr,)| addr).collect())
     }
 
+    /// Get all (address, user_id) pairs for a chain (used by scanner address cache).
+    pub async fn addresses_with_users(&self, chain: Chain) -> anyhow::Result<Vec<(String, Uuid)>> {
+        let rows: Vec<(String, Uuid)> = sqlx::query_as(
+            "SELECT address, user_id FROM addresses WHERE chain = $1",
+        )
+        .bind(chain.as_str())
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
     /// Atomically allocate the next address index for a chain.
     pub async fn next_address_index(&self, chain: Chain) -> anyhow::Result<u32> {
         let (index,): (i32,) = sqlx::query_as(

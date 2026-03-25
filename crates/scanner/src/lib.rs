@@ -6,6 +6,7 @@
 pub mod address_cache;
 pub mod bitcoin;
 pub mod ethereum;
+pub mod evm;
 pub mod solana;
 pub mod tron;
 

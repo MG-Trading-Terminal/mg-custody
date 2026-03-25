@@ -11,6 +11,7 @@ pub mod nonces;
 pub mod policy;
 pub mod scan_progress;
 pub mod webhook_deliveries;
+pub mod utxos;
 pub mod withdrawals;
 
 use sqlx::PgPool;

@@ -40,6 +40,7 @@ async fn test_app() -> Option<axum::Router> {
         address_allocator: allocator,
         seed,
         withdrawal_pipeline: pipeline,
+        event_broadcaster: std::sync::Arc::new(custody_common::events::EventBroadcaster::with_default_capacity()),
     };
 
     Some(custody_gateway::routes::router(state))

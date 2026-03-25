@@ -46,13 +46,9 @@ impl AddressCache {
 
     /// Force a refresh from the database.
     pub async fn refresh(&self) -> anyhow::Result<()> {
-        let addrs = self.db.all_addresses_for_chain(self.chain).await?;
-        // Note: all_addresses_for_chain returns Vec<String> (addresses only).
-        // TODO: Update DB method to return (address, user_id) pairs.
-        // For now, insert with a placeholder user_id.
-        for addr in addrs {
-            let normalized = addr.to_lowercase();
-            self.addresses.entry(normalized).or_insert(Uuid::nil());
+        let pairs = self.db.addresses_with_users(self.chain).await?;
+        for (addr, user_id) in pairs {
+            self.addresses.insert(addr.to_lowercase(), user_id);
         }
         tracing::debug!(
             chain = ?self.chain,

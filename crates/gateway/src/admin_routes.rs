@@ -1,10 +1,11 @@
 //! Admin API endpoints — system stats, list deposits/withdrawals, policy management.
 
 use axum::{
-    Json, extract::State,
+    Json, extract::{State, Query},
     routing::get,
     Router,
 };
+use serde::Deserialize;
 use crate::state::AppState;
 use crate::errors::ApiError;
 
@@ -15,6 +16,8 @@ pub fn admin_router(state: AppState) -> Router {
         .route("/admin/deposits", get(list_deposits))
         .route("/admin/withdrawals", get(list_withdrawals))
         .route("/admin/pending-approvals", get(pending_approvals))
+        .route("/admin/ledger", get(ledger_entries))
+        .route("/admin/ws-clients", get(ws_client_count))
         .with_state(state)
 }
 
@@ -114,4 +117,46 @@ async fn pending_approvals(
         "count": items.len(),
         "approvals": items,
     })))
+}
+
+#[derive(Deserialize)]
+struct LedgerQuery {
+    account: String,
+    limit: Option<i64>,
+}
+
+async fn ledger_entries(
+    State(state): State<AppState>,
+    Query(query): Query<LedgerQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let limit = query.limit.unwrap_or(20);
+    let entries = state.db.recent_entries(&query.account, limit).await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+
+    let items: Vec<_> = entries.iter().map(|e| serde_json::json!({
+        "id": e.id,
+        "type": format!("{:?}", e.entry_type),
+        "account": e.account,
+        "amount": e.amount.to_string(),
+        "asset": e.asset,
+        "chain": e.chain,
+        "reference_id": e.reference_id,
+        "reference_type": e.reference_type,
+        "created_at": e.created_at.to_rfc3339(),
+    })).collect();
+
+    Ok(Json(serde_json::json!({
+        "account": query.account,
+        "count": items.len(),
+        "entries": items,
+    })))
+}
+
+async fn ws_client_count(
+    State(state): State<AppState>,
+) -> Json<serde_json::Value> {
+    let count = state.event_broadcaster.subscriber_count();
+    Json(serde_json::json!({
+        "ws_clients": count,
+    }))
 }

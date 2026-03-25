@@ -29,6 +29,7 @@ impl MiddlewareState {
             public_paths: vec![
                 "/health".into(),
                 "/health/chains".into(),
+                "/health/deep".into(),
                 "/metrics".into(),
             ],
         }
@@ -55,12 +56,16 @@ pub async fn hmac_auth(
     let timestamp = request.headers()
         .get("X-Custody-Timestamp")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+        .unwrap_or("")
+        .to_string();
 
     let signature = request.headers()
         .get("X-Custody-Signature")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+        .unwrap_or("")
+        .to_string();
+
+    let method = request.method().as_str().to_string();
 
     // Check timestamp staleness (30 seconds)
     if !timestamp.is_empty() {
@@ -73,29 +78,42 @@ pub async fn hmac_auth(
         }
     }
 
-    // For now, log but don't enforce (to not break E2E tests without auth)
-    // In production, uncomment the verification:
-    let method = request.method().as_str();
+    // Extract body bytes for HMAC verification
     if !signature.is_empty() && !timestamp.is_empty() {
-        // Read body for verification (need to clone since body is consumed)
-        // For full implementation, use body extractor
-        let _valid = auth::verify_signature(
+        let (parts, body) = request.into_parts();
+        let body_bytes = axum::body::to_bytes(body, 1024 * 1024) // 1MB max
+            .await
+            .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
+
+        let valid = auth::verify_signature(
             &mw.hmac_secret,
-            method,
+            &method,
             &path,
-            timestamp,
-            b"", // TODO: extract body bytes for verification
-            signature,
+            &timestamp,
+            &body_bytes,
+            &signature,
         );
-        // if !valid { return Err(StatusCode::UNAUTHORIZED); }
+
+        if !valid {
+            tracing::warn!(path = %path, method = %method, "Invalid HMAC signature");
+            return Err(StatusCode::UNAUTHORIZED);
+        }
+
+        // Reconstruct the request with the body
+        let request = Request::from_parts(parts, Body::from(body_bytes));
+        custody_common::prometheus_metrics::DEPOSITS_TOTAL
+            .with_label_values(&["all", "request"]).inc();
+        return Ok(next.run(request).await);
     }
 
-    // Increment metrics
-    custody_common::prometheus_metrics::DEPOSITS_TOTAL
-        .with_label_values(&["all", "request"])
-        .inc();
+    // No signature provided — reject in production mode
+    if mw.hmac_secret.is_empty() {
+        // No secret configured, allow (dev mode)
+        return Ok(next.run(request).await);
+    }
 
-    Ok(next.run(request).await)
+    tracing::warn!(path = %path, "Missing HMAC signature");
+    Err(StatusCode::UNAUTHORIZED)
 }
 
 /// Rate limiting middleware.
@@ -104,7 +122,6 @@ pub async fn rate_limit(
     request: Request<Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Use client IP or API key as rate limit key
     let key = request.headers()
         .get("X-Forwarded-For")
         .and_then(|v| v.to_str().ok())

@@ -24,11 +24,15 @@ custody-confirmations = { path = "../confirmations" }
 custody-address-factory = { path = "../address-factory" }
 custody-signing = { path = "../signing" }
 custody-broadcaster = { path = "../broadcaster" }
+custody-fee-estimator = { path = "../fee-estimator" }
 custody-withdrawal-pipeline = { path = "../withdrawal-pipeline" }
 custody-wallet-manager = { path = "../wallet-manager" }
 custody-reconciliation = { path = "../reconciliation" }
+custody-policy = { path = "../policy" }
+custody-compliance = { path = "../compliance" }
 custody-mpc = { path = "../mpc" }
 tokio = { workspace = true }
+uuid = { workspace = true }
 axum = { workspace = true }
 rand = { workspace = true }
 zeroize = { workspace = true }

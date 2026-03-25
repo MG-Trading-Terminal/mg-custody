@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use custody_address_factory::{AddressAllocator, SeedBytes};
+use custody_common::events::EventBroadcaster;
 use custody_db::CustodyDb;
 use custody_withdrawal_pipeline::WithdrawalPipeline;
 
@@ -16,4 +17,5 @@ pub struct AppState {
     pub address_allocator: Arc<AddressAllocator>,
     pub seed: Arc<SeedBytes>,
     pub withdrawal_pipeline: Arc<WithdrawalPipeline>,
+    pub event_broadcaster: Arc<EventBroadcaster>,
 }

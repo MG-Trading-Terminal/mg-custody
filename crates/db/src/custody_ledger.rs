@@ -40,6 +40,49 @@ pub struct LedgerEntry {
     pub created_at: DateTime<Utc>,
 }
 
+impl LedgerEntry {
+    /// Create a double-entry pair (debit + credit).
+    pub fn pair(
+        debit_account: &str,
+        credit_account: &str,
+        amount: Decimal,
+        asset: &str,
+        chain: Chain,
+        reference_id: Uuid,
+        reference_type: &str,
+    ) -> (Self, Self) {
+        let debit_id = Uuid::new_v4();
+        let credit_id = Uuid::new_v4();
+        let now = Utc::now();
+
+        let debit = Self {
+            id: debit_id,
+            entry_type: EntryType::Debit,
+            account: debit_account.to_string(),
+            amount,
+            asset: asset.to_string(),
+            chain,
+            counterpart_id: credit_id,
+            reference_id,
+            reference_type: reference_type.to_string(),
+            created_at: now,
+        };
+        let credit = Self {
+            id: credit_id,
+            entry_type: EntryType::Credit,
+            account: credit_account.to_string(),
+            amount,
+            asset: asset.to_string(),
+            chain,
+            counterpart_id: debit_id,
+            reference_id,
+            reference_type: reference_type.to_string(),
+            created_at: now,
+        };
+        (debit, credit)
+    }
+}
+
 impl CustodyDb {
     /// Insert a double-entry pair (debit + credit) atomically.
     pub async fn insert_ledger_pair(
@@ -47,18 +90,208 @@ impl CustodyDb {
         debit: &LedgerEntry,
         credit: &LedgerEntry,
     ) -> anyhow::Result<()> {
-        let _ = (debit, credit);
-        // TODO: INSERT both in a transaction
-        // The debit.counterpart_id = credit.id and vice versa
+        let entry_type_debit = match debit.entry_type {
+            EntryType::Debit => "debit",
+            EntryType::Credit => "credit",
+        };
+        let entry_type_credit = match credit.entry_type {
+            EntryType::Debit => "debit",
+            EntryType::Credit => "credit",
+        };
+        let chain_debit = debit.chain.as_str();
+        let chain_credit = credit.chain.as_str();
+
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query(
+            "INSERT INTO custody_ledger (id, entry_type, account, amount, asset, chain, counterpart_id, reference_id, reference_type, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
+        )
+        .bind(debit.id)
+        .bind(entry_type_debit)
+        .bind(&debit.account)
+        .bind(debit.amount)
+        .bind(&debit.asset)
+        .bind(chain_debit)
+        .bind(debit.counterpart_id)
+        .bind(debit.reference_id)
+        .bind(&debit.reference_type)
+        .bind(debit.created_at)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "INSERT INTO custody_ledger (id, entry_type, account, amount, asset, chain, counterpart_id, reference_id, reference_type, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
+        )
+        .bind(credit.id)
+        .bind(entry_type_credit)
+        .bind(&credit.account)
+        .bind(credit.amount)
+        .bind(&credit.asset)
+        .bind(chain_credit)
+        .bind(credit.counterpart_id)
+        .bind(credit.reference_id)
+        .bind(&credit.reference_type)
+        .bind(credit.created_at)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
         Ok(())
     }
 
     /// Get the balance for an account (sum of credits - sum of debits).
     pub async fn account_balance(&self, account: &str, asset: &str) -> anyhow::Result<Decimal> {
-        let _ = (account, asset);
-        // TODO: SELECT SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE -amount END)
-        //       FROM custody_ledger WHERE account = $1 AND asset = $2
-        Ok(Decimal::ZERO)
+        let row: Option<(Decimal,)> = sqlx::query_as(
+            "SELECT COALESCE(SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE -amount END), 0)
+             FROM custody_ledger WHERE account = $1 AND asset = $2"
+        )
+        .bind(account)
+        .bind(asset)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| r.0).unwrap_or(Decimal::ZERO))
+    }
+
+    /// Get total balance across all accounts for an asset (useful for reconciliation).
+    pub async fn total_asset_balance(&self, asset: &str) -> anyhow::Result<Decimal> {
+        let row: Option<(Decimal,)> = sqlx::query_as(
+            "SELECT COALESCE(SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE -amount END), 0)
+             FROM custody_ledger WHERE asset = $1"
+        )
+        .bind(asset)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| r.0).unwrap_or(Decimal::ZERO))
+    }
+
+    /// Credit a deposit: debit external, credit hot wallet.
+    pub async fn credit_deposit(
+        &self,
+        deposit_id: Uuid,
+        asset: &str,
+        chain: Chain,
+        amount: Decimal,
+        user_id: Uuid,
+    ) -> anyhow::Result<()> {
+        let (debit, credit) = LedgerEntry::pair(
+            &format!("external:{}", chain.as_str()),
+            &format!("hot:{asset}"),
+            amount,
+            asset,
+            chain,
+            deposit_id,
+            "deposit",
+        );
+        self.insert_ledger_pair(&debit, &credit).await?;
+
+        // Also credit user's internal balance
+        let (debit2, credit2) = LedgerEntry::pair(
+            &format!("hot:{asset}"),
+            &format!("user:{user_id}:{asset}"),
+            amount,
+            asset,
+            chain,
+            deposit_id,
+            "deposit_credit",
+        );
+        self.insert_ledger_pair(&debit2, &credit2).await?;
+
+        Ok(())
+    }
+
+    /// Debit a withdrawal: debit hot wallet, credit external.
+    pub async fn debit_withdrawal(
+        &self,
+        withdrawal_id: Uuid,
+        asset: &str,
+        chain: Chain,
+        amount: Decimal,
+        user_id: Uuid,
+    ) -> anyhow::Result<()> {
+        // Debit user's internal balance
+        let (debit, credit) = LedgerEntry::pair(
+            &format!("user:{user_id}:{asset}"),
+            &format!("hot:{asset}"),
+            amount,
+            asset,
+            chain,
+            withdrawal_id,
+            "withdrawal_debit",
+        );
+        self.insert_ledger_pair(&debit, &credit).await?;
+
+        // Debit hot wallet, credit external
+        let (debit2, credit2) = LedgerEntry::pair(
+            &format!("hot:{asset}"),
+            &format!("external:{}", chain.as_str()),
+            amount,
+            asset,
+            chain,
+            withdrawal_id,
+            "withdrawal",
+        );
+        self.insert_ledger_pair(&debit2, &credit2).await?;
+
+        Ok(())
+    }
+
+    /// Record a sweep between wallet tiers.
+    pub async fn record_sweep(
+        &self,
+        sweep_id: Uuid,
+        from_tier: &str,
+        to_tier: &str,
+        asset: &str,
+        chain: Chain,
+        amount: Decimal,
+    ) -> anyhow::Result<()> {
+        let (debit, credit) = LedgerEntry::pair(
+            &format!("{from_tier}:{asset}"),
+            &format!("{to_tier}:{asset}"),
+            amount,
+            asset,
+            chain,
+            sweep_id,
+            "sweep",
+        );
+        self.insert_ledger_pair(&debit, &credit).await
+    }
+
+    /// Get recent ledger entries for an account.
+    pub async fn recent_entries(
+        &self,
+        account: &str,
+        limit: i64,
+    ) -> anyhow::Result<Vec<LedgerEntry>> {
+        let rows: Vec<(Uuid, String, String, Decimal, String, String, Uuid, Uuid, String, DateTime<Utc>)> =
+            sqlx::query_as(
+                "SELECT id, entry_type, account, amount, asset, chain, counterpart_id, reference_id, reference_type, created_at
+                 FROM custody_ledger WHERE account = $1
+                 ORDER BY created_at DESC LIMIT $2"
+            )
+            .bind(account)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(rows.into_iter().map(|(id, entry_type, account, amount, asset, chain, counterpart_id, reference_id, reference_type, created_at)| {
+            LedgerEntry {
+                id,
+                entry_type: if entry_type == "credit" { EntryType::Credit } else { EntryType::Debit },
+                account,
+                amount,
+                asset,
+                chain: custody_common::Chain::parse_str(&chain),
+                counterpart_id,
+                reference_id,
+                reference_type,
+                created_at,
+            }
+        }).collect())
     }
 }
 
@@ -70,5 +303,22 @@ mod tests {
     fn entry_types_serialize() {
         assert_eq!(serde_json::to_string(&EntryType::Debit).unwrap(), "\"debit\"");
         assert_eq!(serde_json::to_string(&EntryType::Credit).unwrap(), "\"credit\"");
+    }
+
+    #[test]
+    fn ledger_pair_creates_matching_entries() {
+        let (debit, credit) = LedgerEntry::pair(
+            "hot:eth", "user:123:eth",
+            Decimal::new(1000, 0), "ETH",
+            Chain::Ethereum, Uuid::new_v4(), "deposit",
+        );
+
+        assert_eq!(debit.entry_type, EntryType::Debit);
+        assert_eq!(credit.entry_type, EntryType::Credit);
+        assert_eq!(debit.counterpart_id, credit.id);
+        assert_eq!(credit.counterpart_id, debit.id);
+        assert_eq!(debit.amount, credit.amount);
+        assert_eq!(debit.account, "hot:eth");
+        assert_eq!(credit.account, "user:123:eth");
     }
 }

@@ -138,14 +138,46 @@ impl AuditEntry {
 }
 
 impl CustodyDb {
-    /// Insert an audit log entry.
-    ///
-    /// In production, this computes the hash chain: each entry's `prev_hash`
-    /// is the SHA-256 of the previous entry's serialized form.
+    /// Insert an audit log entry with tamper-evident hash chain.
     pub async fn insert_audit_entry(&self, entry: &AuditEntry) -> anyhow::Result<()> {
-        let _ = entry;
-        // TODO: sqlx insert into audit_log table
-        // TODO: Compute prev_hash from last entry for tamper evidence
+        // Compute prev_hash from the last entry
+        let prev_hash: Option<String> = sqlx::query_as::<_, (Option<String>,)>(
+            "SELECT prev_hash FROM audit_log ORDER BY timestamp DESC LIMIT 1"
+        )
+        .fetch_optional(&self.pool)
+        .await?
+        .and_then(|r| r.0);
+
+        // Hash the previous entry's hash + current entry data for chain integrity
+        let hash_input = format!(
+            "{}:{}:{:?}:{}:{}",
+            prev_hash.as_deref().unwrap_or("genesis"),
+            entry.id,
+            entry.operation,
+            entry.actor,
+            entry.timestamp.to_rfc3339(),
+        );
+        use sha2::Digest;
+        let current_hash = hex::encode(sha2::Sha256::digest(hash_input.as_bytes()));
+
+        let operation = serde_json::to_string(&entry.operation)?;
+        let chain = entry.chain.map(|c| c.as_str().to_string());
+
+        sqlx::query(
+            "INSERT INTO audit_log (id, timestamp, operation, actor, chain, derivation_path, details, prev_hash)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
+        )
+        .bind(entry.id)
+        .bind(entry.timestamp)
+        .bind(&operation)
+        .bind(&entry.actor)
+        .bind(&chain)
+        .bind(&entry.derivation_path)
+        .bind(&entry.details)
+        .bind(&current_hash)
+        .execute(&self.pool)
+        .await?;
+
         tracing::info!(
             operation = ?entry.operation,
             actor = %entry.actor,
@@ -157,9 +189,20 @@ impl CustodyDb {
 
     /// Get recent audit entries (for admin review).
     pub async fn recent_audit_entries(&self, limit: u32) -> anyhow::Result<Vec<AuditEntry>> {
-        let _ = limit;
-        // TODO: sqlx query
-        Ok(vec![])
+        let rows: Vec<(Uuid, chrono::DateTime<Utc>, String, String, Option<String>, Option<String>, Option<String>, Option<String>)> =
+            sqlx::query_as(
+                "SELECT id, timestamp, operation, actor, chain, derivation_path, details, prev_hash
+                 FROM audit_log ORDER BY timestamp DESC LIMIT $1"
+            )
+            .bind(limit as i64)
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(rows.into_iter().map(|(id, timestamp, operation, actor, chain, derivation_path, details, prev_hash)| {
+            let op: AuditOperation = serde_json::from_str(&operation).unwrap_or(AuditOperation::SigningRequest);
+            let chain = chain.map(|c| custody_common::Chain::parse_str(&c));
+            AuditEntry { id, timestamp, operation: op, actor, chain, derivation_path, details, prev_hash }
+        }).collect())
     }
 }
 

@@ -1,0 +1,390 @@
+openapi: "3.0.3"
+info:
+  title: MG Custody Service API
+  version: "0.1.0"
+  description: |
+    Self-hosted cryptocurrency custody service.
+    Internal API — all endpoints require HMAC-SHA256 authentication.
+  contact:
+    name: MG Custody
+servers:
+  - url: "http://localhost:8443"
+    description: Development
+
+security:
+  - hmac_auth: []
+
+paths:
+  /health:
+    get:
+      summary: Basic health check
+      security: []
+      responses:
+        "200":
+          description: Service is alive
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: "ok"
+
+  /health/chains:
+    get:
+      summary: Per-chain health status
+      security: []
+      responses:
+        "200":
+          description: Chain connectivity status
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /health/deep:
+    get:
+      summary: Deep health check with RPC latency and DB status
+      security: []
+      responses:
+        "200":
+          description: Detailed system health
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, degraded]
+                  chains:
+                    type: object
+                  database:
+                    type: object
+                  ws_clients:
+                    type: integer
+                  check_duration_ms:
+                    type: integer
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      security: []
+      responses:
+        "200":
+          description: Prometheus text format metrics
+
+  /v1/addresses:
+    post:
+      summary: Generate a deposit address for a user
+      description: Idempotent — returns existing address if already generated for this user+asset+chain.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAddressRequest"
+      responses:
+        "200":
+          description: Deposit address (new or existing)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateAddressResponse"
+
+  /v1/withdrawals:
+    post:
+      summary: Submit a withdrawal request
+      description: |
+        Idempotent via exchange_withdrawal_id. Returns 202 Accepted.
+        The withdrawal enters the pipeline: Received → Validated → Signed → Broadcast → Confirmed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitWithdrawalRequest"
+      responses:
+        "202":
+          description: Withdrawal accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmitWithdrawalResponse"
+        "409":
+          description: Duplicate withdrawal_id
+
+  /v1/withdrawals/{id}:
+    get:
+      summary: Get withdrawal status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Withdrawal details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WithdrawalStatusResponse"
+        "404":
+          description: Withdrawal not found
+
+  /v1/withdrawals/{id}/approve:
+    post:
+      summary: Approve or reject a pending withdrawal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                approved:
+                  type: boolean
+                approver:
+                  type: string
+      responses:
+        "200":
+          description: Approval result
+
+  /v1/wallets/{asset}:
+    get:
+      summary: Get wallet balances for an asset
+      parameters:
+        - name: asset
+          in: path
+          required: true
+          schema:
+            type: string
+            example: ETH
+      responses:
+        "200":
+          description: Wallet balance breakdown
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletBalanceResponse"
+
+  /v1/deposits:
+    get:
+      summary: List deposits with optional filters
+      parameters:
+        - name: user_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [detected, confirmed, credited]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Deposit list
+
+  /v1/addresses/chain/{chain}:
+    get:
+      summary: List all addresses for a chain
+      parameters:
+        - name: chain
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [ethereum, bitcoin, tron, solana]
+      responses:
+        "200":
+          description: Address list
+
+  /v1/system/supported-assets:
+    get:
+      summary: List all supported assets across chains
+      responses:
+        "200":
+          description: Asset list with chain and decimal info
+
+  /v1/system/limits:
+    get:
+      summary: Get system withdrawal limits and chain configs
+      responses:
+        "200":
+          description: System limits
+
+  /v1/ws:
+    get:
+      summary: WebSocket endpoint for real-time events
+      description: |
+        Upgrade to WebSocket to receive deposit_confirmed, withdrawal_broadcast,
+        withdrawal_confirmed, and withdrawal_failed events in real time.
+      responses:
+        "101":
+          description: WebSocket upgrade
+
+  /admin/stats:
+    get:
+      summary: System statistics
+      responses:
+        "200":
+          description: Current system state
+
+  /admin/deposits:
+    get:
+      summary: List recent deposits (admin view)
+      responses:
+        "200":
+          description: Deposit summary
+
+  /admin/withdrawals:
+    get:
+      summary: List pending withdrawals (admin view)
+      responses:
+        "200":
+          description: Withdrawal summary
+
+  /admin/pending-approvals:
+    get:
+      summary: List withdrawals awaiting approval
+      responses:
+        "200":
+          description: Pending approval list
+
+  /admin/ledger:
+    get:
+      summary: View ledger entries for an account
+      parameters:
+        - name: account
+          in: query
+          required: true
+          schema:
+            type: string
+            example: "hot:eth"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Ledger entries
+
+  /admin/ws-clients:
+    get:
+      summary: Count active WebSocket subscribers
+      responses:
+        "200":
+          description: Subscriber count
+
+components:
+  securitySchemes:
+    hmac_auth:
+      type: apiKey
+      in: header
+      name: X-Custody-Signature
+      description: |
+        HMAC-SHA256 of (method + path + timestamp + body).
+        Include X-Custody-Timestamp header with Unix epoch seconds.
+        Requests older than 30 seconds are rejected.
+
+  schemas:
+    CreateAddressRequest:
+      type: object
+      required: [user_id, asset, chain]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        asset:
+          type: string
+          example: ETH
+        chain:
+          type: string
+          enum: [ethereum, bitcoin, tron, solana]
+
+    CreateAddressResponse:
+      type: object
+      properties:
+        address:
+          type: string
+        chain:
+          type: string
+        memo:
+          type: string
+          nullable: true
+
+    SubmitWithdrawalRequest:
+      type: object
+      required: [withdrawal_id, asset, chain, address, amount]
+      properties:
+        withdrawal_id:
+          type: string
+          format: uuid
+          description: Exchange's idempotency key
+        asset:
+          type: string
+        chain:
+          type: string
+        address:
+          type: string
+        amount:
+          type: string
+          description: String-encoded decimal (never float)
+
+    SubmitWithdrawalResponse:
+      type: object
+      properties:
+        custody_ref:
+          type: string
+          format: uuid
+        status:
+          type: string
+
+    WithdrawalStatusResponse:
+      type: object
+      properties:
+        custody_ref:
+          type: string
+          format: uuid
+        exchange_withdrawal_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [received, validated, pending_approval, signed, broadcast, confirming, finalized, failed, cancelled]
+        tx_hash:
+          type: string
+          nullable: true
+        confirmations:
+          type: integer
+        required_confirmations:
+          type: integer
+        error:
+          type: string
+          nullable: true
+
+    WalletBalanceResponse:
+      type: object
+      properties:
+        asset:
+          type: string
+        hot_balance:
+          type: string
+        warm_balance:
+          type: string
+        total_managed:
+          type: string

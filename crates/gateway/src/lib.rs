@@ -7,6 +7,7 @@ pub mod admin_routes;
 pub mod auth;
 pub mod exchange_routes;
 pub mod errors;
+pub mod health;
 pub mod middleware;
 pub mod rate_limit;
 pub mod routes;

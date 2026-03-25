@@ -18,7 +18,11 @@ custody-utxo = { path = "../utxo" }
 custody-address-factory = { path = "../address-factory" }
 sha2 = { workspace = true }
 ripemd = { workspace = true }
+bech32 = { workspace = true }
 bs58 = { workspace = true }
+hex = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
 alloy = { workspace = true }
 tokio = { workspace = true }
 rust_decimal = { workspace = true }

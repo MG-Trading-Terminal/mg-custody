@@ -51,6 +51,7 @@ async fn setup() -> Option<(axum::Router, CustodyDb, Arc<WithdrawalPipeline>)> {
         address_allocator: allocator,
         seed,
         withdrawal_pipeline: pipeline.clone(),
+        event_broadcaster: Arc::new(custody_common::events::EventBroadcaster::with_default_capacity()),
     };
 
     Some((custody_gateway::routes::router(state), db, pipeline))

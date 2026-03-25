@@ -8,18 +8,22 @@ use axum::{
     response::Response,
 };
 use futures::{SinkExt, StreamExt};
-use custody_common::events::EventBroadcaster;
-use std::sync::Arc;
+
+use crate::state::AppState;
 
 /// WebSocket handler — upgrades HTTP to WS and streams events.
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
-    State(broadcaster): State<Arc<EventBroadcaster>>,
+    State(state): State<AppState>,
 ) -> Response {
+    let broadcaster = state.event_broadcaster.clone();
     ws.on_upgrade(move |socket| handle_socket(socket, broadcaster))
 }
 
-async fn handle_socket(socket: WebSocket, broadcaster: Arc<EventBroadcaster>) {
+async fn handle_socket(
+    socket: WebSocket,
+    broadcaster: std::sync::Arc<custody_common::events::EventBroadcaster>,
+) {
     let (mut sender, mut receiver) = socket.split();
     let mut rx = broadcaster.subscribe();
 
@@ -39,15 +43,13 @@ async fn handle_socket(socket: WebSocket, broadcaster: Arc<EventBroadcaster>) {
             match msg {
                 Message::Close(_) => break,
                 Message::Ping(data) => {
-                    // axum handles pong automatically
                     let _ = data;
                 }
-                _ => {} // ignore other messages
+                _ => {}
             }
         }
     });
 
-    // Wait for either task to complete
     tokio::select! {
         _ = send_task => {},
         _ = recv_task => {},

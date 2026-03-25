@@ -51,6 +51,17 @@ impl Chain {
             Chain::Solana => "solana",
         }
     }
+
+    /// Parse from string.
+    pub fn parse_str(s: &str) -> Self {
+        match s {
+            "bitcoin" | "btc" => Chain::Bitcoin,
+            "ethereum" | "eth" => Chain::Ethereum,
+            "tron" | "trx" => Chain::Tron,
+            "solana" | "sol" => Chain::Solana,
+            _ => Chain::Ethereum,
+        }
+    }
 }
 
 impl std::fmt::Display for Chain {
