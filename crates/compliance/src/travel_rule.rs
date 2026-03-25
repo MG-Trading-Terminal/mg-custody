@@ -110,25 +110,109 @@ impl NotabeneProvider {
 
 impl TravelRuleProvider for NotabeneProvider {
     async fn send_originator_data(&self, data: &TravelRuleData) -> Result<()> {
-        // TODO: POST /tf/v1/transaction with originator data
         tracing::info!(
             transfer_id = %data.transfer_id,
             amount_usd = %data.amount_usd,
-            "Sending Travel Rule data (stub)"
+            "Sending Travel Rule originator data"
         );
-        Ok(())
+
+        let payload = serde_json::json!({
+            "transactionAsset": data.asset,
+            "transactionAmount": data.amount_usd.to_string(),
+            "originator": {
+                "originatorPersons": [{
+                    "naturalPerson": {
+                        "name": [{
+                            "nameIdentifier": [{
+                                "primaryIdentifier": data.originator.name,
+                            }]
+                        }]
+                    }
+                }],
+                "accountNumber": [data.originator.account_number.as_deref().unwrap_or("")],
+            },
+            "beneficiary": {
+                "beneficiaryPersons": [{
+                    "naturalPerson": {
+                        "name": [{
+                            "nameIdentifier": [{
+                                "primaryIdentifier": data.beneficiary.name,
+                            }]
+                        }]
+                    }
+                }],
+                "accountNumber": [data.beneficiary.account_number.as_deref().unwrap_or("")],
+            },
+            "originatingVASP": data.originator_vasp,
+            "beneficiaryVASP": data.beneficiary_vasp,
+        });
+
+        let resp = self.client
+            .post(&format!("{}/transaction", self.base_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(&payload)
+            .send()
+            .await;
+
+        match resp {
+            Ok(r) if r.status().is_success() => {
+                tracing::info!(transfer_id = %data.transfer_id, "Travel Rule data sent");
+                Ok(())
+            }
+            Ok(r) => {
+                let status = r.status();
+                let body = r.text().await.unwrap_or_default();
+                tracing::warn!(status = %status, "Notabene API error: {body}");
+                // Don't block withdrawal on Travel Rule API failure
+                Ok(())
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Notabene API unreachable");
+                Ok(())
+            }
+        }
     }
 
     async fn receive_beneficiary_data(&self, transfer_id: Uuid) -> Result<Option<TravelRuleData>> {
-        // TODO: GET /tf/v1/transaction/{id}
-        let _ = transfer_id;
-        Ok(None)
+        let resp = self.client
+            .get(&format!("{}/transaction/{}", self.base_url, transfer_id))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .await;
+
+        match resp {
+            Ok(r) if r.status().is_success() => {
+                let body: serde_json::Value = r.json().await?;
+                if body["status"].as_str() == Some("accepted") {
+                    tracing::info!(transfer_id = %transfer_id, "Beneficiary data received");
+                    // Parse into TravelRuleData if beneficiary confirmed
+                    // For now, return None until full parsing is implemented
+                }
+                Ok(None)
+            }
+            _ => Ok(None),
+        }
     }
 
     async fn lookup_vasp(&self, address: &str) -> Result<Option<String>> {
-        // TODO: GET /tf/v1/vasp/lookup?address={address}
-        let _ = address;
-        Ok(None)
+        let resp = self.client
+            .get(&format!("{}/vasp/lookup", self.base_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .query(&[("address", address)])
+            .send()
+            .await;
+
+        match resp {
+            Ok(r) if r.status().is_success() => {
+                let body: serde_json::Value = r.json().await?;
+                let vasp_id = body["vasp"]["did"].as_str().map(String::from);
+                if let Some(ref id) = vasp_id {
+                    tracing::info!(address, vasp = %id, "VASP found");
+                }
+                Ok(vasp_id)
+            }
+            _ => Ok(None),
+        }
     }
 
     fn provider_name(&self) -> &str {

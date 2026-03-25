@@ -22,6 +22,7 @@ pub mod dkg;
 pub mod ecdsa;
 pub mod frost;
 pub mod hsm;
+pub mod key_rotation;
 pub mod presigning;
 pub mod coordinator;
 pub mod key_store;
