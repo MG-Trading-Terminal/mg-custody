@@ -4,5 +4,6 @@
 //! All requests authenticated via HMAC-SHA256.
 
 pub mod auth;
+pub mod rate_limit;
 pub mod routes;
 pub mod state;
