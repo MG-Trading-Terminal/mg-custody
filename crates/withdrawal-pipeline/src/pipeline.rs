@@ -449,28 +449,44 @@ impl WithdrawalPipeline {
     // ── Signed → Broadcast ───────────────────────────────────────────
 
     async fn process_signed(&self) -> Result<()> {
-        let Some(ref broadcaster) = self.eth_broadcaster else { return Ok(()) };
-
         for w in self.db.withdrawals_by_status(WithdrawalStatus::Signed).await? {
-            if w.chain != Chain::Ethereum { continue; }
-
             let tx_bytes = match self.db.get_signed_tx_bytes(w.id).await? {
                 Some(b) => b,
                 None => { tracing::error!(id = %w.id, "No signed tx bytes"); continue; }
             };
 
-            match broadcaster.broadcast(&tx_bytes).await {
+            // Try to broadcast based on chain
+            let broadcast_result = match w.chain {
+                Chain::Ethereum => {
+                    if let Some(ref b) = self.eth_broadcaster {
+                        b.broadcast(&tx_bytes).await
+                    } else {
+                        tracing::debug!(id = %w.id, "No ETH broadcaster configured");
+                        continue;
+                    }
+                }
+                // BTC/TRX/SOL: broadcasters not yet wired to pipeline
+                // In production: add btc_broadcaster, trx_broadcaster, sol_broadcaster fields
+                other => {
+                    tracing::debug!(id = %w.id, chain = ?other, "Broadcaster not configured for chain");
+                    continue;
+                }
+            };
+
+            match broadcast_result {
                 Ok(tx_hash) => {
                     self.db.set_withdrawal_tx_hash(w.id, &tx_hash).await?;
                     self.db.update_withdrawal_status(w.id, WithdrawalStatus::Broadcast).await?;
+                    custody_common::prometheus_metrics::WITHDRAWALS_TOTAL
+                        .with_label_values(&[w.chain.as_str(), "broadcast"]).inc();
                     self.fire_webhook(&CustodyEvent::WithdrawalBroadcast {
                         withdrawal_id: w.id, exchange_withdrawal_id: w.exchange_withdrawal_id,
                         tx_hash, asset: w.asset.clone(), chain: w.chain,
                         amount: w.amount, fee: w.fee.unwrap_or(Decimal::ZERO),
                     }).await;
-                    tracing::info!(id = %w.id, "Broadcast");
+                    tracing::info!(id = %w.id, chain = ?w.chain, "Broadcast");
                 }
-                Err(e) => tracing::error!(id = %w.id, error = %e, "Broadcast failed"),
+                Err(e) => tracing::error!(id = %w.id, chain = ?w.chain, error = %e, "Broadcast failed"),
             }
         }
         Ok(())
@@ -479,9 +495,14 @@ impl WithdrawalPipeline {
     // ── Broadcast → Confirming → Finalized ───────────────────────────
 
     async fn process_broadcast(&self) -> Result<()> {
-        let Some(ref broadcaster) = self.eth_broadcaster else { return Ok(()) };
-
         for w in self.db.withdrawals_by_status(WithdrawalStatus::Broadcast).await? {
+            let broadcaster = match w.chain {
+                Chain::Ethereum => match &self.eth_broadcaster {
+                    Some(b) => b,
+                    None => continue,
+                },
+                _ => continue, // other chain broadcasters not yet wired
+            };
             let Some(ref tx_hash) = w.tx_hash else { continue };
 
             match broadcaster.tx_status(tx_hash).await? {
