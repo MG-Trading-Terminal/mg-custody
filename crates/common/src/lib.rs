@@ -7,6 +7,7 @@ pub mod evm_chains;
 pub mod metrics;
 pub mod price_oracle;
 pub mod prometheus_metrics;
+pub mod rpc_failover;
 pub mod settlement;
 pub mod staking;
 pub mod token_registry;

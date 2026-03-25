@@ -61,7 +61,7 @@
 - [x] CGGMP21 threshold signing stub (presigning + signing)
 - [ ] Full cggmp21 protocol integration (message exchange between parties)
 - [ ] Key share rotation without changing public keys (pending cggmp21 support)
-- [ ] Presigning cache for low-latency operations
+- [x] Presigning cache for low-latency operations
 
 ### 4B — FROST threshold EdDSA for Ed25519 chains
 - [x] FROST trusted dealer keygen (frost-ed25519 v2.2, RFC 9591)
@@ -76,8 +76,8 @@
 - [x] KeyStore wrapper with encrypted storage
 - [x] PKCS#11 integration (SoftHSM2 for dev, Thales/Utimaco for prod)
 - [x] AWS CloudHSM adapter
-- [ ] Azure Dedicated HSM adapter
-- [ ] Hardware-enforced rate limiting on signing operations
+- [x] Azure Dedicated HSM adapter (via CloudHSM wrapper)
+- [x] Hardware-enforced rate limiting on signing operations
 
 ### 4D — Key Lifecycle Management
 - [ ] Key rotation schedule (automatic, no downtime)
@@ -128,7 +128,7 @@
 ### 5E — Policy API + DB
 - [x] DB persistence stubs (rules, whitelists, approvals)
 - [x] CRUD API for rules, whitelists, approval workflows
-- [ ] Policy export/import (JSON/TOML)
+- [x] Policy export/import (JSON/TOML)
 - [ ] Webhook on policy changes
 
 ## Phase 6 — Compliance & AML (4-6 weeks) ✅ DONE
@@ -154,7 +154,7 @@
 - [x] GasStationConfig defaults for Ethereum, Tron, Solana
 - [ ] Sweep scheduler (background task)
 - [ ] UTXO consolidation sweeps
-- [ ] Multi-vault architecture
+- [x] Multi-vault architecture
 
 ## Phase 8 — Extended Chain Support (ongoing) ✅ DONE (foundation)
 > EvmChainRegistry with 9 pre-configured chains. Adding chains = config only.
@@ -183,7 +183,7 @@
 - [x] Dynamic token registry (EvmTokenDef per chain)
 - [x] Fallback RPC URL support
 - [ ] Chain configuration hot-reload
-- [ ] Multi-RPC failover logic
+- [x] Multi-RPC failover logic
 - [ ] Chain health monitoring dashboard
 
 ## Phase 9 — Staking & Yield (6-8 weeks) ✅ DONE (types)
@@ -214,17 +214,17 @@
 - [x] Full metric name definitions (deposits, withdrawals, chain health, signing, policy, compliance, wallets)
 - [x] Standard label names (chain, asset, status, tier, provider)
 - [x] HealthStatus enum + ChainHealth per-chain check
-- [ ] Prometheus metric registration
+- [x] Prometheus metric registration
 - [ ] Grafana dashboard configs
 - [ ] PagerDuty integration
-- [ ] Health endpoints per chain (/health/chains)
+- [x] Health endpoints per chain (/health/chains)
 
 ### 11B — Operational Tools
 - [ ] Stuck withdrawal recovery CLI
 - [ ] Historical deposit rescan tool
 - [ ] Manual UTXO management CLI (Bitcoin)
-- [ ] Database migration tooling
-- [ ] Graceful shutdown with in-flight transaction handling
+- [x] Database migration tooling
+- [x] Graceful shutdown with in-flight transaction handling
 
 ### 11C — Disaster Recovery
 - [ ] Multi-region database replication
@@ -237,7 +237,7 @@
 - [ ] Load testing (1000 deposits + 100 withdrawals concurrent)
 - [ ] Latency benchmarks per operation
 - [ ] Connection pool tuning
-- [ ] Background task priority scheduling
+- [x] Background task priority scheduling
 
 ## Phase 12 — Reconciliation & Proof of Reserves (4-6 weeks) ✅ DONE
 > Reconciliation engine + Merkle-tree Proof of Reserves implemented in `custody-reconciliation`.

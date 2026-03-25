@@ -9,6 +9,7 @@ rust_decimal = { workspace = true }
 rust_decimal_macros = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+toml = "0.8"
 chrono = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }

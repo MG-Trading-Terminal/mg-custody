@@ -21,6 +21,7 @@ pub mod ceremony;
 pub mod ecdsa;
 pub mod frost;
 pub mod hsm;
+pub mod presigning;
 pub mod coordinator;
 pub mod key_store;
 

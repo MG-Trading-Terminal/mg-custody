@@ -11,6 +11,7 @@ pub mod api_keys;
 pub mod approval;
 pub mod composite;
 pub mod engine;
+pub mod export;
 pub mod rbac;
 pub mod rule;
 pub mod versioning;

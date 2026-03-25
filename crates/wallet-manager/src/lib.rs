@@ -8,9 +8,10 @@
 //! Generates sweep recommendations when thresholds are exceeded.
 //! Also implements a Gas Station for auto-funding deposit addresses.
 
-pub mod tiers;
-pub mod sweep;
 pub mod gas_station;
+pub mod sweep;
+pub mod tiers;
+pub mod vault;
 
 pub use tiers::{TierConfig, TierStatus, WalletTierManager};
 pub use sweep::{SweepRecommendation, SweepDirection};
