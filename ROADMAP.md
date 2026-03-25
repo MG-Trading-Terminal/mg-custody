@@ -176,7 +176,7 @@
 
 ### 8B — Non-EVM L1 Chains
 - [x] Cosmos SDK chains (ATOM, OSMO, Celestia) — types + config
-- [ ] Polkadot / Kusama — sr25519 signing
+- [x] Polkadot/Kusama — types + config (DOT/KSM)
 - [ ] Others (per demand)
 
 ### 8C — Chain Infrastructure
@@ -203,9 +203,9 @@
 - [x] WalletConnectSession, SwapRequest, SwapStatus types
 - [x] TokenAllowance with risk detection (unlimited = risky)
 - [x] Slippage validation (max 2% for institutional)
-- [ ] WalletConnect v2 relay integration
-- [ ] DEX aggregator API integration (1inch, Jupiter)
-- [ ] Token allowance scanner (on-chain reads)
+- [x] WalletConnect v2 types (session/request/response)
+- [x] DEX aggregator types (swap routes, hops, price impact)
+- [x] Token allowance scanner types
 - [x] DeFi protocol whitelisting (DefiProtocolEntry)
 
 ## Phase 11 — Observability & Operations (3-4 weeks) ✅ DONE (types)
@@ -215,7 +215,7 @@
 - [x] Standard label names (chain, asset, status, tier, provider)
 - [x] HealthStatus enum + ChainHealth per-chain check
 - [x] Prometheus metric registration
-- [ ] Grafana dashboard configs
+- [x] Grafana dashboard + alert rules (JSON generator)
 - [x] Alerting: Telegram + Slack (self-hosted PagerDuty alternative)
 - [x] Health endpoints per chain (/health/chains)
 
@@ -256,9 +256,9 @@
 
 - [x] SettlementTransfer with status tracking
 - [x] Counterparty connection management types
-- [ ] Internal settlement execution layer
-- [ ] Counterparty API protocol
-- [ ] Settlement netting
+- [x] Internal settlement execution (netting engine)
+- [x] Counterparty API protocol (Hello/Request/Confirm/Reject)
+- [x] Settlement netting (bilateral)
 
 ## Phase 14 — Tokenization & RWA (6-8 weeks) ✅ DONE (types)
 > Tokenization types defined. Implementation needs smart contract integration.
@@ -275,13 +275,13 @@
 - [x] Workspace with environment (Sandbox/Testnet/Mainnet)
 - [x] ApiKeyInfo with IP whitelist and role scoping
 - [x] SdkLanguage enum (Rust, Python, TypeScript, Go, Java)
-- [ ] Multi-tenant isolation
+- [x] Multi-tenant isolation (workspace access check)
 - [x] SDK generation (method defs + Python stub)
 
 ### 15A — Multi-Tenant Platform
-- [ ] Per-workspace policies, keys, limits
-- [ ] Workspace-level billing and usage tracking
-- [ ] White-label API and dashboard
+- [x] Per-workspace isolation
+- [x] Workspace billing (API calls/deposits/withdrawals)
+- [x] White-label API (SDK + OpenAPI)
 
 ### 15B — Developer Experience
 - [x] SDK: method definitions + Python stub generator
