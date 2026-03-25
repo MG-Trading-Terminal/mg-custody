@@ -64,7 +64,7 @@ async fn health() -> &'static str {
 async fn create_address(
     State(state): State<AppState>,
     Json(req): Json<CreateAddressRequest>,
-) -> Result<Json<CreateAddressResponse>, StatusCode> {
+) -> Result<Json<CreateAddressResponse>, crate::errors::ApiError> {
     let request_id = Uuid::new_v4();
     tracing::info!(request_id = %request_id, user_id = %req.user_id, asset = %req.asset, chain = %req.chain, "create_address");
 
@@ -73,8 +73,8 @@ async fn create_address(
         .get_or_create(&state.seed, req.user_id, &req.asset, req.chain)
         .await
         .map_err(|e| {
-            tracing::error!(error = %e, "Address creation failed");
-            StatusCode::INTERNAL_SERVER_ERROR
+            tracing::error!(request_id = %request_id, error = %e, "Address creation failed");
+            crate::errors::ApiError::internal(&format!("Address creation failed: {e}"))
         })?;
 
     Ok(Json(CreateAddressResponse {
