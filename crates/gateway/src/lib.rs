@@ -10,6 +10,7 @@ pub mod errors;
 pub mod health;
 pub mod middleware;
 pub mod rate_limit;
+pub mod request_id;
 pub mod routes;
 pub mod state;
 pub mod websocket;

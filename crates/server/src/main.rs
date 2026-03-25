@@ -423,8 +423,12 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!(from_block, "Starting Ethereum scanner loop");
 
             loop {
+                let scan_start = std::time::Instant::now();
                 match scanner.scan(from_block).await {
                     Ok((deposits, next_block)) => {
+                        let scan_ms = scan_start.elapsed().as_millis() as f64 / 1000.0;
+                        custody_common::prometheus_metrics::CHAIN_RPC_LATENCY
+                            .with_label_values(&["ethereum"]).observe(scan_ms);
                         if !deposits.is_empty() {
                             tracing::info!(
                                 count = deposits.len(),
@@ -736,7 +740,7 @@ async fn main() -> anyhow::Result<()> {
 
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
 
-    // Graceful shutdown: wait for SIGTERM/SIGINT
+    // Graceful shutdown: wait for SIGTERM/SIGINT, then drain
     let shutdown_signal = async {
         let ctrl_c = tokio::signal::ctrl_c();
         #[cfg(unix)]
@@ -753,13 +757,23 @@ async fn main() -> anyhow::Result<()> {
             _ = ctrl_c => tracing::info!("Received SIGINT"),
             _ = terminate => tracing::info!("Received SIGTERM"),
         }
-        tracing::info!("Shutting down gracefully...");
+
+        tracing::info!("Shutting down gracefully — draining in-flight requests...");
+
+        // Drain period: allow in-flight requests to complete (10 seconds)
+        tokio::time::sleep(Duration::from_secs(10)).await;
+
+        tracing::info!("Drain complete");
     };
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal)
         .await?;
 
-    tracing::info!("Custody service stopped");
+    // Close database pool explicitly
+    tracing::info!("Closing database connections...");
+    db.pool.close().await;
+
+    tracing::info!("Custody service stopped cleanly");
     Ok(())
 }

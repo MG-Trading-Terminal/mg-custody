@@ -18,6 +18,7 @@ use crate::errors::ApiError;
 use crate::state::AppState;
 
 pub fn router(state: AppState) -> Router {
+    use axum::middleware as axum_mw;
     Router::new()
         .route("/health", get(health))
         .route("/health/chains", get(health_chains))
@@ -29,6 +30,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/wallets/{asset}", get(get_wallet_balance))
         .route("/v1/ws", get(crate::websocket::ws_handler))
         .route("/metrics", get(prometheus_metrics))
+        .layer(axum_mw::from_fn(crate::request_id::request_id_middleware))
         .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(30)))
         .layer(cors_layer())
         .layer(TraceLayer::new_for_http())
@@ -50,6 +52,7 @@ pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
         .route("/v1/withdrawals/{id}/approve", post(approve_withdrawal))
         .route("/v1/wallets/{asset}", get(get_wallet_balance))
         .route("/v1/ws", get(crate::websocket::ws_handler))
+        .layer(axum_mw::from_fn(crate::request_id::request_id_middleware))
         .layer(axum_mw::from_fn_with_state(mw_state.clone(), middleware::rate_limit))
         .layer(axum_mw::from_fn_with_state(mw_state, middleware::hmac_auth))
         .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(30)))

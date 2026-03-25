@@ -1,16 +1,25 @@
 //! Admin API endpoints — system stats, list deposits/withdrawals, policy management.
+//!
+//! Admin routes are protected by X-Admin-Key header (if CUSTODY_ADMIN_KEY is set).
 
 use axum::{
     Json, extract::{State, Query},
+    body::Body,
+    http::{Request, StatusCode},
+    middleware::Next,
+    response::Response,
     routing::get,
     Router,
 };
 use serde::Deserialize;
+use std::sync::Arc;
 use crate::state::AppState;
 use crate::errors::ApiError;
+use crate::rate_limit::RateLimiter;
 
-/// Build admin API router (separate from public API).
+/// Build admin API router with separate auth + tighter rate limiting.
 pub fn admin_router(state: AppState) -> Router {
+    let admin_limiter = Arc::new(RateLimiter::new(20, std::time::Duration::from_secs(60)));
     Router::new()
         .route("/admin/stats", get(system_stats))
         .route("/admin/deposits", get(list_deposits))
@@ -19,7 +28,47 @@ pub fn admin_router(state: AppState) -> Router {
         .route("/admin/ledger", get(ledger_entries))
         .route("/admin/webhooks/failed", get(failed_webhooks))
         .route("/admin/ws-clients", get(ws_client_count))
+        .layer(axum::middleware::from_fn(admin_auth))
+        .layer(axum::middleware::from_fn_with_state(admin_limiter, admin_rate_limit))
         .with_state(state)
+}
+
+/// Admin authentication middleware.
+/// Checks X-Admin-Key header if CUSTODY_ADMIN_KEY env var is set.
+async fn admin_auth(request: Request<Body>, next: Next) -> Result<Response, StatusCode> {
+    if let Ok(expected_key) = std::env::var("CUSTODY_ADMIN_KEY") {
+        let provided = request.headers()
+            .get("X-Admin-Key")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+
+        if provided != expected_key {
+            tracing::warn!(path = %request.uri().path(), "Admin auth failed");
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+    Ok(next.run(request).await)
+}
+
+/// Separate rate limiter for admin endpoints (20 req/min).
+async fn admin_rate_limit(
+    State(limiter): State<Arc<RateLimiter>>,
+    request: Request<Body>,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let key = request.headers()
+        .get("X-Forwarded-For")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("admin")
+        .to_string();
+
+    match limiter.check(&key) {
+        Ok(_) => Ok(next.run(request).await),
+        Err(_) => {
+            tracing::warn!(key = %key, "Admin rate limited");
+            Err(StatusCode::TOO_MANY_REQUESTS)
+        }
+    }
 }
 
 async fn system_stats(

@@ -235,15 +235,21 @@ impl WithdrawalPipeline {
                 }
             }
 
-            // Sign based on chain
+            // Sign based on chain (with latency tracking)
+            let sign_start = std::time::Instant::now();
             let sign_result = match w.chain {
                 Chain::Ethereum => self.sign_eth(&w).await,
                 Chain::Bitcoin => self.sign_btc(&w).await,
                 Chain::Tron => self.sign_trx(&w).await,
                 Chain::Solana => self.sign_sol(&w).await,
             };
+            let sign_ms = sign_start.elapsed().as_millis() as f64 / 1000.0;
+            custody_common::prometheus_metrics::SIGNING_LATENCY
+                .with_label_values(&[w.chain.as_str()]).observe(sign_ms);
 
             if let Err(e) = sign_result {
+                custody_common::prometheus_metrics::SIGNING_TOTAL
+                    .with_label_values(&[w.chain.as_str(), "error"]).inc();
                 tracing::error!(id = %w.id, chain = ?w.chain, error = %e, "Signing failed");
             }
         }
