@@ -65,7 +65,8 @@ async fn create_address(
     State(state): State<AppState>,
     Json(req): Json<CreateAddressRequest>,
 ) -> Result<Json<CreateAddressResponse>, StatusCode> {
-    tracing::info!(user_id = %req.user_id, asset = %req.asset, chain = %req.chain, "create_address");
+    let request_id = Uuid::new_v4();
+    tracing::info!(request_id = %request_id, user_id = %req.user_id, asset = %req.asset, chain = %req.chain, "create_address");
 
     let address = state
         .address_allocator
@@ -173,17 +174,21 @@ async fn get_withdrawal_status(
 }
 
 async fn get_wallet_balance(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(asset): Path<String>,
 ) -> Result<Json<WalletBalanceResponse>, StatusCode> {
     tracing::info!(asset = %asset, "get_wallet_balance");
 
-    // TODO: Wire to wallet manager / DB balance query
+    // Query balances from custody ledger
+    let hot = state.db.account_balance(&format!("hot:{asset}"), &asset).await.unwrap_or(rust_decimal::Decimal::ZERO);
+    let warm = state.db.account_balance(&format!("warm:{asset}"), &asset).await.unwrap_or(rust_decimal::Decimal::ZERO);
+    let cold = state.db.account_balance(&format!("cold:{asset}"), &asset).await.unwrap_or(rust_decimal::Decimal::ZERO);
+
     Ok(Json(WalletBalanceResponse {
         asset: Asset::new(&asset),
-        hot_balance: rust_decimal::Decimal::ZERO,
-        warm_balance: rust_decimal::Decimal::ZERO,
-        total_managed: rust_decimal::Decimal::ZERO,
+        hot_balance: hot,
+        warm_balance: warm,
+        total_managed: hot + warm + cold,
     }))
 }
 

@@ -153,11 +153,27 @@ impl WithdrawalPipeline {
                 }
             }
 
-            // Sign (ETH only for now)
-            if w.chain == Chain::Ethereum {
-                if let Err(e) = self.sign_eth(&w).await {
-                    tracing::error!(id = %w.id, error = %e, "ETH sign failed");
+            // Sign based on chain
+            let sign_result = match w.chain {
+                Chain::Ethereum => self.sign_eth(&w).await,
+                Chain::Bitcoin => {
+                    // BTC signing uses different flow (UTXO-based)
+                    tracing::warn!(id = %w.id, "BTC withdrawal signing — requires UTXO selection");
+                    // TODO: Select UTXOs → build tx → sign with BIP-143
+                    continue; // skip for now, don't mark as failed
                 }
+                Chain::Tron => {
+                    tracing::warn!(id = %w.id, "TRX withdrawal signing — requires protobuf tx format");
+                    continue;
+                }
+                Chain::Solana => {
+                    tracing::warn!(id = %w.id, "SOL withdrawal signing — requires blockhash");
+                    continue;
+                }
+            };
+
+            if let Err(e) = sign_result {
+                tracing::error!(id = %w.id, chain = ?w.chain, error = %e, "Signing failed");
             }
         }
         Ok(())
@@ -207,17 +223,29 @@ impl WithdrawalPipeline {
             }
         };
 
-        let signed_tx = if w.asset.as_str() == "ETH" {
+        // Resolve token info from registry
+        let token_registry = custody_common::token_registry::TokenRegistry::with_defaults();
+        let asset_str = w.asset.as_str();
+        let is_native = token_registry.is_native(asset_str, w.chain);
+        let decimals = token_registry.decimals(asset_str, w.chain).unwrap_or(18);
+
+        let signed_tx = if is_native {
             sign_eth_transfer(seed, 0, &EthTransferParams {
-                to, value_wei: custody_scanner::decimal_to_uint256(w.amount, 18),
+                to, value_wei: custody_scanner::decimal_to_uint256(w.amount, decimals),
                 nonce, chain_id: self.eth_chain_id,
                 max_fee_per_gas: max_fee, max_priority_fee_per_gas: priority_fee,
                 gas_limit: 21_000,
             })?
         } else {
+            // ERC-20: resolve contract address from token registry
+            let contract_addr = token_registry.contract_address(asset_str, w.chain)
+                .ok_or_else(|| anyhow::anyhow!("Unknown token: {} on {:?}", asset_str, w.chain))?;
+            let token_contract: alloy::primitives::Address = contract_addr.parse()
+                .map_err(|_| anyhow::anyhow!("Invalid contract address: {contract_addr}"))?;
+
             sign_erc20_transfer(seed, 0, &Erc20TransferParams {
-                token_contract: alloy::primitives::Address::ZERO,
-                to, amount: custody_scanner::decimal_to_uint256(w.amount, 6),
+                token_contract,
+                to, amount: custody_scanner::decimal_to_uint256(w.amount, decimals),
                 nonce, chain_id: self.eth_chain_id,
                 max_fee_per_gas: max_fee, max_priority_fee_per_gas: priority_fee,
                 gas_limit: 65_000,

@@ -80,6 +80,35 @@ impl ConfirmationTracker {
                     .update_deposit_status(deposit.id, DepositStatus::Confirmed, confirmations)
                     .await?;
 
+                // Create double-entry ledger record (debit user, credit hot wallet)
+                let debit_id = uuid::Uuid::new_v4();
+                let credit_id = uuid::Uuid::new_v4();
+                let debit = custody_db::custody_ledger::LedgerEntry {
+                    id: debit_id,
+                    entry_type: custody_db::custody_ledger::EntryType::Debit,
+                    account: format!("user:{}:{}", deposit.user_id, deposit.asset.as_str()),
+                    amount: deposit.amount,
+                    asset: deposit.asset.as_str().to_string(),
+                    chain: deposit.chain,
+                    counterpart_id: credit_id,
+                    reference_id: deposit.id,
+                    reference_type: "deposit".to_string(),
+                    created_at: chrono::Utc::now(),
+                };
+                let credit = custody_db::custody_ledger::LedgerEntry {
+                    id: credit_id,
+                    entry_type: custody_db::custody_ledger::EntryType::Credit,
+                    account: format!("hot:{}", deposit.asset.as_str()),
+                    amount: deposit.amount,
+                    asset: deposit.asset.as_str().to_string(),
+                    chain: deposit.chain,
+                    counterpart_id: debit_id,
+                    reference_id: deposit.id,
+                    reference_type: "deposit".to_string(),
+                    created_at: chrono::Utc::now(),
+                };
+                let _ = self.db.insert_ledger_pair(&debit, &credit).await;
+
                 // Fire webhook
                 let event = custody_common::CustodyEvent::DepositConfirmed {
                     deposit_id: deposit.id,
