@@ -18,7 +18,10 @@ aes-gcm = { workspace = true }
 pbkdf2 = { workspace = true }
 rand = { workspace = true }
 zeroize = { workspace = true }
+bs58 = { workspace = true }
 hex = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

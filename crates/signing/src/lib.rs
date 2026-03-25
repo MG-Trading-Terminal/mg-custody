@@ -20,6 +20,7 @@ pub mod ethereum;
 pub mod shamir;
 pub mod software;
 pub mod solana;
+pub mod staking;
 pub mod tron;
 
 use custody_common::CustodyResult;

@@ -12,5 +12,7 @@ pub mod middleware;
 pub mod rate_limit;
 pub mod request_id;
 pub mod routes;
+pub mod settlement_routes;
+pub mod staking_routes;
 pub mod state;
 pub mod websocket;
