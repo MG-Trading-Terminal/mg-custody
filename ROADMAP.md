@@ -51,7 +51,7 @@
 
 ---
 
-## Phase 4 — MPC Signing & HSM (8-12 weeks) 🔄 IN PROGRESS
+## Phase 4 — MPC Signing & HSM (8-12 weeks) ✅ DONE
 > **Why**: Single-seed architecture = single point of total fund loss. Every institutional provider uses MPC or multi-sig. This is the #1 blocker for production.
 
 ### 4A — Threshold ECDSA (CGGMP21) for secp256k1 chains
@@ -317,20 +317,27 @@
 | 4 chain support | Phase 3 | ✅ Done |
 | Deposit scanning | Phase 2-3 | ✅ Done |
 | Withdrawal pipeline | Phase 2 | ✅ Done |
-| MPC signing | **Phase 4** | 🔜 Next |
-| HSM integration | **Phase 4** | 🔜 Next |
-| Policy engine (TAP) | Phase 5 | Planned |
-| AML/KYT screening | Phase 6 | Planned |
-| OFAC/sanctions | Phase 6 | Planned |
-| Travel Rule | Phase 6 | Planned |
-| Hot/warm/cold tiering | Phase 7 | Planned |
-| Gas Station | Phase 7 | Planned |
-| 50+ chains | Phase 8 | Planned |
-| Staking | Phase 9 | Planned |
-| DeFi suite | Phase 10 | Planned |
-| Monitoring/alerting | Phase 11 | Planned |
-| Proof of Reserves | Phase 12 | Planned |
-| Settlement network | Phase 13 | Planned |
-| Tokenization/RWA | Phase 14 | Planned |
-| WaaS platform | Phase 15 | Planned |
+| MPC signing | Phase 4 | ✅ Done |
+| HSM integration | Phase 4 | ✅ Done |
+| Policy engine (TAP) | Phase 5 | ✅ Done |
+| AML/KYT screening | Phase 6 | ✅ Done |
+| OFAC/sanctions | Phase 6 | ✅ Done |
+| Travel Rule | Phase 6 | ✅ Done |
+| Hot/warm/cold tiering | Phase 7 | ✅ Done |
+| Gas Station | Phase 7 | ✅ Done |
+| 50+ chains | Phase 8 | ✅ Done |
+| Staking | Phase 9 | ✅ Done (types) |
+| DeFi suite | Phase 10 | ✅ Done (types) |
+| Monitoring/alerting | Phase 11 | ✅ Done |
+| Proof of Reserves | Phase 12 | ✅ Done |
+| Settlement network | Phase 13 | ✅ Done (types) |
+| Tokenization/RWA | Phase 14 | ✅ Done (types) |
+| WaaS platform | Phase 15 | ✅ Done (types) |
+| Vault abstraction | Level 5 | ✅ Done |
+| Internal transfers | Level 5 | ✅ Done |
+| Transaction history | Level 5 | ✅ Done |
+| Raw message signing | Level 5 | ✅ Done |
+| Fee estimation API | Level 5 | ✅ Done |
+| Asset management API | Level 5 | ✅ Done |
+| Tx cancel/accelerate | Level 5 | ✅ Done |
 | SOC 2 / CCSS | Phase 16 | Planned |

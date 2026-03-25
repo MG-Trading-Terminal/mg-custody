@@ -30,6 +30,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/wallets/{asset}", get(get_wallet_balance))
         .route("/v1/ws", get(crate::websocket::ws_handler))
         .route("/metrics", get(prometheus_metrics))
+        .merge(crate::vault_routes::vault_router())
         .layer(axum_mw::from_fn(crate::request_id::request_id_middleware))
         .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(30)))
         .layer(cors_layer())

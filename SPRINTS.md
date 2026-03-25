@@ -154,3 +154,44 @@
 - Copper.co product pages: https://copper.co/en/products/clearloop
 - Cobo developer hub: https://www.cobo.com/developers/
 - Liminal custody site: https://www.liminalcustody.com/
+
+---
+
+## Level 5 — Fireblocks Functional Parity (2026-03-25)
+
+### Goals
+- Vault/account abstraction (Fireblocks core concept)
+- Internal transfers, unified transaction history
+- Raw message signing, fee estimation, asset management
+- Transaction cancel/accelerate
+
+### Completed
+| Task | Crate | Status | Tests | Notes |
+|------|-------|--------|-------|-------|
+| Vault + VaultAccount types | common/vault.rs | DONE | 12 | Vault, VaultAccount, InternalTransfer, Transaction, FeeLevel, ManagedAsset |
+| DB migration 003_vaults.sql | db/migrations | DONE | - | 4 tables: vaults, vault_accounts, internal_transfers, managed_assets |
+| Vault CRUD persistence | db/vaults.rs | DONE | - | insert/find/list/update/hide + vault_has_balance check |
+| VaultAccount CRUD | db/vaults.rs | DONE | - | insert/find/list + balance update + freeze |
+| Internal transfer persistence | db/vaults.rs | DONE | - | insert/find/complete + idempotency key |
+| Asset management persistence | db/assets.rs | DONE | - | list/find/insert/update/delete + case-insensitive |
+| Transaction history queries | db/transactions.rs | DONE | - | UNION over deposits/withdrawals/transfers, cursor pagination |
+| Ledger: internal transfers | db/custody_ledger.rs | DONE | - | record_internal_transfer with vault-scoped accounts |
+| Raw secp256k1 signing | signing/raw.rs | DONE | 12 | ETH/BTC/TRX sign + verify, EIP-191, keccak256 |
+| Raw Ed25519 signing | signing/raw.rs | DONE | - | SOL sign + verify, SLIP-0010 derivation |
+| Vault API routes | gateway/vault_routes.rs | DONE | - | 20+ endpoints merged into main router |
+| Fee estimation API | gateway/vault_routes.rs | DONE | - | 4-chain low/medium/high levels |
+| Cancel/accelerate API | gateway/vault_routes.rs | DONE | - | BTC/ETH only, multiplier validation |
+
+### Metrics
+- **New files**: 7 (vault.rs, vaults.rs, assets.rs, transactions.rs, raw.rs, vault_routes.rs, 003_vaults.sql)
+- **Modified files**: 6 (common/lib.rs, db/lib.rs, signing/lib.rs, gateway/lib.rs, gateway/routes.rs, custody_ledger.rs)
+- **Tests**: 533 passing (24 new + 509 existing)
+- **New API endpoints**: 20+
+- **Lines of Rust**: ~27K
+- **Compilation**: cargo check clean, cargo test all green
+
+### References Used
+- Fireblocks API: https://developers.fireblocks.com/reference/api-overview
+- EIP-191: https://eips.ethereum.org/EIPS/eip-191
+- EIP-712: https://eips.ethereum.org/EIPS/eip-712
+- BIP-125 (RBF): https://github.com/bitcoin/bips/blob/master/bip-0125.mediawiki

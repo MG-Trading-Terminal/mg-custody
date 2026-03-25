@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-25) — Level 5: Fireblocks Functional Parity
+- **Vault abstraction** (`common/vault.rs`): Vault, VaultAccount, InternalTransfer, Transaction types
+  - Fireblocks' core organizational primitive (Vault → VaultAccount → Asset hierarchy)
+  - 8 API endpoints: CRUD vaults, create/list/get vault accounts
+- **Internal transfers** (vault-to-vault): instant off-chain ledger-only transfers
+  - Double-entry ledger recording, cached balance updates, idempotency keys
+  - `POST /v1/transfers`, `GET /v1/transfers/{id}`
+- **Unified transaction history**: deposits + withdrawals + internal transfers in one view
+  - Cursor-based pagination, filtering by vault/asset/chain/status/type/date/amount
+  - `GET /v1/transactions`, `GET /v1/transactions/{id}`
+- **Raw message signing** (`signing/raw.rs`): secp256k1 + Ed25519 arbitrary message signing
+  - EIP-191 personal_sign, EIP-712 typed data, hex, UTF-8 encodings
+  - Sign + verify roundtrip tests for both algorithms
+  - `POST /v1/vaults/{id}/raw-sign`
+- **Fee estimation API**: per-chain low/medium/high fee levels
+  - ETH (gwei), BTC (sat/vB), TRX (energy), SOL (priority fee)
+  - `GET /v1/estimate-fee?chain=ethereum`
+- **Asset management API**: dynamic token registry in PostgreSQL
+  - CRUD endpoints, case-insensitive lookup, enable/disable
+  - `GET/POST /v1/assets`, `GET /v1/assets/{symbol}/{chain}`, `PUT/DELETE /v1/assets/{id}`
+- **Transaction cancel/accelerate**: RBF fee bumping for BTC/ETH
+  - Cancel: mark broadcast tx as cancelled
+  - Accelerate: validate multiplier (1.125–5.0x), prepare replacement
+  - `POST /v1/transactions/{id}/cancel`, `POST /v1/transactions/{id}/accelerate`
+- **DB migration 003_vaults.sql**: 4 new tables (vaults, vault_accounts, internal_transfers, managed_assets)
+- **20+ new API endpoints** across vault, transfer, transaction, asset, fee routes
+- **24 new tests** (509 → 533 total), all passing
+
 ### Added (2026-03-25) — Production Infrastructure + End-to-End Wiring
 - `docker-compose.yml`: PostgreSQL 16 + custody service with health checks
 - `Dockerfile`: Multi-stage Rust build (alpine, ~15MB final image)

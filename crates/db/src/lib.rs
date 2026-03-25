@@ -4,12 +4,15 @@
 //! scan_progress, webhook_deliveries, audit_log.
 
 pub mod addresses;
+pub mod assets;
 pub mod audit;
 pub mod custody_ledger;
 pub mod deposits;
 pub mod nonces;
 pub mod policy;
 pub mod scan_progress;
+pub mod transactions;
+pub mod vaults;
 pub mod webhook_deliveries;
 pub mod utxos;
 pub mod withdrawals;

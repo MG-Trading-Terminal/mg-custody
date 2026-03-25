@@ -17,6 +17,7 @@
 pub mod bitcoin;
 pub mod encrypted_store;
 pub mod ethereum;
+pub mod raw;
 pub mod shamir;
 pub mod software;
 pub mod solana;

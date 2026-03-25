@@ -261,6 +261,28 @@ impl CustodyDb {
         self.insert_ledger_pair(&debit, &credit).await
     }
 
+    /// Record an internal transfer between two vaults (ledger-only, no on-chain tx).
+    pub async fn record_internal_transfer(
+        &self,
+        transfer_id: Uuid,
+        source_vault_id: Uuid,
+        dest_vault_id: Uuid,
+        asset: &str,
+        chain: Chain,
+        amount: Decimal,
+    ) -> anyhow::Result<()> {
+        let (debit, credit) = LedgerEntry::pair(
+            &format!("vault:{source_vault_id}:{asset}:{}", chain.as_str()),
+            &format!("vault:{dest_vault_id}:{asset}:{}", chain.as_str()),
+            amount,
+            asset,
+            chain,
+            transfer_id,
+            "internal_transfer",
+        );
+        self.insert_ledger_pair(&debit, &credit).await
+    }
+
     /// Get recent ledger entries for an account.
     pub async fn recent_entries(
         &self,

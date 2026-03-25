@@ -26,6 +26,7 @@ pub mod staking_ops;
 pub mod token_registry;
 pub mod tokenization;
 pub mod types;
+pub mod vault;
 pub mod waas;
 pub mod walletconnect;
 
