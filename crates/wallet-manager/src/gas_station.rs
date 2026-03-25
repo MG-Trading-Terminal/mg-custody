@@ -95,6 +95,31 @@ impl GasStation {
     pub fn config_for_chain(&self, chain: Chain) -> Option<&GasStationConfig> {
         self.configs.iter().find(|c| c.chain == chain)
     }
+
+    /// Process gas funding for a list of addresses.
+    ///
+    /// Returns a list of (address, chain, amount) tuples that need funding.
+    /// The caller is responsible for creating the actual gas transfer transactions.
+    pub fn check_funding_needs(
+        &self,
+        address_balances: &[(String, Chain, Decimal)],
+    ) -> Vec<GasFundingRequest> {
+        let mut requests = Vec::new();
+        for (address, chain, balance) in address_balances {
+            if let Some(amount) = self.needs_funding(*chain, *balance) {
+                requests.push(GasFundingRequest {
+                    chain: *chain,
+                    address: address.clone(),
+                    current_balance: *balance,
+                    fund_amount: amount,
+                });
+            }
+        }
+        if !requests.is_empty() {
+            tracing::info!(count = requests.len(), "Gas funding needed");
+        }
+        requests
+    }
 }
 
 #[cfg(test)]
