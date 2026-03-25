@@ -7,11 +7,13 @@
 //! - Multi-approver workflows (M-of-N quorum)
 //! - Role-based access control (Owner/Admin/Signer/Editor/Viewer)
 
+pub mod api_keys;
 pub mod approval;
 pub mod composite;
 pub mod engine;
 pub mod rbac;
 pub mod rule;
+pub mod versioning;
 pub mod whitelist;
 
 pub use approval::{ApprovalRequest, ApprovalDecision, ApprovalStatus};
