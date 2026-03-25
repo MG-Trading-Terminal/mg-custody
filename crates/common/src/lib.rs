@@ -10,6 +10,7 @@ pub mod grafana;
 pub mod incident;
 pub mod load_test;
 pub mod metrics;
+pub mod notifications;
 pub mod polkadot;
 pub mod price_feeds;
 pub mod price_oracle;

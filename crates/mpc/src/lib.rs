@@ -18,6 +18,7 @@
 
 pub mod backup;
 pub mod ceremony;
+pub mod dkg;
 pub mod ecdsa;
 pub mod frost;
 pub mod hsm;
