@@ -1,3 +1,4 @@
+pub mod alerts;
 pub mod chain_adapter;
 pub mod config;
 pub mod defi;
@@ -5,6 +6,7 @@ pub mod error;
 pub mod events;
 pub mod evm_chains;
 pub mod metrics;
+pub mod price_feeds;
 pub mod price_oracle;
 pub mod prometheus_metrics;
 pub mod rpc_failover;

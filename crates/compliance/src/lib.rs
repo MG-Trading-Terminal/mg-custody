@@ -8,10 +8,12 @@
 //! Every withdrawal is screened before signing. Every deposit source
 //! is screened after detection. High-risk transactions are flagged for review.
 
-pub mod screening;
 pub mod ofac;
-pub mod travel_rule;
+pub mod ofac_downloader;
+pub mod onchain_analysis;
 pub mod risk;
+pub mod screening;
+pub mod travel_rule;
 
 pub use screening::{ScreeningProvider, ScreeningResult, RiskLevel};
 pub use ofac::{SanctionsList, SanctionsChecker};
