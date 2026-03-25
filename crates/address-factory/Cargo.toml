@@ -15,7 +15,12 @@ bech32 = { workspace = true }
 bs58 = { workspace = true }
 bip32 = { workspace = true }
 hex = { workspace = true }
+hmac = { workspace = true }
 zeroize = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

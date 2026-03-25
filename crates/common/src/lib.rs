@@ -1,5 +1,18 @@
-pub mod types;
+pub mod chain_adapter;
+pub mod config;
+pub mod defi;
 pub mod error;
+pub mod evm_chains;
+pub mod metrics;
+pub mod settlement;
+pub mod staking;
+pub mod token_registry;
+pub mod tokenization;
+pub mod types;
+pub mod waas;
 
 pub use types::*;
 pub use error::*;
+pub use chain_adapter::ChainAdapter;
+pub use config::CustodyConfig;
+pub use evm_chains::{EvmChainDef, EvmChainRegistry, EvmTokenDef};

@@ -21,7 +21,23 @@ custody-wallet-manager = { path = "../wallet-manager" }
 custody-reconciliation = { path = "../reconciliation" }
 tokio = { workspace = true }
 axum = { workspace = true }
+sqlx = { workspace = true }
 figment = { workspace = true }
+rust_decimal = { workspace = true }
+chrono = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
+
+[dev-dependencies]
+custody-policy = { path = "../policy" }
+custody-compliance = { path = "../compliance" }
+custody-fee-estimator = { path = "../fee-estimator" }
+custody-utxo = { path = "../utxo" }
+custody-mpc = { path = "../mpc" }
+tower = { workspace = true }
+frost-ed25519 = { workspace = true }
+rand = { workspace = true }
+serde_json = { workspace = true }
+rust_decimal_macros = { workspace = true }
+uuid = { workspace = true }

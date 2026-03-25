@@ -1,4 +1,17 @@
 //! Hot/warm/cold wallet tier management.
 //!
-//! Policy: hot max 5% AUM, warm max 15%, cold ~80%.
+//! Manages fund distribution across wallet tiers:
+//! - Hot: max 5% AUM — immediate withdrawals, auto-refilled from warm
+//! - Warm: ~15% AUM — MPC-signed sweeps to/from hot
+//! - Cold: ~80% AUM — multi-party ceremony for access
+//!
 //! Generates sweep recommendations when thresholds are exceeded.
+//! Also implements a Gas Station for auto-funding deposit addresses.
+
+pub mod tiers;
+pub mod sweep;
+pub mod gas_station;
+
+pub use tiers::{TierConfig, TierStatus, WalletTierManager};
+pub use sweep::{SweepRecommendation, SweepDirection};
+pub use gas_station::{GasStationConfig, GasStation};

@@ -129,6 +129,8 @@ pub struct Deposit {
     pub address: String,
     pub amount: Decimal,
     pub tx_hash: String,
+    /// Log index within the transaction (for ERC-20/TRC-20 — one tx can have multiple transfers).
+    pub log_index: Option<u32>,
     pub block_height: u64,
     pub confirmations: u64,
     pub required_confirmations: u64,
