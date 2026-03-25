@@ -12,6 +12,7 @@ k256 = { workspace = true }
 ripemd = { workspace = true }
 ed25519-dalek = { workspace = true }
 sha2 = { workspace = true }
+sha3 = { workspace = true }
 hmac = { workspace = true }
 aes-gcm = { workspace = true }
 pbkdf2 = { workspace = true }
