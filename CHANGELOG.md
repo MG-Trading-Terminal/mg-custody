@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-25) — Level 6: Operational API
+- **Webhook management API** (`common/webhook.rs`, `db/webhook_endpoints.rs`, `gateway/ops_routes.rs`)
+  - Register endpoints with URL, event filters, chain filters
+  - HMAC secret auto-generated per endpoint
+  - Test webhook delivery (`POST /v1/webhooks/{id}/test`)
+  - CRUD: `GET/POST /v1/webhooks`, `GET/PUT/DELETE /v1/webhooks/{id}`
+- **Batch transactions** — submit up to 100 withdrawals in one call
+  - Per-item validation, idempotency checks, partial failure support
+  - `POST /v1/transactions/batch`
+- **Audit log API** — query tamper-evident audit trail via REST
+  - Filter by operation, actor, chain; max 500 entries
+  - `GET /v1/audit-log?operation=signing_request&limit=100`
+- **Address book** — saved destination addresses with labels and tags
+  - Idempotent on (address, chain), whitelist flag for withdrawal approval
+  - CRUD: `GET/POST /v1/address-book`, `GET/PUT/DELETE /v1/address-book/{id}`
+- **Gas station status API** — per-chain gas balance and refuel status
+  - `GET /v1/gas-station/status`
+- **DB migration 004_webhooks_addressbook.sql**: 2 new tables (webhook_endpoints, address_book)
+- **15+ new API endpoints**, 7 new tests (540 total)
+
 ### Added (2026-03-25) — Level 5: Fireblocks Functional Parity
 - **Vault abstraction** (`common/vault.rs`): Vault, VaultAccount, InternalTransfer, Transaction types
   - Fireblocks' core organizational primitive (Vault → VaultAccount → Asset hierarchy)

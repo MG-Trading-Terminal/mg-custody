@@ -28,6 +28,7 @@ pub mod tokenization;
 pub mod types;
 pub mod vault;
 pub mod waas;
+pub mod webhook;
 pub mod walletconnect;
 
 pub use types::*;

@@ -3,6 +3,7 @@
 //! Tables: addresses, deposits, withdrawals, utxos, custody_ledger,
 //! scan_progress, webhook_deliveries, audit_log.
 
+pub mod address_book;
 pub mod addresses;
 pub mod assets;
 pub mod audit;
@@ -14,6 +15,7 @@ pub mod scan_progress;
 pub mod transactions;
 pub mod vaults;
 pub mod webhook_deliveries;
+pub mod webhook_endpoints;
 pub mod utxos;
 pub mod withdrawals;
 

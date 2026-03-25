@@ -340,4 +340,9 @@
 | Fee estimation API | Level 5 | ✅ Done |
 | Asset management API | Level 5 | ✅ Done |
 | Tx cancel/accelerate | Level 5 | ✅ Done |
+| Webhook management | Level 6 | ✅ Done |
+| Batch transactions | Level 6 | ✅ Done |
+| Audit log API | Level 6 | ✅ Done |
+| Address book | Level 6 | ✅ Done |
+| Gas station status | Level 6 | ✅ Done |
 | SOC 2 / CCSS | Phase 16 | Planned |

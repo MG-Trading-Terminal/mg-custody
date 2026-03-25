@@ -1978,6 +1978,7 @@ dependencies = [
  "futures",
  "hex",
  "hmac",
+ "reqwest",
  "rust_decimal",
  "rust_decimal_macros",
  "serde",

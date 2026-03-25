@@ -9,6 +9,7 @@ pub mod exchange_routes;
 pub mod errors;
 pub mod health;
 pub mod middleware;
+pub mod ops_routes;
 pub mod rate_limit;
 pub mod request_id;
 pub mod routes;
