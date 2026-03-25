@@ -93,6 +93,35 @@ impl DiscrepancyAlert {
     }
 }
 
+/// Run reconciliation for a specific chain/asset using DB balances.
+///
+/// `on_chain_balance`: queried from the blockchain (via scanner/provider).
+/// `internal_balance`: queried from the custody ledger DB.
+pub fn run_reconciliation(
+    chain: Chain,
+    asset: &str,
+    on_chain_balance: Decimal,
+    internal_balance: Decimal,
+) -> (ReconciliationResult, Option<DiscrepancyAlert>) {
+    let result = ReconciliationResult::reconcile(chain, asset, on_chain_balance, internal_balance);
+    let alert = DiscrepancyAlert::from_result(&result);
+
+    if let Some(ref alert) = alert {
+        tracing::warn!(
+            chain = ?chain,
+            asset,
+            discrepancy = %result.discrepancy,
+            discrepancy_pct = %result.discrepancy_pct,
+            severity = ?alert.severity,
+            "Reconciliation discrepancy detected!"
+        );
+    } else {
+        tracing::debug!(chain = ?chain, asset, "Reconciliation OK");
+    }
+
+    (result, alert)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

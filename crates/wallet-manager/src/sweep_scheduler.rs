@@ -75,10 +75,27 @@ impl SweepScheduler {
     }
 
     async fn tick(&self) -> Result<()> {
-        // TODO: For each supported asset:
-        // 1. Query hot/warm/cold balances
-        // 2. Call check_and_recommend
-        // 3. If recommendations, create sweep withdrawal records
+        // Query hot wallet balance from DB ledger
+        let hot_balance = self.db.account_balance("hot:eth", "ETH").await.unwrap_or(Decimal::ZERO);
+        let warm_balance = self.db.account_balance("warm:eth", "ETH").await.unwrap_or(Decimal::ZERO);
+        let cold_balance = self.db.account_balance("cold:eth", "ETH").await.unwrap_or(Decimal::ZERO);
+
+        let recommendations = self.check_and_recommend(
+            "ETH", Chain::Ethereum, hot_balance, warm_balance, cold_balance,
+        );
+
+        for rec in &recommendations {
+            tracing::info!(
+                asset = %rec.asset,
+                direction = ?rec.direction,
+                amount = %rec.amount,
+                priority = ?rec.priority,
+                "Sweep recommended"
+            );
+            // TODO: Create a sweep withdrawal record in DB
+            // The withdrawal pipeline will pick it up and process it
+        }
+
         Ok(())
     }
 }
