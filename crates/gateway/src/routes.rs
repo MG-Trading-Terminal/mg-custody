@@ -33,6 +33,7 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::vault_routes::vault_router())
         .merge(crate::ops_routes::ops_router())
         .merge(crate::connectivity_routes::connectivity_router())
+        .merge(crate::platform_routes::platform_router())
         .layer(axum_mw::from_fn(crate::request_id::request_id_middleware))
         .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(30)))
         .layer(cors_layer())

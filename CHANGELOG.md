@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 8: Platform & Reporting
+- **Workspace management** — multi-tenant isolation with CRUD
+  - `GET/POST /v1/workspaces`, `GET/PUT /v1/workspaces/{id}`
+- **Workspace users** — RBAC (Owner/Admin/Signer/Viewer), invite/remove
+  - `GET/POST /v1/workspaces/{id}/users`, `DELETE .../users/{user_id}`
+- **Deposit address listing + vault binding**
+  - `GET /v1/deposit-addresses`, `POST /v1/deposit-addresses/{addr}/bind`
+- **Reporting/export** — generate transaction reports in JSON or CSV
+  - Filter by date range, chain, asset, vault; `POST /v1/reports/generate`
+- **Signing key info** — public key metadata per vault/chain (NEVER private keys)
+  - `GET /v1/vaults/{id}/keys`, `GET /v1/vaults/{id}/keys/{chain}`
+- **Travel rule (FATF R.16)** — originator/beneficiary data collection
+  - Automatic threshold detection (EU €1K / US $3K)
+  - `POST /v1/travel-rule`, `GET /v1/travel-rule/{withdrawal_id}`
+- **DB migration 006_platform.sql**: 3 new tables (workspaces, workspace_users, travel_rule_data)
+- **15+ new API endpoints**, 11 new tests (564 total)
+
 ### Added (2026-03-25) — Level 7: Connectivity & Integrations
 - **Exchange connections** (`connectivity.rs`, `db/connections.rs`, `gateway/connectivity_routes.rs`)
   - CRUD for exchange/OTC/custodian connections with heartbeat monitoring

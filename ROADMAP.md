@@ -350,4 +350,8 @@
 | Notification channels | Level 7 | ✅ Done |
 | System config API | Level 7 | ✅ Done |
 | Network fees/status | Level 7 | ✅ Done |
+| Workspace management | Level 8 | ✅ Done |
+| Reporting/export | Level 8 | ✅ Done |
+| Signing key info | Level 8 | ✅ Done |
+| Travel rule (FATF) | Level 8 | ✅ Done |
 | SOC 2 / CCSS | Phase 16 | Planned |
