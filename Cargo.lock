@@ -2091,6 +2091,7 @@ dependencies = [
  "frost-ed25519",
  "hex",
  "rand 0.8.5",
+ "reqwest",
  "rust_decimal",
  "rust_decimal_macros",
  "serde_json",

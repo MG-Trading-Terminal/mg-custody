@@ -41,6 +41,7 @@ rand = { workspace = true }
 serde_json = { workspace = true }
 rust_decimal_macros = { workspace = true }
 alloy = { workspace = true }
+reqwest = { workspace = true }
 hex = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
