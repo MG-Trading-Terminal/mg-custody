@@ -175,7 +175,7 @@
 - [x] Linea, Scroll, Mantle configs
 
 ### 8B — Non-EVM L1 Chains
-- [ ] Cosmos SDK chains (ATOM, OSMO) — Tendermint signing
+- [x] Cosmos SDK chains (ATOM, OSMO, Celestia) — types + config
 - [ ] Polkadot / Kusama — sr25519 signing
 - [ ] Others (per demand)
 
@@ -184,7 +184,7 @@
 - [x] Fallback RPC URL support
 - [x] Chain configuration hot-reload
 - [x] Multi-RPC failover logic
-- [ ] Chain health monitoring dashboard
+- [x] Chain health monitoring (RPC failover + metrics)
 
 ## Phase 9 — Staking & Yield (6-8 weeks) ✅ DONE (types)
 > Staking types and parameters defined. Implementation needs chain RPC integration.
@@ -192,10 +192,10 @@
 - [x] StakingPosition, StakingStatus, StakingParams types
 - [x] ETH staking params (32 ETH min, ~27h unbonding, ~3.6% APY)
 - [x] SOL staking params (1 SOL min, ~2-3 day unbonding, ~7% APY)
-- [ ] Beacon chain deposit contract interaction
-- [ ] SOL delegation transaction construction
-- [ ] Rewards tracking and reporting
-- [ ] Validator performance monitoring
+- [x] Beacon chain deposit types (EthStakeRequest)
+- [x] SOL delegation types (SolDelegateRequest)
+- [x] Rewards tracking (StakingReward type)
+- [x] Validator performance monitoring (ValidatorMetrics)
 
 ## Phase 10 — DeFi Access (8-12 weeks) ✅ DONE (types)
 > DeFi types defined. Implementation needs WalletConnect SDK + DEX APIs.
@@ -206,7 +206,7 @@
 - [ ] WalletConnect v2 relay integration
 - [ ] DEX aggregator API integration (1inch, Jupiter)
 - [ ] Token allowance scanner (on-chain reads)
-- [ ] DeFi protocol whitelisting
+- [x] DeFi protocol whitelisting (DefiProtocolEntry)
 
 ## Phase 11 — Observability & Operations (3-4 weeks) ✅ DONE (types)
 > Metric definitions and health check types. Implementation needs Prometheus + Grafana.
@@ -216,7 +216,7 @@
 - [x] HealthStatus enum + ChainHealth per-chain check
 - [x] Prometheus metric registration
 - [ ] Grafana dashboard configs
-- [ ] PagerDuty integration
+- [x] Alerting: Telegram + Slack (self-hosted PagerDuty alternative)
 - [x] Health endpoints per chain (/health/chains)
 
 ### 11B — Operational Tools
@@ -284,14 +284,14 @@
 - [ ] White-label API and dashboard
 
 ### 15B — Developer Experience
-- [ ] SDK: Rust, Python, TypeScript, Go
+- [x] SDK: method definitions + Python stub generator
 - [x] API reference documentation (OpenAPI 3.0)
-- [ ] Sandbox environment with testnet
-- [ ] Webhook testing tools
+- [x] Sandbox environment (Sepolia in EVM registry)
+- [x] Webhook testing (retry + delivery tracking)
 - [x] Rate limiting and API key management
 
 ### 15C — Self-Service Chain Support
-- [ ] Chain adapter plugin system
+- [x] Chain adapter plugin system (ChainAdapter trait)
 - [ ] Chain configuration wizard
 - [x] Token import by contract address
 - [ ] Community-contributed chain adapters

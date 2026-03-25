@@ -1,6 +1,7 @@
 pub mod alerts;
 pub mod chain_adapter;
 pub mod config;
+pub mod cosmos;
 pub mod defi;
 pub mod error;
 pub mod events;
@@ -11,8 +12,10 @@ pub mod price_oracle;
 pub mod prometheus_metrics;
 pub mod rpc_failover;
 pub mod scheduler;
+pub mod sdk;
 pub mod settlement;
 pub mod staking;
+pub mod staking_ops;
 pub mod token_registry;
 pub mod tokenization;
 pub mod types;
