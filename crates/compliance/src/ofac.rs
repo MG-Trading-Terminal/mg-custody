@@ -134,7 +134,7 @@ pub fn ofac_checker_with_known_addresses() -> SanctionsChecker {
     ofac.add_address("0x910cbd523d972eb0a6f4cae4618ad62622b39dbf");
     // Add more from OFAC updates...
 
-    let mut eu = SanctionsList::new("EU Sanctions", "https://webgate.ec.europa.eu/europeaid/fsd/fsf");
+    let eu = SanctionsList::new("EU Sanctions", "https://webgate.ec.europa.eu/europeaid/fsd/fsf");
     // EU sanctions list addresses would be loaded from the EU registry
 
     checker.add_list(ofac);

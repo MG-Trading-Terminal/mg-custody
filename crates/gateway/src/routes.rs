@@ -6,7 +6,6 @@
 //! GET  /v1/wallets/:asset    — wallet balance
 //! GET  /health               — health check
 
-use std::sync::Arc;
 
 use axum::{
     Json, Router,

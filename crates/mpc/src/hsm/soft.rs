@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use anyhow::{Result, ensure};
+use anyhow::Result;
 
 use super::HsmAdapter;
 

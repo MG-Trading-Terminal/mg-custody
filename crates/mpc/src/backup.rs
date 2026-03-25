@@ -3,7 +3,6 @@
 //! Encrypted backup of MPC key shares for disaster recovery scenarios.
 //! Uses AES-256-GCM with a password-derived key for each backup.
 
-use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

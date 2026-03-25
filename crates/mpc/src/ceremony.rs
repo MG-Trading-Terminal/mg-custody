@@ -5,8 +5,6 @@
 //! and exports share 3 for offline cold storage.
 
 use anyhow::{Context, Result};
-use uuid::Uuid;
-use zeroize::Zeroize;
 
 use crate::frost;
 use crate::hsm::HsmAdapter;

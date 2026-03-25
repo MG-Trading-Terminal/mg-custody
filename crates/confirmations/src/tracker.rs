@@ -10,7 +10,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use chrono::Utc;
 use custody_common::{Chain, DepositStatus, WithdrawalStatus};
 use custody_db::CustodyDb;
 

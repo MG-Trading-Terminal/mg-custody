@@ -4,7 +4,6 @@
 //! Routes messages between parties (for local testing, this is in-memory;
 //! for production, messages flow through a secure channel to the HSM).
 
-use anyhow::Result;
 use uuid::Uuid;
 
 /// A unique MPC session identifier.

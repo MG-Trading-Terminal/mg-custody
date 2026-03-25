@@ -62,7 +62,7 @@ impl NonceManager {
         let _guard = lock.lock().await;
 
         // Check if we have a stored nonce
-        if let Some(nonce) = self.db.get_nonce(address).await? {
+        if let Some(_nonce) = self.db.get_nonce(address).await? {
             // Increment and return the current value
             let next = self.db.increment_nonce(address).await?;
             tracing::debug!(address, nonce = next, "Nonce allocated from DB");

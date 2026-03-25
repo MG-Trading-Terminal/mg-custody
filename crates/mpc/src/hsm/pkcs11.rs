@@ -4,7 +4,7 @@
 //! For development: use SoftHSM2.
 //! For production: Thales Luna, Utimaco, AWS CloudHSM, Azure Dedicated HSM.
 
-use anyhow::{Result, Context};
+use anyhow::Result;
 
 use super::HsmAdapter;
 
@@ -59,7 +59,7 @@ impl HsmAdapter for Pkcs11Hsm {
         Ok(())
     }
 
-    fn load_share(&self, key_id: &str, party_id: u16) -> Result<Vec<u8>> {
+    fn load_share(&self, _key_id: &str, _party_id: u16) -> Result<Vec<u8>> {
         // TODO: C_FindObjects + C_GetAttributeValue
         anyhow::bail!("PKCS#11 load not implemented — connect to real HSM")
     }
