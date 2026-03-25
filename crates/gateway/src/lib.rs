@@ -8,6 +8,7 @@ pub mod auth;
 pub mod connectivity_routes;
 pub mod exchange_routes;
 pub mod errors;
+pub mod governance_routes;
 pub mod health;
 pub mod middleware;
 pub mod ops_routes;

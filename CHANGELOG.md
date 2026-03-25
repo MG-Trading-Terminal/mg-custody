@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 9: Governance & Advanced Features
+- **Vault policies** — per-vault spending rules (max amount, velocity limits, time locks, freeze, whitelist-only, require approvals)
+  - Tagged enum serialization for rules; CRUD: `GET/POST /v1/vaults/{id}/policies`, `GET/PUT/DELETE /v1/policies/{id}`
+- **Approval workflows** — multi-sig quorum with decision tracking
+  - Duplicate approver detection, auto-status transition (approve/reject)
+  - `GET /v1/approvals/{withdrawal_id}`, `POST .../decide`, `GET /v1/vaults/{id}/approvals`
+- **Supported networks** — chain metadata with tokens, block times, explorers
+  - 4 networks, 9 tokens (ETH/BTC/TRX/SOL + USDT/USDC variants)
+  - `GET /v1/supported-networks`, `GET .../{chain}`, `GET .../{chain}/tokens`
+- **Transaction notes** — attach metadata to any transaction
+  - `GET/POST /v1/transactions/{id}/notes`
+- **Staking execution** — stake/unstake with minimum validation and unbonding
+  - ETH 32 min, SOL 1 min; unbonding periods (ETH 27d, SOL 3d)
+  - `GET /v1/staking/positions`, `POST /v1/staking/stake`, `POST /v1/staking/unstake`
+- **DB migration 007_governance.sql**: 3 new tables (vault_policies, approval_workflows, transaction_notes)
+- **17 new API endpoints**, 11 new tests (575 total)
+
 ### Added (2026-03-26) — Level 8: Platform & Reporting
 - **Workspace management** — multi-tenant isolation with CRUD
   - `GET/POST /v1/workspaces`, `GET/PUT /v1/workspaces/{id}`

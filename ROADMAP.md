@@ -354,4 +354,9 @@
 | Reporting/export | Level 8 | ✅ Done |
 | Signing key info | Level 8 | ✅ Done |
 | Travel rule (FATF) | Level 8 | ✅ Done |
+| Vault policies | Level 9 | ✅ Done |
+| Approval workflows | Level 9 | ✅ Done |
+| Supported networks | Level 9 | ✅ Done |
+| Transaction notes | Level 9 | ✅ Done |
+| Staking execution | Level 9 | ✅ Done |
 | SOC 2 / CCSS | Phase 16 | Planned |

@@ -8,6 +8,7 @@ pub mod defi;
 pub mod error;
 pub mod events;
 pub mod evm_chains;
+pub mod governance;
 pub mod grafana;
 pub mod incident;
 pub mod load_test;
