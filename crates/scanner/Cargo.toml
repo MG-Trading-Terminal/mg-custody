@@ -13,6 +13,8 @@ tokio = { workspace = true }
 rust_decimal = { workspace = true }
 uuid = { workspace = true }
 hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 reqwest = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
