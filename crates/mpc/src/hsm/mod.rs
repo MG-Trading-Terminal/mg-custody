@@ -3,6 +3,7 @@
 //! Provides a trait for storing MPC key shares in hardware security modules.
 //! Implementations: software (dev), PKCS#11 (production), cloud HSM.
 
+pub mod pkcs11;
 pub mod soft;
 
 use anyhow::Result;

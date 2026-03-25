@@ -74,18 +74,18 @@
 - [x] HsmAdapter trait (store/load/delete/list)
 - [x] SoftwareHsm (in-memory, dev/test)
 - [x] KeyStore wrapper with encrypted storage
-- [ ] PKCS#11 integration (SoftHSM2 for dev, Thales/Utimaco for prod)
-- [ ] AWS CloudHSM adapter
+- [x] PKCS#11 integration (SoftHSM2 for dev, Thales/Utimaco for prod)
+- [x] AWS CloudHSM adapter
 - [ ] Azure Dedicated HSM adapter
 - [ ] Hardware-enforced rate limiting on signing operations
 
 ### 4D — Key Lifecycle Management
 - [ ] Key rotation schedule (automatic, no downtime)
-- [ ] Key share backup & disaster recovery
-- [ ] Emergency key revocation procedure
+- [x] Key share backup & disaster recovery
+- [x] Emergency key revocation procedure
 - [x] MPC coordinator session management
-- [ ] Multi-party key ceremony CLI tool
-- [ ] Secure key deletion with cryptographic proof
+- [x] Multi-party key ceremony CLI tool
+- [x] Secure key deletion with cryptographic proof
 
 ## Phase 5 — Policy Engine (6-8 weeks) ✅ DONE
 > **Why**: Fireblocks TAP (Transaction Authorization Policy) runs in SGX enclaves. We need programmable, auditable, tamper-resistant policy enforcement.
@@ -95,9 +95,9 @@
 - [x] Rule types: per-asset, per-amount, per-destination, per-user role
 - [x] Top-down first-match-wins evaluation (secure default: deny)
 - [x] Rule priority ordering, enable/disable
-- [ ] Composite rules (AND/OR/NOT logic)
-- [ ] Policy versioning with audit trail
-- [ ] Policy simulation mode (dry-run before activation)
+- [x] Composite rules (AND/OR/NOT logic)
+- [x] Policy versioning with audit trail
+- [x] Policy simulation mode (dry-run before activation)
 
 ### 5B — Approval Workflows
 - [x] Multi-approver quorum (M-of-N with configurable role requirements)
@@ -105,8 +105,8 @@
 - [x] Rejection immediately rejects (any single reject)
 - [x] Duplicate approver detection
 - [x] Role hierarchy enforcement (Owner > Admin > Signer > Editor > Viewer)
-- [ ] FIDO2/WebAuthn hardware key authentication
-- [ ] Time-delayed releases (configurable per tier)
+- [x] FIDO2/WebAuthn hardware key authentication (types)
+- [x] Time-delayed releases (configurable per tier)
 - [ ] Mobile push notifications for pending approvals
 
 ### 5C — Address Management
@@ -121,13 +121,13 @@
 - [x] Role-based access: Owner / Admin / Signer / Editor / Viewer
 - [x] Permission system (7 permissions mapped to roles)
 - [x] Admin quorum function for sensitive operations
-- [ ] Emergency freeze (any admin can halt all operations)
-- [ ] IP allowlisting for admin access
-- [ ] API key management with scoped permissions
+- [x] Emergency freeze (any admin can halt all operations)
+- [x] IP allowlisting for admin access
+- [x] API key management with scoped permissions
 
 ### 5E — Policy API + DB
 - [x] DB persistence stubs (rules, whitelists, approvals)
-- [ ] CRUD API for rules, whitelists, approval workflows
+- [x] CRUD API for rules, whitelists, approval workflows
 - [ ] Policy export/import (JSON/TOML)
 - [ ] Webhook on policy changes
 
