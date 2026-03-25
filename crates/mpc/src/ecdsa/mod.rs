@@ -7,6 +7,6 @@ pub mod keygen;
 pub mod sign;
 pub mod types;
 
-pub use keygen::local_dkg;
+pub use keygen::trusted_dealer_keygen;
 pub use sign::threshold_sign;
 pub use types::{EcdsaGroupKey, EncryptedEcdsaShare};

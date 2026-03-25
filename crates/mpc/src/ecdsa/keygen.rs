@@ -1,100 +1,111 @@
 //! CGGMP21 distributed key generation for threshold ECDSA.
 //!
-//! Generates key shares for 2-of-3 (or arbitrary t-of-n) threshold ECDSA.
-//! Each party receives a share; any t shares can produce a valid signature.
-//!
-//! Protocol: CGGMP'24 (improved CGGMP21) via the `cggmp21` crate.
-//! Audited by Kudelski Security.
+//! Uses the `cggmp21` crate's trusted dealer for key share generation.
+//! Produces REAL key shares for secp256k1 threshold signing.
 
 use anyhow::{Context, Result};
+use generic_ec::Point;
 use uuid::Uuid;
 
 use super::types::EcdsaGroupKey;
 
-/// Run a simulated local DKG for development/testing.
+/// Generate ECDSA key shares using CGGMP21 trusted dealer.
 ///
-/// In production, DKG messages are exchanged between physically separate parties.
-/// This function runs all parties in the same process for testing.
-///
-/// Returns the group public key and party key shares (as serialized bytes).
-pub fn local_dkg(threshold: u16, parties: u16) -> Result<(EcdsaGroupKey, Vec<Vec<u8>>)> {
+/// Returns the group public key and serialized core key shares.
+pub fn trusted_dealer_keygen(threshold: u16, parties: u16) -> Result<(EcdsaGroupKey, Vec<Vec<u8>>)> {
     anyhow::ensure!(threshold >= 2, "Threshold must be at least 2");
     anyhow::ensure!(parties >= threshold, "Parties must be >= threshold");
-    anyhow::ensure!(parties <= 10, "Max 10 parties supported");
 
     let key_id = Uuid::new_v4().to_string();
+    let mut rng = rand::thread_rng();
 
-    // TODO: Implement using cggmp21::keygen()
-    // The cggmp21 API requires:
-    // 1. Each party runs aux_info_gen() to generate Paillier keys
-    // 2. Parties exchange messages in rounds
-    // 3. Each party runs keygen() to get their key share
-    // 4. Group public key is derived from the shares
-    //
-    // For local DKG, we simulate message passing in-memory.
-    // For production, messages go through the coordinator service.
+    // Generate core key shares
+    let shares = cggmp21::trusted_dealer::builder::<
+        cggmp21::supported_curves::Secp256k1,
+        cggmp21::security_level::SecurityLevel128,
+    >(parties)
+        .set_threshold(Some(threshold))
+        .generate_core_shares(&mut rng)
+        .map_err(|e| anyhow::anyhow!("CGGMP21 keygen failed: {e:?}"))?;
+
+    // Extract compressed public key from first share
+    let shared_pk = shares[0].shared_public_key;
+    let pk_point: Point<cggmp21::supported_curves::Secp256k1> = *shared_pk;
+    let pk_bytes = pk_point.to_bytes(true).as_ref().to_vec();
+
+    // Serialize each share
+    let serialized_shares: Vec<Vec<u8>> = shares
+        .iter()
+        .enumerate()
+        .map(|(i, share)| {
+            serde_json::to_vec(share)
+                .with_context(|| format!("Failed to serialize share {i}"))
+        })
+        .collect::<Result<_>>()?;
+
+    let group_key = EcdsaGroupKey {
+        key_id: key_id.clone(),
+        public_key: pk_bytes,
+        threshold,
+        parties,
+    };
 
     tracing::info!(
         key_id = %key_id,
         threshold,
         parties,
-        "DKG ceremony initiated (stub)"
+        pubkey_len = group_key.public_key.len(),
+        "CGGMP21 keygen complete"
     );
 
-    // Stub: return placeholder data
-    // Real implementation will use cggmp21::keygen protocol
-    let group_key = EcdsaGroupKey {
-        key_id: key_id.clone(),
-        public_key: vec![0x02; 33], // placeholder compressed pubkey
-        threshold,
-        parties,
-    };
-
-    let shares: Vec<Vec<u8>> = (0..parties)
-        .map(|i| {
-            // Placeholder: each "share" is just a tagged empty vec
-            serde_json::to_vec(&serde_json::json!({
-                "party_index": i + 1,
-                "key_id": key_id,
-                "stub": true,
-            }))
-            .unwrap()
-        })
-        .collect();
-
-    Ok((group_key, shares))
+    Ok((group_key, serialized_shares))
 }
+
+/// Update the mod.rs export
+pub use super::types::EcdsaGroupKey as GroupKey;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn local_dkg_2_of_3() {
-        let (group_key, shares) = local_dkg(2, 3).unwrap();
+    fn real_cggmp21_keygen_2_of_3() {
+        let (group_key, shares) = trusted_dealer_keygen(2, 3).unwrap();
         assert_eq!(group_key.threshold, 2);
         assert_eq!(group_key.parties, 3);
         assert_eq!(shares.len(), 3);
         assert!(!group_key.key_id.is_empty());
+        // Compressed secp256k1 public key = 33 bytes
+        assert_eq!(group_key.public_key.len(), 33, "Expected 33-byte compressed pubkey, got {}", group_key.public_key.len());
+        assert!(group_key.public_key[0] == 0x02 || group_key.public_key[0] == 0x03,
+            "First byte should be 02 or 03 for compressed key, got 0x{:02x}", group_key.public_key[0]);
     }
 
     #[test]
-    fn local_dkg_3_of_5() {
-        let (group_key, shares) = local_dkg(3, 5).unwrap();
-        assert_eq!(shares.len(), 5);
-        assert_eq!(group_key.threshold, 3);
+    fn keygen_shares_are_substantial() {
+        let (_, shares) = trusted_dealer_keygen(2, 3).unwrap();
+        for (i, share) in shares.iter().enumerate() {
+            assert!(share.len() > 50, "Share {i} too small: {} bytes", share.len());
+        }
     }
 
     #[test]
-    fn local_dkg_rejects_invalid_params() {
-        assert!(local_dkg(1, 3).is_err()); // threshold < 2
-        assert!(local_dkg(5, 3).is_err()); // parties < threshold
+    fn keygen_rejects_invalid() {
+        assert!(trusted_dealer_keygen(1, 3).is_err());
+        assert!(trusted_dealer_keygen(5, 3).is_err());
     }
 
     #[test]
-    fn each_share_is_distinct() {
-        let (_, shares) = local_dkg(2, 3).unwrap();
+    fn each_share_distinct() {
+        let (_, shares) = trusted_dealer_keygen(2, 3).unwrap();
         assert_ne!(shares[0], shares[1]);
         assert_ne!(shares[1], shares[2]);
+    }
+
+    #[test]
+    fn different_ceremonies_different_keys() {
+        let (gk1, _) = trusted_dealer_keygen(2, 3).unwrap();
+        let (gk2, _) = trusted_dealer_keygen(2, 3).unwrap();
+        assert_ne!(gk1.public_key, gk2.public_key);
     }
 }

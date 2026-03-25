@@ -1991,6 +1991,7 @@ dependencies = [
  "ed25519-dalek",
  "frost-core",
  "frost-ed25519",
+ "generic-ec",
  "hex",
  "k256",
  "rand 0.8.5",
@@ -2950,6 +2951,7 @@ dependencies = [
  "curve25519-dalek",
  "digest 0.10.7",
  "generic-ec-core",
+ "generic-ec-curves",
  "hex",
  "phantom-type 0.4.2",
  "rand_core 0.6.4",
@@ -2970,6 +2972,21 @@ dependencies = [
  "generic-array",
  "rand_core 0.6.4",
  "serde",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "generic-ec-curves"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c7c6d23001a5eb60eec2b785a63d2ca965fdfbaf3314b3b46df047398369e28"
+dependencies = [
+ "elliptic-curve",
+ "generic-ec-core",
+ "k256",
+ "rand_core 0.6.4",
+ "sha2",
  "subtle",
  "zeroize",
 ]
@@ -3148,7 +3165,11 @@ version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6522551bb35937363845f39a6d4c49e60bdb35a8f7154ebdd078cab50be97992"
 dependencies = [
+ "generic-array",
  "generic-ec",
+ "hmac",
+ "sha2",
+ "subtle",
 ]
 
 [[package]]
@@ -3681,6 +3702,7 @@ dependencies = [
  "generic-ec-zkp",
  "hd-wallet",
  "hex",
+ "rand_core 0.6.4",
  "serde",
  "serde_with 2.3.3",
  "thiserror 1.0.69",
