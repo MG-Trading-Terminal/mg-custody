@@ -50,6 +50,7 @@ pub mod scheduler;
 pub mod sdk;
 pub mod settlement;
 pub mod settlement_ops;
+pub mod solana_instructions;
 pub mod settlement_protocol;
 pub mod staking;
 pub mod staking_contracts;
@@ -69,6 +70,7 @@ pub mod webhook;
 pub mod walletconnect;
 pub mod walletconnect_v2;
 pub mod yield_strategies;
+pub mod zk_proofs;
 
 pub use types::*;
 pub use error::*;

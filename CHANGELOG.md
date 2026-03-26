@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 27: ZK Proofs + Solana Instructions
+- **ZK Proof of Reserves** — Merkle tree construction, proof verification, attestation generation
+  - Pedersen commitments, range proofs, user balance leaf hashing
+  - Solvency check (total_assets >= total_liabilities)
+- **Solana instruction builders** — 12 instruction types across 4 programs
+  - System: Transfer, CreateAccount
+  - SPL Token: Transfer, Approve, MintTo, Burn, CloseAccount
+  - Stake: Initialize, Delegate, Deactivate, Withdraw
+  - Memo: arbitrary message
+- **27 new tests** (927 total)
+
 ### Added (2026-03-26) — Level 26: Lending Protocols + Yield Strategies
 - **Aave V3** — supply/borrow/repay/withdraw calldata encoding, health factor calculation
 - **Compound V3** — supply/withdraw calldata, Comet addresses
