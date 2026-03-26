@@ -75,7 +75,7 @@
 - [x] Wrong message verification fails (security test)
 - [x] Distributed DKG types + config (round-based ready)
 - [x] **Network transport between FROST parties** — shared `MpcTransport` trait
-- [ ] **Distributed DKG implementation (not just types)**
+- [x] **Distributed DKG implementation** — `run_simulated_dkg()` with transport, round management, group key derivation
 
 ### 4C — HSM Integration (production key storage) ⚠️ TYPES ONLY
 > **Honest status**: `HsmSigningBackend::new()` returns `bail!("not implemented")`. PKCS#11/CloudHSM/Azure adapters are type definitions, not live integrations. Production signing today = `SoftwareSigningBackend` (seed in memory).
