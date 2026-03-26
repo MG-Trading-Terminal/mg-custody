@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — MPC Share Persistence
+- **ShareStore trait** — persist key shares across process restarts
+  - FileShareStore (dev), integrity verification (SHA-256 hash), zeroized DecryptedShare
+  - Save/load/list/delete with file-based storage
+- **7 new tests** (1103 total)
+
 ### Added (2026-03-26) — MPC Transport + HSM Guard
 - **MPC network transport** — `MpcTransport` trait with HMAC-authenticated messaging
   - InMemoryTransport for testing, session/round-based message filtering
