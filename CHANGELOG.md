@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — EVM Access Lists + Address Poisoning Detection
+- **EVM Access Lists (EIP-2930)** — gas savings estimation, storage slot computation
+  - Balance/allowance mapping slot calculation (keccak256)
+- **Address poisoning detection** — zero-value transfer attack prevention
+  - Prefix+suffix matching, risk classification (None/Low/Medium/High)
+  - Warning message generation for UI
+- **15 new tests** (1085 total)
+
 ### Added (2026-03-26) — Transaction Simulation + Preflight Checks
 - **Tx simulation** — eth_call, eth_estimateGas, SOL simulateTransaction, TRX triggerConstantContract
 - **Revert decoder** — Error(string) and Panic(uint256) with known codes

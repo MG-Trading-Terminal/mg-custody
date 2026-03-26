@@ -1,5 +1,6 @@
 pub mod abi_decoder;
 pub mod accounting;
+pub mod address_poisoning;
 pub mod alerts;
 pub mod bitcoin_advanced;
 pub mod bitcoin_fees;
@@ -25,6 +26,7 @@ pub mod error;
 pub mod error_recovery;
 pub mod fido2;
 pub mod events;
+pub mod evm_access_list;
 pub mod evm_chains;
 pub mod evm_rlp;
 pub mod gas_optimization;
