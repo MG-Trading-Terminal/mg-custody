@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 26: Lending Protocols + Yield Strategies
+- **Aave V3** — supply/borrow/repay/withdraw calldata encoding, health factor calculation
+- **Compound V3** — supply/withdraw calldata, Comet addresses
+- **Lending markets** — 7 markets with APYs and LTV ratios, liquidation detection
+- **Yield strategies** — 6 strategies (Maker DSR, Yearn, Convex, Ethena, EigenLayer, EtherFi)
+  - Risk classification, APY comparison, asset-specific lookup
+- **19 new tests** (900 total)
+
 ### Added (2026-03-26) — Level 25: ABI Decoder + Tron Energy + Event Parsing
 - **ABI decoder** — 26 function selectors, 7 event topics, Transfer event decoding
 - **Tron Energy** — TRC-20 cost estimation, resource checks, freeze calculation

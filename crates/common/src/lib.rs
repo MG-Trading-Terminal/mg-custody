@@ -27,6 +27,7 @@ pub mod governance;
 pub mod grafana;
 pub mod incident;
 pub mod jupiter;
+pub mod lending;
 pub mod load_test;
 pub mod metrics;
 pub mod metrics_wiring;
@@ -67,6 +68,7 @@ pub mod waas;
 pub mod webhook;
 pub mod walletconnect;
 pub mod walletconnect_v2;
+pub mod yield_strategies;
 
 pub use types::*;
 pub use error::*;
