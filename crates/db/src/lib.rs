@@ -8,6 +8,7 @@ pub mod addresses;
 pub mod api_keys;
 pub mod assets;
 pub mod audit;
+pub mod circuit_breaker;
 pub mod connections;
 pub mod custody_ledger;
 pub mod deposits;

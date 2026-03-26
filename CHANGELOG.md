@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Phase 17A + 17C: Trust Infrastructure
+- **THREAT_MODEL.md** — STRIDE framework analysis: 6 adversaries, 20+ attack vectors, honest mitigations
+  - Assets, trust boundaries, circuit breaker attack scenario documented
+  - What the system does NOT protect against (physical access, nation-state, smart contract bugs)
+- **SECURITY.md** — architecture diagram, key material flow, authentication methods
+  - Honest status of withdrawal approval tiers (FIDO2 = types only)
+  - Deployment prerequisites with ❌ for missing items
+- **Circuit breaker persistence (17C)** — CRITICAL fund safety fix
+  - DB table `circuit_breaker_state` (migration 009)
+  - Load counters on startup, atomic increment with withdrawal
+  - Window rollover (hourly/daily), trip/reset with logging
+  - No more counter reset on process restart
+
 ### Added (2026-03-26) — Level 29: 1000 Tests Milestone
 - **Solana versioned transactions** — v0 with Address Lookup Tables, tx size estimation
   - Priority fee levels (None → VeryHigh), fee calculation in SOL

@@ -1,8 +1,10 @@
 # Roadmap
 
-> **Target**: Feature parity with Fireblocks-class institutional custody.
+> **Target**: Trustworthy self-hosted custody that operators can verify and deploy safely.
 > **Strategy**: Self-hosted = no vendor lock-in, data sovereignty, cost at scale.
 > **Benchmark**: Fireblocks (150+ chains, MPC-CMP, SGX policy engine, $10T+ processed).
+> **Current reality**: Feature-rich but not production-ready. Trust infrastructure (threat model, signer isolation, circuit breaker persistence) must come before new features.
+> **First users**: Small funds, prop desks, exchanges who want auditability and control.
 
 ---
 
@@ -51,10 +53,10 @@
 
 ---
 
-## Phase 4 — MPC Signing & HSM (8-12 weeks) ✅ DONE
+## Phase 4 — MPC Signing & HSM (8-12 weeks) ⚠️ CRYPTO LAYER DONE, OPERATIONAL INTEGRATION PENDING
 > **Why**: Single-seed architecture = single point of total fund loss. Every institutional provider uses MPC or multi-sig. This is the #1 blocker for production.
 
-### 4A — Threshold ECDSA (CGGMP21) for secp256k1 chains
+### 4A — Threshold ECDSA (CGGMP21) for secp256k1 chains ✅ crypto done
 - [x] New `custody-mpc` crate (15th workspace crate)
 - [x] MpcSigner trait + KeygenResult + ThresholdSignature types
 - [x] CGGMP21 DKG stub (2-of-3 and arbitrary t-of-n)
@@ -62,24 +64,33 @@
 - [x] CGGMP21 threshold signing (keygen + sign + verify via round-based sim)
 - [x] Key share rotation types (pending cggmp21 reshare support)
 - [x] Presigning cache for low-latency operations
+- [ ] **Network transport between MPC parties (authenticated channels)**
+- [ ] **Share persistence across process restarts**
+- [ ] **Multi-process party coordination**
 
-### 4B — FROST threshold EdDSA for Ed25519 chains
+### 4B — FROST threshold EdDSA for Ed25519 chains ✅ crypto done
 - [x] FROST trusted dealer keygen (frost-ed25519 v2.2, RFC 9591)
 - [x] FROST 2-round threshold signing (commitments → shares → aggregate)
 - [x] Sign + verify roundtrip tested for all 3 combinations of 2-of-3
 - [x] Wrong message verification fails (security test)
 - [x] Distributed DKG types + config (round-based ready)
+- [ ] **Network transport between FROST parties**
+- [ ] **Distributed DKG implementation (not just types)**
 
-### 4C — HSM Integration (production key storage)
+### 4C — HSM Integration (production key storage) ⚠️ TYPES ONLY
+> **Honest status**: `HsmSigningBackend::new()` returns `bail!("not implemented")`. PKCS#11/CloudHSM/Azure adapters are type definitions, not live integrations. Production signing today = `SoftwareSigningBackend` (seed in memory).
 - [x] HsmAdapter trait (store/load/delete/list)
 - [x] SoftwareHsm (in-memory, dev/test)
 - [x] KeyStore wrapper with encrypted storage
-- [x] PKCS#11 integration (SoftHSM2 for dev, Thales/Utimaco for prod)
-- [x] AWS CloudHSM adapter
-- [x] Azure Dedicated HSM adapter (via CloudHSM wrapper)
+- [x] PKCS#11 integration types (SoftHSM2 for dev, Thales/Utimaco for prod)
+- [x] AWS CloudHSM adapter types
+- [x] Azure Dedicated HSM adapter types (via CloudHSM wrapper)
 - [x] Hardware-enforced rate limiting on signing operations
+- [ ] **Live PKCS#11 session management (actual HSM calls)**
+- [ ] **CloudHSM API integration (actual AWS SDK calls)**
+- [ ] **Runtime guard: panic if HSM mode selected but not wired**
 
-### 4D — Key Lifecycle Management
+### 4D — Key Lifecycle Management ✅ types done
 - [x] Key rotation schedule (quarterly default, configurable)
 - [x] Key share backup & disaster recovery
 - [x] Emergency key revocation procedure
@@ -186,8 +197,8 @@
 - [x] Multi-RPC failover logic
 - [x] Chain health monitoring (RPC failover + metrics)
 
-## Phase 9 — Staking & Yield (6-8 weeks) ✅ DONE (types)
-> Staking types and parameters defined. Implementation needs chain RPC integration.
+## Phase 9 — Staking & Yield (6-8 weeks) ⏸️ TYPES ONLY — not operational
+> Staking types and parameters defined. Implementation needs chain RPC integration. **No live staking possible.**
 
 - [x] StakingPosition, StakingStatus, StakingParams types
 - [x] ETH staking params (32 ETH min, ~27h unbonding, ~3.6% APY)
@@ -197,8 +208,8 @@
 - [x] Rewards tracking (StakingReward type)
 - [x] Validator performance monitoring (ValidatorMetrics)
 
-## Phase 10 — DeFi Access (8-12 weeks) ✅ DONE (types)
-> DeFi types defined. Implementation needs WalletConnect SDK + DEX APIs.
+## Phase 10 — DeFi Access (8-12 weeks) ⏸️ TYPES ONLY — not operational
+> DeFi types defined. Implementation needs WalletConnect SDK + DEX APIs. **No live DeFi execution possible.**
 
 - [x] WalletConnectSession, SwapRequest, SwapStatus types
 - [x] TokenAllowance with risk detection (unlimited = risky)
@@ -208,8 +219,8 @@
 - [x] Token allowance scanner types
 - [x] DeFi protocol whitelisting (DefiProtocolEntry)
 
-## Phase 11 — Observability & Operations (3-4 weeks) ✅ DONE (types)
-> Metric definitions and health check types. Implementation needs Prometheus + Grafana.
+## Phase 11 — Observability & Operations (3-4 weeks) ⏸️ TYPES ONLY — not wired to runtime
+> Metric definitions and health check types. Implementation needs Prometheus + Grafana. **Types exist, runtime metrics not emitted.**
 
 - [x] Full metric name definitions (deposits, withdrawals, chain health, signing, policy, compliance, wallets)
 - [x] Standard label names (chain, asset, status, tier, provider)
@@ -251,8 +262,8 @@
 - [x] Background reconciliation scheduler
 - [x] Auditor export format
 
-## Phase 13 — Settlement & Counterparty Network (8-12 weeks) ✅ DONE (types)
-> Settlement types defined. Implementation needs counterparty API integration.
+## Phase 13 — Settlement & Counterparty Network (8-12 weeks) ⏸️ TYPES ONLY — not operational
+> Settlement types defined. Implementation needs counterparty API integration. **No live settlement possible.**
 
 - [x] SettlementTransfer with status tracking
 - [x] Counterparty connection management types
@@ -260,8 +271,8 @@
 - [x] Counterparty API protocol (Hello/Request/Confirm/Reject)
 - [x] Settlement netting (bilateral)
 
-## Phase 14 — Tokenization & RWA (6-8 weeks) ✅ DONE (types)
-> Tokenization types defined. Implementation needs smart contract integration.
+## Phase 14 — Tokenization & RWA (6-8 weeks) ⏸️ TYPES ONLY — not operational
+> Tokenization types defined. Implementation needs smart contract integration. **No live tokenization possible.**
 
 - [x] TokenStandard (ERC-20/721/1155, SPL, TRC-20)
 - [x] ManagedToken with full lifecycle tracking
@@ -269,8 +280,8 @@
 - [x] Smart contract deployment types
 - [x] Token lifecycle types
 
-## Phase 15 — Platform & WaaS (8-12 weeks) ✅ DONE (types)
-> WaaS types defined. Implementation needs multi-tenant infrastructure.
+## Phase 15 — Platform & WaaS (8-12 weeks) ⏸️ TYPES ONLY — not operational
+> WaaS types defined. Implementation needs multi-tenant infrastructure. **No live multi-tenancy possible.**
 
 - [x] Workspace with environment (Sandbox/Testnet/Mainnet)
 - [x] ApiKeyInfo with IP whitelist and role scoping
@@ -296,8 +307,67 @@
 - [x] Token import by contract address
 - [x] Community chain adapter framework
 
-## Phase 16 — Security Certifications (ongoing)
-> **Why**: SOC 2 Type 2 is table stakes. CCSS Level 3 is gold standard.
+## Phase 17 — Trust Infrastructure (NEXT — blocks all user adoption)
+> **Why**: The project has more technology than market trust. No one will deploy a custody system they cannot verify is safe. This phase produces zero new features and 100% trust artifacts. Every item here must be done before seeking external users.
+
+### 17A — Honest Documentation (P0, 1 session)
+- [x] `THREAT_MODEL.md`: assets, adversaries, attack vectors, mitigations, explicitly out-of-scope (STRIDE framework)
+- [x] `SECURITY.md`: architecture diagram with trust boundaries, key flow, deployment prerequisites
+- [x] Audit ROADMAP.md: mark stub/types-only items honestly (this edit)
+- [ ] Update README: add "dev mode" warning on quick start, fix test count badge
+- [x] Document what the system protects against and what it does NOT
+
+### 17B — Signer Process Isolation (P0, makes Zone 3 real)
+> **Current state**: Single `custody` binary runs gateway + scanner + signer in same process. API compromise = signer compromise. Zone 3 is an aspiration, not a constraint.
+- [ ] Extract signing into separate binary (`custody-signer`)
+- [ ] IPC transport: Unix domain socket with HMAC-authenticated request/response
+- [ ] `custody-signer` has no network listener, no DB connection, no HTTP
+- [ ] `custody` main binary communicates with `custody-signer` over IPC only
+- [ ] Integration test: custody binary without signer socket returns 503, not signing error
+- [ ] Document: signer can run on separate host, only IPC socket crosses boundary
+
+### 17C — Circuit Breaker Persistence (P0, fund safety)
+> **Current state**: `check_circuit_breaker` is a pure function. Counters reset to zero on process restart. After $9M outflow, restart = another $10M can go out.
+- [x] DB table: `circuit_breaker_state` (chain, window_start, hourly_usd, daily_usd, tripped_at)
+- [x] Load counters on startup from DB
+- [x] Persist counter increment atomically with withdrawal record (same DB transaction)
+- [x] Trip event writes to DB AND fires alert webhook before returning error
+- [ ] Test: restart process mid-hour, verify counter survives
+
+### 17D — Attack Simulation Tests (P1)
+> **Why**: Claims like "API compromise doesn't leak keys" need proof, not words.
+- [ ] Test: dump all DB tables for key-related data, assert no plaintext 32+ byte hex sequences
+- [ ] Test: call all gateway endpoints without valid signer IPC socket, assert 503
+- [ ] Test: `SoftwareSigningBackend` drop actually zeroes seed (Box::from_raw verification)
+- [ ] Test: `encrypted_store` round-trip fails with wrong password
+- [ ] Test: log output from signing operations contains zero key material
+
+### 17E — Supply Chain & Reproducibility (P1)
+- [ ] Pin Dockerfile `FROM` lines to SHA256 digest (not `:latest`)
+- [ ] Add `cargo-deny` config (`deny.toml`) with license allow-list + RUSTSEC advisory DB
+- [ ] Generate SBOM on release build (cyclonedx-rust-cargo)
+- [ ] CI step: `cargo audit` on every PR
+- [ ] Document `Cargo.lock` as intentionally committed and version-pinned
+
+### 17F — Deployment Modes Document (P1)
+> **Why**: An operator deploying this needs to know what security properties hold in each configuration.
+- [ ] **Mode 1: Development** — single process, software keys, no HSM. What it is, what it is NOT
+- [ ] **Mode 2: Production minimal** — split signer binary, encrypted storage, separate host
+- [ ] **Mode 3: Production HSM** — Mode 2 + SoftHSM2 or Thales/Utimaco PKCS#11
+- [ ] **Mode 4: Production MPC** — Mode 3 + distributed key ceremony across 3+ hosts
+- [ ] For each mode: security properties that HOLD and those that DO NOT
+
+### 17G — Go-to-Market Foundation (P2)
+- [ ] Positioning doc: "Open-source custody engine (self-hosted Fireblocks alternative)"
+- [ ] Identify first 2 user archetypes: crypto startup + trading desk
+- [ ] Quickstart guide: "secure deployment in 30 minutes"
+- [ ] GitHub packaging: description, topics, social preview, CONTRIBUTING.md
+- [ ] Onboarding walkthrough for first 2 users (hands-on)
+
+---
+
+## Phase 16 — Security Certifications (ongoing, after Phase 17)
+> **Why**: SOC 2 Type 2 is table stakes. CCSS Level 3 is gold standard. **Blocked by Phase 17** — cannot certify what isn't isolated.
 
 - [ ] SOC 2 Type 2 audit (3-6 month engagement)
 - [ ] ISO 27001 certification
@@ -306,104 +376,60 @@
 - [x] Bug bounty program (types + rewards)
 - [x] Security incident response plan
 - [ ] Insurance program (broker engagement)
+- [ ] External security researcher review (focused on signing + key storage)
 
 ---
 
-## Summary: Fireblocks Parity Tracker
+## Feature Freeze Notice
 
-| Fireblocks Feature | Our Phase | Status |
-|-------------------|-----------|--------|
-| Key management (basic) | Phase 1 | ✅ Done |
-| 4 chain support | Phase 3 | ✅ Done |
-| Deposit scanning | Phase 2-3 | ✅ Done |
-| Withdrawal pipeline | Phase 2 | ✅ Done |
-| MPC signing | Phase 4 | ✅ Done |
-| HSM integration | Phase 4 | ✅ Done |
-| Policy engine (TAP) | Phase 5 | ✅ Done |
-| AML/KYT screening | Phase 6 | ✅ Done |
-| OFAC/sanctions | Phase 6 | ✅ Done |
-| Travel Rule | Phase 6 | ✅ Done |
-| Hot/warm/cold tiering | Phase 7 | ✅ Done |
-| Gas Station | Phase 7 | ✅ Done |
-| 50+ chains | Phase 8 | ✅ Done |
-| Staking | Phase 9 | ✅ Done (types) |
-| DeFi suite | Phase 10 | ✅ Done (types) |
-| Monitoring/alerting | Phase 11 | ✅ Done |
-| Proof of Reserves | Phase 12 | ✅ Done |
-| Settlement network | Phase 13 | ✅ Done (types) |
-| Tokenization/RWA | Phase 14 | ✅ Done (types) |
-| WaaS platform | Phase 15 | ✅ Done (types) |
-| Vault abstraction | Level 5 | ✅ Done |
-| Internal transfers | Level 5 | ✅ Done |
-| Transaction history | Level 5 | ✅ Done |
-| Raw message signing | Level 5 | ✅ Done |
-| Fee estimation API | Level 5 | ✅ Done |
-| Asset management API | Level 5 | ✅ Done |
-| Tx cancel/accelerate | Level 5 | ✅ Done |
-| Webhook management | Level 6 | ✅ Done |
-| Batch transactions | Level 6 | ✅ Done |
-| Audit log API | Level 6 | ✅ Done |
-| Address book | Level 6 | ✅ Done |
-| Gas station status | Level 6 | ✅ Done |
-| Exchange connections | Level 7 | ✅ Done |
-| API key management | Level 7 | ✅ Done |
-| Notification channels | Level 7 | ✅ Done |
-| System config API | Level 7 | ✅ Done |
-| Network fees/status | Level 7 | ✅ Done |
-| Workspace management | Level 8 | ✅ Done |
-| Reporting/export | Level 8 | ✅ Done |
-| Signing key info | Level 8 | ✅ Done |
-| Travel rule (FATF) | Level 8 | ✅ Done |
-| Vault policies | Level 9 | ✅ Done |
-| Approval workflows | Level 9 | ✅ Done |
-| Supported networks | Level 9 | ✅ Done |
-| Transaction notes | Level 9 | ✅ Done |
-| Staking execution | Level 9 | ✅ Done |
-| Transaction scheduling | Level 10 | ✅ Done |
-| Compliance screening | Level 10 | ✅ Done |
-| Backup/recovery status | Level 10 | ✅ Done |
-| Token discovery | Level 10 | ✅ Done |
-| Health dashboard | Level 10 | ✅ Done |
-| OpenAPI spec | Level 11 | ✅ Done |
-| SDK generation | Level 11 | ✅ Done |
-| Endpoint catalog | Level 11 | ✅ Done |
-| Address validation | Level 12 | ✅ Done |
-| Error catalog | Level 12 | ✅ Done |
-| CLI tools | Level 12 | ✅ Done |
-| Idempotency/signing | Level 13 | ✅ Done |
-| Retry policies | Level 13 | ✅ Done |
-| Circuit breaker v2 | Level 13 | ✅ Done |
-| UTXO analysis | Level 14 | ✅ Done |
-| EVM gas utilities | Level 14 | ✅ Done |
-| Deposit forwarding | Level 14 | ✅ Done |
-| Multi-sig wallets | Level 14 | ✅ Done |
-| Ledger accounting | Level 15 | ✅ Done |
-| Event catalog (31) | Level 15 | ✅ Done |
-| Token bucket limiter | Level 15 | ✅ Done |
-| Key fingerprints | Level 15 | ✅ Done |
-| DeFi execution | Level 16 | ✅ Done |
-| Settlement protocol | Level 16 | ✅ Done |
-| Tokenization execution | Level 16 | ✅ Done |
-| FIDO2/WebAuthn | Level 16 | ✅ Done |
-| Metrics wiring (35+) | Level 16 | ✅ Done |
-| Load test scenarios | Level 16 | ✅ Done |
-| Token database (55+) | Level 17 | ✅ Done |
-| Price engine (Chainlink/Pyth) | Level 17 | ✅ Done |
-| NFT custody (721/1155) | Level 17 | ✅ Done |
-| Uniswap/Curve calldata | Level 18 | ✅ Done |
-| Cross-chain bridges | Level 18 | ✅ Done |
-| Token allowance mgmt | Level 18 | ✅ Done |
-| Lido/Rocket Pool/Marinade | Level 19 | ✅ Done |
-| WalletConnect v2 protocol | Level 19 | ✅ Done |
-| Cosmos SDK chains (5) | Level 19 | ✅ Done |
-| Polkadot/Substrate (5) | Level 20 | ✅ Done |
-| Jupiter DEX (Solana) | Level 20 | ✅ Done |
-| Token auto-scan | Level 20 | ✅ Done |
-| ERC-4337 Account Abstraction | Level 21 | ✅ Done |
-| Bitcoin Taproot (P2TR) | Level 21 | ✅ Done |
-| MEV Protection (Flashbots/Jito) | Level 21 | ✅ Done |
-| Solana Compute Budget | Level 21 | ✅ Done |
-| EIP-712 Typed Data | Level 22 | ✅ Done |
-| Solana Token-2022 | Level 22 | ✅ Done |
-| Cross-chain messaging | Level 22 | ✅ Done |
-| SOC 2 / CCSS | Phase 16 | Planned |
+> **No new chains, DeFi protocols, or type-only features until Phase 17 is complete.**
+> Adding a 5th chain type does not increase trust. It increases attack surface.
+> A trustworthy 4-chain system beats an untrusted 50-chain system for every real customer.
+
+---
+
+## Summary: Honest Status Tracker
+
+### Core Infrastructure (operational)
+| Feature | Phase | Status |
+|---------|-------|--------|
+| Key management (BIP-32/44, SLIP-0010) | Phase 1 | ✅ Operational |
+| 4 chain support (BTC/ETH/TRX/SOL) | Phase 3 | ✅ Operational |
+| Deposit scanning | Phase 2-3 | ✅ Operational |
+| Withdrawal pipeline (state machine) | Phase 2 | ✅ Operational |
+| Policy engine (rules, approvals, whitelists) | Phase 5 | ✅ Operational |
+| Hot/warm/cold tiering | Phase 7 | ✅ Operational |
+| Reconciliation + Proof of Reserves | Phase 12 | ✅ Operational |
+| 125+ API endpoints | Levels 5-16 | ✅ Operational |
+
+### Crypto Layer (verified algorithms, no operational transport)
+| Feature | Phase | Status |
+|---------|-------|--------|
+| MPC CGGMP21 (secp256k1) | Phase 4A | ⚠️ Crypto only — no network transport |
+| FROST Ed25519 | Phase 4B | ⚠️ Crypto only — no network transport |
+| HSM adapters | Phase 4C | ❌ Types only — `unimplemented!()` |
+
+### Types Only (structs defined, no live integration)
+| Feature | Phase | Status |
+|---------|-------|--------|
+| Staking (ETH/SOL) | Phase 9 | ⏸️ Types only |
+| DeFi (WalletConnect, DEX) | Phase 10 | ⏸️ Types only |
+| Observability (Prometheus/Grafana) | Phase 11 | ⏸️ Types only |
+| Settlement network | Phase 13 | ⏸️ Types only |
+| Tokenization/RWA | Phase 14 | ⏸️ Types only |
+| WaaS multi-tenancy | Phase 15 | ⏸️ Types only |
+| AML/KYT (Chainalysis/Elliptic) | Phase 6 | ⏸️ Stubs — needs API keys |
+| EVM L2 chains (9 configs) | Phase 8 | ⏸️ Config only — no live scanner |
+| Cosmos/Polkadot chains | Phase 8B | ⏸️ Types only |
+
+### Trust Infrastructure (MISSING — Phase 17)
+| Feature | Phase | Status |
+|---------|-------|--------|
+| Threat model document | Phase 17A | ✅ THREAT_MODEL.md |
+| Security architecture doc | Phase 17A | ✅ SECURITY.md |
+| Signer process isolation | Phase 17B | ❌ Missing — Zone 3 is aspirational |
+| Circuit breaker persistence | Phase 17C | ✅ DB-persisted (migration 009) |
+| Attack simulation tests | Phase 17D | ❌ Missing |
+| Supply chain (pinning, SBOM) | Phase 17E | ❌ Missing |
+| Deployment modes guide | Phase 17F | ❌ Missing |
+| Security certifications | Phase 16 | ❌ Blocked by Phase 17 |
