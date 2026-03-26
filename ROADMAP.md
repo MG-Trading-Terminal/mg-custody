@@ -314,7 +314,7 @@
 - [x] `THREAT_MODEL.md`: assets, adversaries, attack vectors, mitigations, explicitly out-of-scope (STRIDE framework)
 - [x] `SECURITY.md`: architecture diagram with trust boundaries, key flow, deployment prerequisites
 - [x] Audit ROADMAP.md: mark stub/types-only items honestly (this edit)
-- [ ] Update README: add "dev mode" warning on quick start, fix test count badge
+- [x] Update README: add "dev mode" warning on quick start, fix test count badge
 - [x] Document what the system protects against and what it does NOT
 
 ### 17B — Signer Process Isolation (P0, makes Zone 3 real)
@@ -369,7 +369,7 @@
 - [ ] Positioning doc: "Open-source custody engine (self-hosted Fireblocks alternative)"
 - [ ] Identify first 2 user archetypes: crypto startup + trading desk
 - [ ] Quickstart guide: "secure deployment in 30 minutes"
-- [ ] GitHub packaging: description, topics, social preview, CONTRIBUTING.md
+- [x] GitHub packaging: description, topics, social preview, CONTRIBUTING.md
 - [ ] Onboarding walkthrough for first 2 users (hands-on)
 
 ---

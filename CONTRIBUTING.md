@@ -47,6 +47,27 @@ cargo test -p custody-server --test sepolia_scanner
 6. Update `config/default.toml` with chain config
 7. Add to `common/src/types.rs` Chain enum
 
+## Security
+
+**DO NOT open a public GitHub issue for security vulnerabilities.**
+See [SECURITY.md](SECURITY.md) for reporting instructions.
+
+Before submitting code that touches signing, keys, or crypto:
+- Read [THREAT_MODEL.md](THREAT_MODEL.md)
+- Run `cargo test -p custody-common security_tests`
+- Run `cargo deny check`
+
+## Architecture Docs
+
+- [SECURITY.md](SECURITY.md) — Trust boundaries, key flow, deployment prerequisites
+- [THREAT_MODEL.md](THREAT_MODEL.md) — STRIDE analysis, attack vectors
+- [docs/DEPLOYMENT_MODES.md](docs/DEPLOYMENT_MODES.md) — 4 deployment modes with honest security properties
+
+## Crates (19 total)
+
+In addition to the crates above:
+- `signer-service/` — Isolated signing binary with Unix socket IPC (Phase 17B)
+
 ## Rules
 
 - **NEVER use f64 for money** — `rust_decimal::Decimal` everywhere
@@ -55,3 +76,4 @@ cargo test -p custody-server --test sepolia_scanner
 - **Every signing function must have a verify test** — sign → verify roundtrip
 - **Amounts as strings in JSON** — never float in serialization
 - **Idempotent API** — duplicate calls must be safe
+- **Run `cargo deny check`** before submitting — license + advisory compliance

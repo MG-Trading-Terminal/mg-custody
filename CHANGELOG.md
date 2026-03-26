@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed (2026-03-26) — Phase 17B client + 17G: IPC client, README, CONTRIBUTING
+- **Signer IPC client** — `SignerClient` for main binary to talk to custody-signer
+  - HMAC-authenticated requests, response verification
+  - `get_public_key()`, `raw_sign()` convenience methods
+- **README updated** — dev-mode warning, 1031 test count, security doc links
+- **CONTRIBUTING.md updated** — security section, signer-service docs
+
 ### Added (2026-03-26) — Phase 17B: Signer Process Isolation
 - **New crate `custody-signer-service`** — separate binary for signing operations
   - NO network listener, NO database, NO HTTP — Unix domain socket ONLY

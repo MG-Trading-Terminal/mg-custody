@@ -14,8 +14,9 @@ use std::path::PathBuf;
 use anyhow::Result;
 use tracing_subscriber::EnvFilter;
 
+pub mod client;
 mod ipc;
-mod protocol;
+pub mod protocol;
 
 #[tokio::main]
 async fn main() -> Result<()> {

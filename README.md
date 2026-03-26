@@ -1,10 +1,15 @@
 # MG Custody
 
-**Open-source, production-grade cryptocurrency custody service.**
+**Open-source cryptocurrency custody engine.**
 
 Self-hosted alternative to Fireblocks/BitGo. Manages private keys, signs transactions, monitors deposits, processes withdrawals across 4 blockchains.
 
-[![Tests](https://img.shields.io/badge/tests-451-brightgreen)]() [![Rust](https://img.shields.io/badge/rust-2024-orange)]() [![License](https://img.shields.io/badge/license-MIT-blue)]()
+[![Tests](https://img.shields.io/badge/tests-1031-brightgreen)]() [![Rust](https://img.shields.io/badge/rust-2024-orange)]() [![Crates](https://img.shields.io/badge/crates-19-blue)]() [![License](https://img.shields.io/badge/license-MIT-blue)]()
+
+> **WARNING: Development mode only.** The default configuration runs all components
+> in a single process with software keys. This is suitable for development and testing.
+> For production deployment with real funds, see [docs/DEPLOYMENT_MODES.md](docs/DEPLOYMENT_MODES.md).
+> Read [THREAT_MODEL.md](THREAT_MODEL.md) and [SECURITY.md](SECURITY.md) before deploying.
 
 ## Why This Exists
 
@@ -188,7 +193,7 @@ DATABASE_URL=postgres://custody:custody_dev_password@localhost:5432/custody carg
 cargo test -p custody-server --test sepolia_live
 ```
 
-**451 tests** covering: cryptographic signing (4 chains), MPC threshold signing, HD derivation, PostgreSQL CRUD, HTTP API E2E, webhook delivery, policy engine, UTXO selection, and live Sepolia blockchain interaction.
+**1031 tests** covering: cryptographic signing (4 chains), MPC threshold signing, HD derivation, PostgreSQL CRUD, HTTP API E2E, webhook delivery, policy engine, UTXO selection, security attack simulations, DeFi calldata encoding, and live Sepolia blockchain interaction.
 
 ## Configuration
 
@@ -213,9 +218,7 @@ Environment overrides: `CUSTODY_DATABASE__URL`, `CUSTODY_CHAINS__ETHEREUM__RPC_U
 
 ## Roadmap
 
-185/206 items completed (90%). See [ROADMAP.md](ROADMAP.md) for full details.
-
-Remaining items are primarily: external API integrations (Chainalysis, Notabene), infrastructure (multi-region DB), and organizational processes (SOC 2 audit, insurance).
+See [ROADMAP.md](ROADMAP.md) for full details. Current focus: Phase 17 (Trust Infrastructure) — threat model, signer isolation, circuit breaker persistence, supply chain security.
 
 ## Related Projects
 
