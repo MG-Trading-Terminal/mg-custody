@@ -319,12 +319,13 @@
 
 ### 17B — Signer Process Isolation (P0, makes Zone 3 real)
 > **Current state**: Single `custody` binary runs gateway + scanner + signer in same process. API compromise = signer compromise. Zone 3 is an aspiration, not a constraint.
-- [ ] Extract signing into separate binary (`custody-signer`)
-- [ ] IPC transport: Unix domain socket with HMAC-authenticated request/response
-- [ ] `custody-signer` has no network listener, no DB connection, no HTTP
-- [ ] `custody` main binary communicates with `custody-signer` over IPC only
+- [x] Extract signing into separate binary (`custody-signer`) — new crate `signer-service`
+- [x] IPC transport: Unix domain socket with HMAC-authenticated request/response
+- [x] `custody-signer` has no network listener, no DB connection, no HTTP
+- [x] IPC protocol: SignRequest/SignResponse with HMAC auth + constant-time verification
+- [ ] Wire `custody` main binary to use IPC client instead of direct signing
 - [ ] Integration test: custody binary without signer socket returns 503, not signing error
-- [ ] Document: signer can run on separate host, only IPC socket crosses boundary
+- [x] Document: signer can run on separate host, only IPC socket crosses boundary
 
 ### 17C — Circuit Breaker Persistence (P0, fund safety)
 > **Current state**: `check_circuit_breaker` is a pure function. Counters reset to zero on process restart. After $9M outflow, restart = another $10M can go out.
@@ -434,7 +435,7 @@
 |---------|-------|--------|
 | Threat model document | Phase 17A | ✅ THREAT_MODEL.md |
 | Security architecture doc | Phase 17A | ✅ SECURITY.md |
-| Signer process isolation | Phase 17B | ❌ Missing — Zone 3 is aspirational |
+| Signer process isolation | Phase 17B | ⚠️ Binary created, IPC wiring pending |
 | Circuit breaker persistence | Phase 17C | ✅ DB-persisted (migration 009) |
 | Attack simulation tests | Phase 17D | ✅ 24 security tests |
 | Supply chain (pinning, deny.toml) | Phase 17E | ✅ cargo-deny + Dockerfile pinned |

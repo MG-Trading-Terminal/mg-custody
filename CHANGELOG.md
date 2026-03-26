@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Phase 17B: Signer Process Isolation
+- **New crate `custody-signer-service`** — separate binary for signing operations
+  - NO network listener, NO database, NO HTTP — Unix domain socket ONLY
+  - HMAC-authenticated IPC protocol with constant-time verification
+  - SignRequest/SignResponse with per-chain operation types
+  - Supports GetPublicKey, RawSign for all 4 chains
+  - Socket permissions 0600 (owner only), seed zeroized on drop
+  - 7 protocol tests (HMAC roundtrip, wrong secret, tamper detection)
+
 ### Added (2026-03-26) — Phase 17E + 17F: Supply Chain + Deployment Modes
 - **deny.toml** — cargo-deny config: license allow-list, RUSTSEC advisory check, source pinning
 - **Dockerfile pinned** — `rust:1.85-bookworm` instead of `:latest`

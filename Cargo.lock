@@ -2127,6 +2127,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "custody-signer-service"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "custody-address-factory",
+ "custody-common",
+ "custody-signing",
+ "hex",
+ "hmac",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "custody-signing"
 version = "0.1.0"
 dependencies = [
