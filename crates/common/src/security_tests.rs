@@ -286,4 +286,107 @@ mod tests {
         let btc = token_database::find_token("BTC", Chain::Bitcoin).unwrap();
         assert_eq!(btc.decimals, 8, "BTC must be 8 decimals");
     }
+
+    // -----------------------------------------------------------------------
+    // 10. Address poisoning protection
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn address_poisoning_detected() {
+        assert!(address_poisoning::is_poisoning_attempt(
+            "0xAbcD1111111111111111111111111111111111234",
+            "0xAbcD9999999999999999999999999999999991234",
+        ));
+    }
+
+    #[test]
+    fn zero_value_transfer_flagged() {
+        let known = vec!["0xAbcD1111111111111111111111111111111111234".into()];
+        let check = address_poisoning::is_suspicious_transfer(
+            Chain::Ethereum,
+            "0xAbcD9999999999999999999999999999999991234",
+            "0xvictim", "0", &known,
+        );
+        assert_eq!(check.risk, address_poisoning::PoisoningRisk::High);
+    }
+
+    // -----------------------------------------------------------------------
+    // 11. Error recovery classification
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn nonce_too_low_triggers_rebuild() {
+        let (_, action) = error_recovery::classify_rpc_error(
+            Chain::Ethereum, "nonce too low"
+        );
+        assert_eq!(action, error_recovery::RecoveryAction::Rebuild);
+    }
+
+    #[test]
+    fn connection_timeout_triggers_backoff() {
+        let (_, action) = error_recovery::classify_rpc_error(
+            Chain::Bitcoin, "connection timeout"
+        );
+        assert_eq!(action, error_recovery::RecoveryAction::RetryWithBackoff);
+    }
+
+    // -----------------------------------------------------------------------
+    // 12. Merkle proof verification (Proof of Reserves)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn proof_of_reserves_solvency_check() {
+        use rust_decimal_macros::dec;
+        let assets = vec![
+            ("ETH".into(), Chain::Ethereum, dec!(100), dec!(100), "0x1".into(), 19500000u64),
+        ];
+        let proof = zk_proofs::generate_attestation(&assets, dec!(100));
+        assert!(proof.is_solvent);
+        assert_eq!(proof.reserve_ratio, dec!(1));
+    }
+
+    #[test]
+    fn proof_of_reserves_insolvent_detected() {
+        use rust_decimal_macros::dec;
+        let assets = vec![
+            ("ETH".into(), Chain::Ethereum, dec!(100), dec!(50), "0x1".into(), 19500000u64),
+        ];
+        let proof = zk_proofs::generate_attestation(&assets, dec!(100));
+        assert!(!proof.is_solvent);
+    }
+
+    // -----------------------------------------------------------------------
+    // 13. Circuit breaker error messages
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn circuit_breaker_error_messages_informative() {
+        let err = middleware_types::CircuitBreakerError::SingleTxLimit {
+            amount: rust_decimal::Decimal::new(600_000, 0),
+            limit: rust_decimal::Decimal::new(500_000, 0),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("600000"));
+        assert!(msg.contains("500000"));
+    }
+
+    // -----------------------------------------------------------------------
+    // 14. Bitcoin dust detection
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn bitcoin_dust_detected() {
+        assert!(bitcoin_advanced::is_likely_inscription(546));
+        assert!(!bitcoin_advanced::is_likely_inscription(100_000));
+    }
+
+    // -----------------------------------------------------------------------
+    // 15. Solana tx size limit
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn solana_tx_size_enforced() {
+        assert!(solana_versioned::fits_in_tx(1232));
+        assert!(!solana_versioned::fits_in_tx(1233));
+    }
 }

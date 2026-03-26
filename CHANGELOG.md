@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Expanded Security Tests (33 total)
+- Address poisoning detection, error recovery classification
+- Proof of Reserves solvency/insolvency, circuit breaker error messages
+- Bitcoin dust detection, Solana tx size enforcement
+- **9 new security tests** (33 attack simulation tests total, 1112 overall)
+
 ### Added (2026-03-26) — MPC Share Persistence
 - **ShareStore trait** — persist key shares across process restarts
   - FileShareStore (dev), integrity verification (SHA-256 hash), zeroized DecryptedShare
