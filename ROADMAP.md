@@ -373,4 +373,8 @@
 | Idempotency/signing | Level 13 | ✅ Done |
 | Retry policies | Level 13 | ✅ Done |
 | Circuit breaker v2 | Level 13 | ✅ Done |
+| UTXO analysis | Level 14 | ✅ Done |
+| EVM gas utilities | Level 14 | ✅ Done |
+| Deposit forwarding | Level 14 | ✅ Done |
+| Multi-sig wallets | Level 14 | ✅ Done |
 | SOC 2 / CCSS | Phase 16 | Planned |

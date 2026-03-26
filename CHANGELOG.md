@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 14: Chain Utilities & Advanced Wallet
+- **UTXO analysis** — coin selection stats, dust detection, consolidation recommendation
+  - Dust threshold 546 sats (P2WPKH), fee estimation for consolidation
+- **EVM gas utilities** — EIP-1559 calculation, gas limits for common ops
+  - ETH transfer (21K), ERC-20 (65K), approve (46K), swap (200K), deploy (1M)
+  - Safety buffer function, cost estimation in ETH
+- **Deposit auto-forwarding** — configurable rules per chain/asset
+  - Min amount threshold, destination vault, gas deduction option
+- **Transaction categories** — 11 predefined categories (deposit, withdrawal, consolidation, gas_refuel, staking, sweep, etc.)
+  - Custom labels + JSON metadata per transaction
+- **Multi-sig wallet types** — Bitcoin P2SH-P2WSH, Ethereum Gnosis Safe, Solana Squads, MPC threshold
+  - Signer management with weights, configurable M-of-N threshold
+- **14 new tests** (649 total)
+
 ### Added (2026-03-26) — Level 13: Middleware & Infrastructure
 - **Idempotency records** — key-based dedup with 24h expiry
 - **Webhook signing** — HMAC-SHA256 per-endpoint for outbound payloads

@@ -1,5 +1,6 @@
 pub mod alerts;
 pub mod chain_adapter;
+pub mod chain_utils;
 pub mod cli;
 pub mod config;
 pub mod config_validation;
