@@ -15,6 +15,7 @@ pub mod grafana;
 pub mod incident;
 pub mod load_test;
 pub mod metrics;
+pub mod middleware_types;
 pub mod notifications;
 pub mod operations;
 pub mod platform;

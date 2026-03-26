@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 13: Middleware & Infrastructure
+- **Idempotency records** — key-based dedup with 24h expiry
+- **Webhook signing** — HMAC-SHA256 per-endpoint for outbound payloads
+  - Constant-time signature verification
+- **Retry policies** — configurable per-chain with exponential backoff
+  - ETH: 3 retries/1s, BTC: 5/2s, TRX: 3/500ms, SOL: 3/500ms/1.5x
+- **Circuit breaker** — DB-backed state with check method
+  - Single tx ($500K), hourly ($10M), daily ($50M) limits
+  - Trip detection with reason tracking
+- **Request analytics** — usage tracking with latency percentiles (p95/p99)
+- **16 new tests** (635 total), all green
+
 ### Added (2026-03-26) — Level 12: Hardening & Validation
 - **Multi-chain address validation** — real format validation for all 4 chains
   - Bitcoin: Bech32 (bc1q/bc1p), Legacy (1), P2SH (3) with character validation
