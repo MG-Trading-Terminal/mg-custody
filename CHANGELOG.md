@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 28: Bitcoin Script + EVM RLP + Crypto Utils
+- **Bitcoin Script** — opcodes, P2PKH/P2WPKH/P2WSH/multisig/HTLC/OP_RETURN builders
+- **EVM RLP** — encode/decode, tx type detection (Legacy/EIP-1559/EIP-4844)
+- **Crypto utils** — SHA-256, Keccak-256, HMAC, Base58Check, EIP-55 checksum
+- **52 new tests** (979 total — 21 to 1000!)
+
 ### Added (2026-03-26) — Level 27: ZK Proofs + Solana Instructions
 - **ZK Proof of Reserves** — Merkle tree construction, proof verification, attestation generation
   - Pedersen commitments, range proofs, user balance leaf hashing

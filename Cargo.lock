@@ -1873,6 +1873,7 @@ name = "custody-common"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bs58",
  "chrono",
  "figment",
  "hex",
@@ -1881,6 +1882,7 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "reqwest",
+ "ripemd",
  "rust_decimal",
  "rust_decimal_macros",
  "serde",
