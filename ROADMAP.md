@@ -390,4 +390,7 @@
 | Token database (55+) | Level 17 | ✅ Done |
 | Price engine (Chainlink/Pyth) | Level 17 | ✅ Done |
 | NFT custody (721/1155) | Level 17 | ✅ Done |
+| Uniswap/Curve calldata | Level 18 | ✅ Done |
+| Cross-chain bridges | Level 18 | ✅ Done |
+| Token allowance mgmt | Level 18 | ✅ Done |
 | SOC 2 / CCSS | Phase 16 | Planned |

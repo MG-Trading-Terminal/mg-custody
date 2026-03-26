@@ -9,6 +9,7 @@ pub mod connectivity;
 pub mod cosmos;
 pub mod defi;
 pub mod defi_execution;
+pub mod dex_calldata;
 pub mod developer;
 pub mod error;
 pub mod fido2;

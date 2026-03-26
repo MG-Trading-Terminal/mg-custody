@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 18: DeFi Calldata + Bridges + Allowances
+- **Uniswap V3 calldata** — `exactInputSingle` ABI encoding with fee tier, recipient, price limit
+- **Curve calldata** — `exchange(int128,int128,uint256,uint256)` pool swap encoding
+- **ERC-20 approve/allowance** — approve calldata, allowance query, unlimited detection
+- **Balance queries** — `balanceOf(address)` calldata encoding
+- **Cross-chain bridges** — 6 routes across 5 protocols (Native L2, Wormhole, LayerZero, Across, Stargate)
+  - ETH→Arbitrum/Optimism/Base (native), ETH→Polygon (Stargate), SOL→ETH (Wormhole)
+  - Route lookup by source chain + token
+- **12 new tests** (740 total)
+
 ### Added (2026-03-26) — Level 17: Token Registry + Price Feeds + NFT
 - **Token database** — 55+ verified tokens across 4 chains with contract addresses
   - 4 native (BTC/ETH/TRX/SOL), 26 ERC-20, 8 TRC-20, 12 SPL tokens
