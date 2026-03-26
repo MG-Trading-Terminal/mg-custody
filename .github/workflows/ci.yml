@@ -101,6 +101,10 @@ jobs:
         uses: EmbarkStudios/cargo-deny-action@v1
         with:
           command: check advisories bans licenses sources
+      - name: Cargo audit (RUSTSEC)
+        run: |
+          cargo install cargo-audit --quiet || true
+          cargo audit
 
   build-signer:
     name: Build Signer Binary

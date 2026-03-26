@@ -216,4 +216,20 @@ mod tests {
         backend.zeroize();
         assert_eq!(backend.seed(), &[0u8; 64]);
     }
+
+    #[test]
+    fn debug_output_contains_no_key_material() {
+        let backend = SoftwareSigningBackend::new(test_seed());
+        let debug = format!("{:?}", backend);
+        // Debug should show *** not the actual seed
+        assert!(!debug.contains("0001020304"));
+        assert!(debug.contains("***"));
+    }
+
+    #[test]
+    fn hsm_backend_debug_safe() {
+        let debug = format!("{:?}", HsmSigningBackend { _private: () });
+        assert!(debug.contains("not_configured"));
+        assert!(!debug.contains("seed"));
+    }
 }

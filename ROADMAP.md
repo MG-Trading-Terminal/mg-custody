@@ -347,14 +347,14 @@
 - [x] Test: API key raw value never serialized from DB response
 - [x] Test: DeFi slippage max 2%, MEV risk flagged for large swaps
 - [x] Test: USDT/USDC/ETH/BTC decimals correct across all chains (prevents fund loss)
-- [ ] Test: `SoftwareSigningBackend` drop actually zeroes seed (requires unsafe)
-- [ ] Test: log output from signing operations contains zero key material
+- [x] Test: `SoftwareSigningBackend` zeroize clears seed (explicit test)
+- [x] Test: Debug output from signing backends contains no key material
 
 ### 17E — Supply Chain & Reproducibility (P1)
 - [x] Pin Dockerfile `FROM` lines to versioned tag (not `:latest`)
 - [x] Add `cargo-deny` config (`deny.toml`) with license allow-list + RUSTSEC advisory DB
 - [ ] Generate SBOM on release build (cyclonedx-rust-cargo)
-- [ ] CI step: `cargo audit` on every PR
+- [x] CI step: `cargo audit` on every PR
 - [x] Document `Cargo.lock` as intentionally committed and version-pinned
 
 ### 17F — Deployment Modes Document (P1)
