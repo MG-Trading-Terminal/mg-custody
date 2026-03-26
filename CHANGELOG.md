@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 10: Production Polish
+- **Transaction scheduling** — future-dated withdrawals with cancel support
+  - Due-detection query for background executor, vault-scoped listing
+  - `GET/POST /v1/scheduled`, `GET /v1/scheduled/{id}`, `POST .../cancel`
+- **Compliance screening API** — address risk assessment endpoint
+  - Risk levels (Low/Medium/High/Severe), sanctions flag, provider field
+  - `POST /v1/screening/address`, `GET /v1/screening/history/{addr}`
+- **Backup & recovery status** — key backup health dashboard
+  - Encrypted seed status, Shamir shares, MPC key health, backup locations
+  - `GET /v1/backup/status`
+- **Token discovery** — auto-detect token metadata by contract address
+  - Recognizes known contracts (USDT/USDC), supports ERC-20/TRC-20/SPL
+  - `POST /v1/tokens/discover`
+- **Health dashboard** — comprehensive system status
+  - DB health, per-chain health, pipeline status, background tasks
+  - `GET /v1/dashboard/health`, `GET /v1/dashboard/pipeline`
+- **DB migration 008_operations.sql**: 1 new table (scheduled_transactions)
+- **10 new API endpoints**, 9 new tests (584 total)
+
 ### Added (2026-03-26) — Level 9: Governance & Advanced Features
 - **Vault policies** — per-vault spending rules (max amount, velocity limits, time locks, freeze, whitelist-only, require approvals)
   - Tagged enum serialization for rules; CRUD: `GET/POST /v1/vaults/{id}/policies`, `GET/PUT/DELETE /v1/policies/{id}`

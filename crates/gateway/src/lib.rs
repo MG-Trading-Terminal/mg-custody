@@ -11,6 +11,7 @@ pub mod errors;
 pub mod governance_routes;
 pub mod health;
 pub mod middleware;
+pub mod operations_routes;
 pub mod ops_routes;
 pub mod platform_routes;
 pub mod rate_limit;

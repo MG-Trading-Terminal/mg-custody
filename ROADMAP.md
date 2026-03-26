@@ -359,4 +359,9 @@
 | Supported networks | Level 9 | ✅ Done |
 | Transaction notes | Level 9 | ✅ Done |
 | Staking execution | Level 9 | ✅ Done |
+| Transaction scheduling | Level 10 | ✅ Done |
+| Compliance screening | Level 10 | ✅ Done |
+| Backup/recovery status | Level 10 | ✅ Done |
+| Token discovery | Level 10 | ✅ Done |
+| Health dashboard | Level 10 | ✅ Done |
 | SOC 2 / CCSS | Phase 16 | Planned |

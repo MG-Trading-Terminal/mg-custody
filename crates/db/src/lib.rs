@@ -16,6 +16,7 @@ pub mod nonces;
 pub mod notification_channels;
 pub mod policy;
 pub mod scan_progress;
+pub mod scheduled_tx;
 pub mod transactions;
 pub mod travel_rule;
 pub mod vaults;
