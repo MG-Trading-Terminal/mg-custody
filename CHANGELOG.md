@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 24: ENS + Safe{Wallet} + ERC-4626 Vaults
+- **ENS/Name Resolution** — namehash computation (verified vitalik.eth), resolver/addr calldata
+  - Unstoppable Domains, Solana Name Service, SpaceID support
+  - Auto-detect resolver by TLD (.eth/.crypto/.sol/.bnb)
+- **Safe{Wallet}** — execTransaction/multiSend encoding, proxy factory addresses
+  - Transaction hashing, multi-send batch packing
+- **ERC-4626 Vaults** — deposit/withdraw/convertToShares/convertToAssets calldata
+  - 3 known vaults (sDAI, yvUSDC, maUSDC) with APY estimates
+- **21 new tests** (862 total)
+
 ### Added (2026-03-26) — Level 23: Gas Optimization + Multicall + Permit + Flashloans
 - **Multicall3** — batch calls, gas savings estimator (20%+ savings on 10 txs)
 - **ERC-20 Permit (EIP-2612)** — gasless approvals, 8 permit-supporting tokens
