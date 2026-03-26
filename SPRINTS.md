@@ -220,23 +220,33 @@
 | 14 | UTXO analysis (dust detection, consolidation), EVM gas utilities (EIP-1559), deposit forwarding, tx categories, multi-sig wallets | 1 | +14 |
 | 15 | Ledger accounting (balance sheet, P&L, fee tracking), event catalog (31 types), token bucket rate limiter, key fingerprints | 1 | +13 |
 | 16 | DeFi execution (swap routing, slippage), settlement protocol (bilateral netting), tokenization (mint/burn calldata), FIDO2/WebAuthn, metrics wiring (35+), load test scenarios | 5 | +33 |
+| 17 | Token database (55+ verified tokens), Chainlink/Pyth price feeds, NFT custody (ERC-721/1155/Metaplex) | 3 | +33 |
+| 18 | Uniswap V3/Curve calldata, ERC-20 approve/allowance, cross-chain bridges (6 routes, 5 protocols) | 1 | +12 |
+| 19 | Lido/Rocket Pool/Marinade staking calldata, WalletConnect v2 protocol, Cosmos SDK (5 chains + IBC) | 3 | +25 |
+| 20 | Polkadot/Substrate (5 chains), Jupiter DEX (Solana), token auto-scan (EVM/SOL/TRX) | 3 | +24 |
+| 21 | ERC-4337 Account Abstraction, Bitcoin Taproot (P2TR), MEV protection (Flashbots/Jito), Solana compute budget | 3 | +23 |
+| 22 | EIP-712 typed data hashing, Solana Token-2022 extensions, cross-chain messaging (Wormhole/LZ/CCIP) | 3 | +19 |
+| 23 | Multicall3 batching, ERC-20 Permit (EIP-2612), Aave flash loans, gas savings estimator | 1 | +10 |
+| 24 | ENS namehash + name resolution, Safe{Wallet} multi-sig, ERC-4626 yield vaults | 3 | +21 |
+| 25 | ABI decoder (26 selectors, 7 events), Tron Energy/bandwidth estimation | 2 | +19 |
 
-### Session Metrics
-- **Levels completed**: 12 (Level 5 through Level 16)
-- **New Rust files**: 205 total (across all sessions)
-- **Lines of Rust**: 36,522
-- **Tests**: 695 passing, 0 failures
+### Session Metrics (Final)
+- **Levels completed**: 21 (Level 5 through Level 25)
+- **Lines of Rust**: 40,974
+- **Rust files**: 215+
+- **Tests**: 881 passing, 0 failures
 - **API endpoints**: 125+
 - **DB tables**: 30 (across 8 migrations)
-- **Common modules**: 42
-- **Commits this session**: 12
+- **Common modules**: 69 (lib.rs exports)
+- **Commits this session**: 22
+- **Total commits**: 89
 
 ### Architecture Summary
 ```
 crates/
-  common/     42 modules — types, validation, accounting, DeFi, settlement, FIDO2
-  db/         16 modules — PostgreSQL persistence, 30 tables, 8 migrations
-  gateway/    13 modules — 12 route groups, 125+ REST endpoints
+  common/     69 modules — types, DeFi, NFT, bridges, staking, MEV, ABI, pricing, governance
+  db/         18 modules — PostgreSQL persistence, 30 tables, 8 migrations
+  gateway/    15 modules — 12 route groups, 125+ REST endpoints
   scanner/    6 modules  — 4-chain deposit detection (BTC/ETH/TRX/SOL + EVM L2)
   signing/    9 modules  — BIP-143, EIP-1559, SLIP-0010, raw signing, staking
   mpc/        10 modules — CGGMP21 (secp256k1) + FROST (Ed25519), HSM
@@ -245,16 +255,35 @@ crates/
   + 9 more crates (address-factory, policy, compliance, wallet-manager, etc.)
 ```
 
-### Roadmap Status
-- **84 items DONE** out of 91 total
-- **7 remaining**: 5 organizational (SOC2/ISO/CCSS/pentest/insurance), 2 external API (Chainalysis/Notabene keys)
-- **All code-implementable features complete**
+### Chain & Protocol Coverage
+| Category | Count | Details |
+|----------|-------|---------|
+| Native chains | 4 | Bitcoin, Ethereum, Tron, Solana |
+| EVM L2s | 9 | Arbitrum, Optimism, Base, Polygon, BSC, Avalanche, zkSync, Linea, Scroll |
+| Cosmos chains | 5 | Hub, Osmosis, Celestia, dYdX, Injective |
+| Polkadot chains | 5 | DOT, Kusama, Moonbeam, Acala, Astar |
+| DEXes | 6 | Uniswap V3, Curve, SushiSwap, Jupiter, Raydium, SunSwap |
+| Bridges | 5 | Native L2, Wormhole, LayerZero, Across, Stargate |
+| Staking protocols | 5 | Lido, Rocket Pool, Marinade, Jito, Coinbase |
+| Tokens | 55+ | Verified with contract addresses and CoinGecko IDs |
 
 ### References Used
 - Fireblocks API: https://developers.fireblocks.com/reference/api-overview
 - Uniswap V3: https://docs.uniswap.org/contracts/v3/overview
-- ERC-20 function selectors: https://www.4byte.directory/
+- ERC-20 selectors: https://www.4byte.directory/
 - FIDO2/WebAuthn: https://www.w3.org/TR/webauthn-2/
 - FATF Recommendation 16: https://www.fatf-gafi.org/en/topics/fatf-recommendations.html
 - BIP-67 (sorted multi-sig): https://github.com/bitcoin/bips/blob/master/bip-0067.mediawiki
 - Gnosis Safe: https://docs.safe.global/
+- ENS: https://docs.ens.domains/
+- ERC-4337: https://eips.ethereum.org/EIPS/eip-4337
+- ERC-4626: https://eips.ethereum.org/EIPS/eip-4626
+- EIP-2612 Permit: https://eips.ethereum.org/EIPS/eip-2612
+- Jupiter V6: https://station.jup.ag/docs
+- Chainlink feeds: https://data.chain.link/
+- Pyth Network: https://pyth.network/
+- Wormhole: https://docs.wormhole.com/
+- LayerZero: https://layerzero.gitbook.io/
+- Chainlink CCIP: https://docs.chain.link/ccip
+- Solana Token-2022: https://spl.solana.com/token-2022
+- Aave V3: https://docs.aave.com/
