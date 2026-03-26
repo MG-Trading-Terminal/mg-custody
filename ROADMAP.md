@@ -366,8 +366,8 @@
 - [x] For each mode: security properties that HOLD and those that DO NOT
 
 ### 17G — Go-to-Market Foundation (P2)
-- [ ] Positioning doc: "Open-source custody engine (self-hosted Fireblocks alternative)"
-- [ ] Identify first 2 user archetypes: crypto startup + trading desk
+- [x] Positioning doc: "Open-source custody engine (self-hosted Fireblocks alternative)" (docs/POSITIONING.md)
+- [x] Identify first 2 user archetypes: crypto startup + trading desk
 - [x] Quickstart guide: "secure deployment in 30 minutes" (docs/QUICKSTART.md)
 - [x] GitHub packaging: description, topics, social preview, CONTRIBUTING.md
 - [ ] Onboarding walkthrough for first 2 users (hands-on)
