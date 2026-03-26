@@ -70,6 +70,7 @@ pub mod token_scan;
 pub mod token_registry;
 pub mod tokenization;
 pub mod tron_energy;
+pub mod tx_simulation;
 pub mod types;
 pub mod validation;
 pub mod vault;

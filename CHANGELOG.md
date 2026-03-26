@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Transaction Simulation + Preflight Checks
+- **Tx simulation** — eth_call, eth_estimateGas, SOL simulateTransaction, TRX triggerConstantContract
+- **Revert decoder** — Error(string) and Panic(uint256) with known codes
+- **Preflight checks** — empty tx, non-EIP-1559, size limits per chain
+- **12 new tests** (1070 total)
+
 ### Added (2026-03-26) — Error Recovery Patterns
 - **RPC error classification** — 11 error classes (connection, rate limit, nonce, gas, blockhash, etc.)
 - **Recovery actions** — 7 strategies (retry, backoff, rebuild, replace, abort, manual, skip)
