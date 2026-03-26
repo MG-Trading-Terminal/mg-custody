@@ -403,4 +403,7 @@
 | Bitcoin Taproot (P2TR) | Level 21 | ✅ Done |
 | MEV Protection (Flashbots/Jito) | Level 21 | ✅ Done |
 | Solana Compute Budget | Level 21 | ✅ Done |
+| EIP-712 Typed Data | Level 22 | ✅ Done |
+| Solana Token-2022 | Level 22 | ✅ Done |
+| Cross-chain messaging | Level 22 | ✅ Done |
 | SOC 2 / CCSS | Phase 16 | Planned |

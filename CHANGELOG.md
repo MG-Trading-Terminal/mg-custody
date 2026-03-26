@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 22: EIP-712 + Token-2022 + Cross-chain Messaging
+- **EIP-712 Typed Data** — domain separator hashing, type encoding, struct hash
+- **Solana Token-2022** — 13 extension types, transfer fee calculation
+- **Cross-chain messaging** — Wormhole/LayerZero/CCIP/Hyperlane with chain IDs
+- **19 new tests** (831 total)
+
 ### Added (2026-03-26) — Level 21: ERC-4337 + Taproot + MEV + Compute Budget
 - **ERC-4337 Account Abstraction** — UserOperation types, EntryPoint v0.6/v0.7, handleOps calldata
   - 4 bundler endpoints (Pimlico, Stackup, Alchemy, Biconomy), smart account factories
