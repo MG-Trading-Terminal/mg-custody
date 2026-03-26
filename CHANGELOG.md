@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 21: ERC-4337 + Taproot + MEV + Compute Budget
+- **ERC-4337 Account Abstraction** — UserOperation types, EntryPoint v0.6/v0.7, handleOps calldata
+  - 4 bundler endpoints (Pimlico, Stackup, Alchemy, Biconomy), smart account factories
+- **Bitcoin Taproot (P2TR)** — address detection, input vBytes (58 vB, most efficient)
+  - Fee estimation per address type, PSBT metadata, Ordinals inscription detection
+  - BIP-21 URI builder with amount/label
+- **MEV Protection** — Flashbots Protect, MEV Blocker, Jito block engine
+  - Risk assessment (sandwich/frontrun detection based on tx type + value)
+  - Flashbots bundle request builder, Jito tip account
+- **Solana Compute Budget** — SetComputeUnitLimit/Price instruction encoding
+  - Recommended units: transfer (200K), token (300K), swap (600K), stake (400K)
+- **23 new tests** (812 total)
+
 ### Added (2026-03-26) — Level 20: Polkadot + Jupiter + Token Auto-Scan
 - **Polkadot/Substrate** — 5 chains (Polkadot, Kusama, Moonbeam, Acala, Astar)
   - SS58 validation, Substrate calls (transfer, bond, nominate, XCM)

@@ -399,4 +399,8 @@
 | Polkadot/Substrate (5) | Level 20 | ✅ Done |
 | Jupiter DEX (Solana) | Level 20 | ✅ Done |
 | Token auto-scan | Level 20 | ✅ Done |
+| ERC-4337 Account Abstraction | Level 21 | ✅ Done |
+| Bitcoin Taproot (P2TR) | Level 21 | ✅ Done |
+| MEV Protection (Flashbots/Jito) | Level 21 | ✅ Done |
+| Solana Compute Budget | Level 21 | ✅ Done |
 | SOC 2 / CCSS | Phase 16 | Planned |
