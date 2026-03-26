@@ -396,4 +396,7 @@
 | Lido/Rocket Pool/Marinade | Level 19 | ✅ Done |
 | WalletConnect v2 protocol | Level 19 | ✅ Done |
 | Cosmos SDK chains (5) | Level 19 | ✅ Done |
+| Polkadot/Substrate (5) | Level 20 | ✅ Done |
+| Jupiter DEX (Solana) | Level 20 | ✅ Done |
+| Token auto-scan | Level 20 | ✅ Done |
 | SOC 2 / CCSS | Phase 16 | Planned |

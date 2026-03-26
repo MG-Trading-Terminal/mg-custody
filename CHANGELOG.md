@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 20: Polkadot + Jupiter + Token Auto-Scan
+- **Polkadot/Substrate** — 5 chains (Polkadot, Kusama, Moonbeam, Acala, Astar)
+  - SS58 validation, Substrate calls (transfer, bond, nominate, XCM)
+- **Jupiter DEX** (Solana) — V6 swap instruction, 10 known mints, route building
+- **Token auto-scan** — detect held tokens via batch RPC (EVM/Solana/Tron)
+  - Top 15 ERC-20 contracts, Solana getTokenAccountsByOwner, TronGrid URLs
+- **24 new tests** (789 total)
+
 ### Added (2026-03-26) — Level 19: Staking Contracts + WalletConnect v2 + Cosmos
 - **Lido staking calldata** — `submit()` for staking, `requestWithdrawals()` for unstaking
 - **Rocket Pool** — `deposit()` for rETH minting, `burn()` for redemption
