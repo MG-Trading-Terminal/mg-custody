@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed (2026-03-26) — CI hardening + signer in Docker
+- **CI pipeline** — pinned toolchain 1.85.0, added security job (cargo-deny + attack tests), signer binary build
+- **All 9 migrations** run in CI integration tests (was only migration 001)
+- **Dockerfile** — builds + includes custody-signer binary
+- **RUSTFLAGS="-D warnings"** in CI
+
 ### Changed (2026-03-26) — Phase 17B client + 17G: IPC client, README, CONTRIBUTING
 - **Signer IPC client** — `SignerClient` for main binary to talk to custody-signer
   - HMAC-authenticated requests, response verification

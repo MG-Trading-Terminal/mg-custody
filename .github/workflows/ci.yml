@@ -9,6 +9,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  RUSTFLAGS: "-D warnings"
 
 jobs:
   check:
@@ -16,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.85.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace
 
@@ -25,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.85.0
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check
@@ -35,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.85.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --exclude custody-server
 
@@ -58,10 +59,10 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.85.0
       - uses: Swatinem/rust-cache@v2
-      - name: Run migrations
-        run: psql $DATABASE_URL -f crates/db/migrations/001_initial_schema.sql
+      - name: Run all migrations
+        run: for f in crates/db/migrations/*.sql; do psql "$DATABASE_URL" -f "$f"; done
         env:
           DATABASE_URL: postgres://custody:custody_dev_password@localhost:5432/custody
       - name: Run DB + E2E tests
@@ -75,9 +76,9 @@ jobs:
     needs: [check, test-unit]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.85.0
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --bin custody --bin custody-admin --bin custody-seed
+      - run: cargo build --release --bin custody --bin custody-admin --bin custody-seed --bin custody-signer
 
   docker:
     name: Docker Build
@@ -86,3 +87,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t mg-custody:test .
+
+  security:
+    name: Security Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Security tests
+        run: cargo test -p custody-common security_tests
+      - name: Cargo deny (licenses + advisories)
+        uses: EmbarkStudios/cargo-deny-action@v1
+        with:
+          command: check advisories bans licenses sources
+
+  build-signer:
+    name: Build Signer Binary
+    runs-on: ubuntu-latest
+    needs: [check]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --bin custody-signer
+      - name: Verify signer binary exists
+        run: test -f target/release/custody-signer
