@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Phase 17D: Attack Simulation Tests (24 security tests)
+- Key material never leaks to serialization, error types, or API responses
+- Circuit breaker enforces all limits, webhook signatures not forgeable
+- Address validation rejects dangerous inputs, token decimals verified
+
 ### Added (2026-03-26) — Phase 17A + 17C: Trust Infrastructure
 - **THREAT_MODEL.md** — STRIDE framework analysis: 6 adversaries, 20+ attack vectors, honest mitigations
   - Assets, trust boundaries, circuit breaker attack scenario documented

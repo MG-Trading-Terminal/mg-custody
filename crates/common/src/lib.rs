@@ -51,6 +51,8 @@ pub mod prometheus_metrics;
 pub mod rpc_failover;
 pub mod safe_wallet;
 pub mod scheduler;
+#[cfg(test)]
+mod security_tests;
 pub mod sdk;
 pub mod settlement;
 pub mod settlement_ops;
