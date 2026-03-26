@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 23: Gas Optimization + Multicall + Permit + Flashloans
+- **Multicall3** — batch calls, gas savings estimator (20%+ savings on 10 txs)
+- **ERC-20 Permit (EIP-2612)** — gasless approvals, 8 permit-supporting tokens
+- **Aave V3 Flash Loans** — 0.05% fee calculation, selector encoding
+- **10 new tests** (841 total)
+
 ### Added (2026-03-26) — Level 22: EIP-712 + Token-2022 + Cross-chain Messaging
 - **EIP-712 Typed Data** — domain separator hashing, type encoding, struct hash
 - **Solana Token-2022** — 13 extension types, transfer fee calculation
