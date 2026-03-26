@@ -1,4 +1,6 @@
-FROM rust:latest AS builder
+# Pinned to specific versions for supply chain security (Phase 17E)
+# Update these digests deliberately, not via :latest
+FROM rust:1.85-bookworm AS builder
 
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
@@ -7,7 +9,7 @@ COPY . .
 
 RUN cargo build --release --bin custody --bin custody-admin --bin custody-seed
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
 

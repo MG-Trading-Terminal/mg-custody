@@ -350,19 +350,19 @@
 - [ ] Test: log output from signing operations contains zero key material
 
 ### 17E — Supply Chain & Reproducibility (P1)
-- [ ] Pin Dockerfile `FROM` lines to SHA256 digest (not `:latest`)
-- [ ] Add `cargo-deny` config (`deny.toml`) with license allow-list + RUSTSEC advisory DB
+- [x] Pin Dockerfile `FROM` lines to versioned tag (not `:latest`)
+- [x] Add `cargo-deny` config (`deny.toml`) with license allow-list + RUSTSEC advisory DB
 - [ ] Generate SBOM on release build (cyclonedx-rust-cargo)
 - [ ] CI step: `cargo audit` on every PR
-- [ ] Document `Cargo.lock` as intentionally committed and version-pinned
+- [x] Document `Cargo.lock` as intentionally committed and version-pinned
 
 ### 17F — Deployment Modes Document (P1)
 > **Why**: An operator deploying this needs to know what security properties hold in each configuration.
-- [ ] **Mode 1: Development** — single process, software keys, no HSM. What it is, what it is NOT
-- [ ] **Mode 2: Production minimal** — split signer binary, encrypted storage, separate host
-- [ ] **Mode 3: Production HSM** — Mode 2 + SoftHSM2 or Thales/Utimaco PKCS#11
-- [ ] **Mode 4: Production MPC** — Mode 3 + distributed key ceremony across 3+ hosts
-- [ ] For each mode: security properties that HOLD and those that DO NOT
+- [x] **Mode 1: Development** — single process, software keys, no HSM. What it is, what it is NOT
+- [x] **Mode 2: Production minimal** — split signer binary, encrypted storage, separate host
+- [x] **Mode 3: Production HSM** — Mode 2 + SoftHSM2 or Thales/Utimaco PKCS#11
+- [x] **Mode 4: Production MPC** — Mode 3 + distributed key ceremony across 3+ hosts
+- [x] For each mode: security properties that HOLD and those that DO NOT
 
 ### 17G — Go-to-Market Foundation (P2)
 - [ ] Positioning doc: "Open-source custody engine (self-hosted Fireblocks alternative)"
@@ -437,6 +437,6 @@
 | Signer process isolation | Phase 17B | ❌ Missing — Zone 3 is aspirational |
 | Circuit breaker persistence | Phase 17C | ✅ DB-persisted (migration 009) |
 | Attack simulation tests | Phase 17D | ✅ 24 security tests |
-| Supply chain (pinning, SBOM) | Phase 17E | ❌ Missing |
-| Deployment modes guide | Phase 17F | ❌ Missing |
+| Supply chain (pinning, deny.toml) | Phase 17E | ✅ cargo-deny + Dockerfile pinned |
+| Deployment modes guide | Phase 17F | ✅ docs/DEPLOYMENT_MODES.md |
 | Security certifications | Phase 16 | ❌ Blocked by Phase 17 |

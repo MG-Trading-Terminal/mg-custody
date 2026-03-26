@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Phase 17E + 17F: Supply Chain + Deployment Modes
+- **deny.toml** — cargo-deny config: license allow-list, RUSTSEC advisory check, source pinning
+- **Dockerfile pinned** — `rust:1.85-bookworm` instead of `:latest`
+- **docs/DEPLOYMENT_MODES.md** — 4 modes with honest security property tables
+  - Mode 1 (Dev), Mode 2 (Production Minimal), Mode 3 (HSM), Mode 4 (MPC)
+  - Each mode: what HOLDS and what DOES NOT
+
 ### Added (2026-03-26) — Phase 17D: Attack Simulation Tests (24 security tests)
 - Key material never leaks to serialization, error types, or API responses
 - Circuit breaker enforces all limits, webhook signatures not forgeable
