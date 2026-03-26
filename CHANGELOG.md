@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 29: 1000 Tests Milestone
+- **Solana versioned transactions** — v0 with Address Lookup Tables, tx size estimation
+  - Priority fee levels (None → VeryHigh), fee calculation in SOL
+- **Bitcoin fee estimation** — mempool rate buckets, RBF bump calc, CPFP effective rate
+  - Confirmation time estimation by fee rate
+- **21 new tests** (1000 total!)
+
+### Changed (2026-03-26) — Trust Pivot: Honest Statuses + Phase 17
+- **ROADMAP.md overhaul** — project target rewritten from "Fireblocks feature parity" to "trustworthy self-hosted custody"
+- **Honest status markers** — Phases 4C (HSM), 9, 10, 11, 13, 14, 15 re-marked as "Types Only / Not Operational"
+- **Phase 4 MPC/HSM** — added missing tasks: network transport, share persistence, live HSM integration
+- **Phase 17 — Trust Infrastructure** added as NEXT priority with 7 sub-phases:
+  - 17A: THREAT_MODEL.md + SECURITY.md + honest README
+  - 17B: Signer process isolation (separate binary, IPC)
+  - 17C: Circuit breaker DB persistence (fund safety P0)
+  - 17D: Attack simulation tests
+  - 17E: Supply chain (pinned images, cargo-deny, SBOM)
+  - 17F: Deployment modes document
+  - 17G: Go-to-market foundation
+- **Feature freeze** — no new chains/DeFi/types until Phase 17 complete
+- **Parity Tracker** replaced with "Honest Status Tracker" (4 tiers: Operational / Crypto Only / Types Only / Missing)
+
 ### Added (2026-03-26) — Level 28: Bitcoin Script + EVM RLP + Crypto Utils
 - **Bitcoin Script** — opcodes, P2PKH/P2WPKH/P2WSH/multisig/HTLC/OP_RETURN builders
 - **EVM RLP** — encode/decode, tx type detection (Legacy/EIP-1559/EIP-4844)
