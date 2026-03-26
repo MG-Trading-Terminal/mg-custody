@@ -1,3 +1,4 @@
+pub mod accounting;
 pub mod alerts;
 pub mod chain_adapter;
 pub mod chain_utils;

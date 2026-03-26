@@ -377,4 +377,8 @@
 | EVM gas utilities | Level 14 | ✅ Done |
 | Deposit forwarding | Level 14 | ✅ Done |
 | Multi-sig wallets | Level 14 | ✅ Done |
+| Ledger accounting | Level 15 | ✅ Done |
+| Event catalog (31) | Level 15 | ✅ Done |
+| Token bucket limiter | Level 15 | ✅ Done |
+| Key fingerprints | Level 15 | ✅ Done |
 | SOC 2 / CCSS | Phase 16 | Planned |

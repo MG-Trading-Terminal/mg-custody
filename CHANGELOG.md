@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 15: Accounting & Events
+- **Ledger accounting** — balance sheets, asset balances with available calculation
+  - P&L calculation (withdrawal fees - network fees - gas costs)
+  - Fee tracking with aggregated summaries (total/avg/min/max)
+- **Event catalog** — 31 custody event types across 8 categories
+  - Categories: deposit, withdrawal, transfer, vault, policy, compliance, system, key_management
+  - Severity classification (critical/warning/info)
+- **Token bucket rate limiter** — configurable capacity and refill rate
+  - Single and batch token consumption, exhaustion detection
+- **Key fingerprints** — SHA-256 truncated to 8 bytes for safe key identification
+  - Deterministic, never exposes key material
+- **13 new tests** (662 total)
+
 ### Added (2026-03-26) — Level 14: Chain Utilities & Advanced Wallet
 - **UTXO analysis** — coin selection stats, dust detection, consolidation recommendation
   - Dust threshold 546 sats (P2WPKH), fee estimation for consolidation
