@@ -364,4 +364,7 @@
 | Backup/recovery status | Level 10 | ✅ Done |
 | Token discovery | Level 10 | ✅ Done |
 | Health dashboard | Level 10 | ✅ Done |
+| OpenAPI spec | Level 11 | ✅ Done |
+| SDK generation | Level 11 | ✅ Done |
+| Endpoint catalog | Level 11 | ✅ Done |
 | SOC 2 / CCSS | Phase 16 | Planned |

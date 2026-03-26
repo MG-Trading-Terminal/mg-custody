@@ -5,6 +5,7 @@ pub mod config_validation;
 pub mod connectivity;
 pub mod cosmos;
 pub mod defi;
+pub mod developer;
 pub mod error;
 pub mod events;
 pub mod evm_chains;

@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 11: Developer Experience
+- **OpenAPI 3.0 spec** — auto-generated from endpoint catalog
+  - 100+ endpoints documented with tags, auth requirements, rate limits
+  - `GET /v1/openapi.json`
+- **SDK method definitions** — auto-generated method names for all endpoints
+  - `GET /v1/sdk/methods`, `GET /v1/sdk/endpoints`
+- **Endpoint catalog** — programmatic listing of all 100+ API endpoints
+  - Method, path, summary, tag, auth required, rate limit per endpoint
+- **PaginatedResponse** — standard cursor pagination wrapper type
+- **8 new tests** (592 total), all green
+
 ### Added (2026-03-26) — Level 10: Production Polish
 - **Transaction scheduling** — future-dated withdrawals with cancel support
   - Due-detection query for background executor, vault-scoped listing

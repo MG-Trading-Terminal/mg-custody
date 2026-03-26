@@ -30,6 +30,9 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/wallets/{asset}", get(get_wallet_balance))
         .route("/v1/ws", get(crate::websocket::ws_handler))
         .route("/metrics", get(prometheus_metrics))
+        .route("/v1/openapi.json", get(openapi_spec))
+        .route("/v1/sdk/methods", get(sdk_methods))
+        .route("/v1/sdk/endpoints", get(endpoint_catalog))
         .merge(crate::vault_routes::vault_router())
         .merge(crate::ops_routes::ops_router())
         .merge(crate::connectivity_routes::connectivity_router())
@@ -218,4 +221,16 @@ async fn get_wallet_balance(
         asset: Asset::new(&asset),
         hot_balance: hot, warm_balance: warm, total_managed: hot + warm + cold,
     }))
+}
+
+async fn openapi_spec() -> Json<serde_json::Value> {
+    Json(custody_common::developer::generate_openapi_spec())
+}
+
+async fn sdk_methods() -> Json<Vec<custody_common::developer::SdkMethod>> {
+    Json(custody_common::developer::sdk_methods())
+}
+
+async fn endpoint_catalog() -> Json<Vec<custody_common::developer::ApiEndpoint>> {
+    Json(custody_common::developer::all_endpoints())
 }
