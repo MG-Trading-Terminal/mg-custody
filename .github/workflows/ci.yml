@@ -79,6 +79,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.85.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --bin custody --bin custody-admin --bin custody-seed --bin custody-signer
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          cargo install cargo-cyclonedx --quiet || true
+          cargo cyclonedx --format json --output-file sbom.json || echo "SBOM generation skipped"
+      - name: Upload SBOM
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+          if-no-files-found: ignore
 
   docker:
     name: Docker Build

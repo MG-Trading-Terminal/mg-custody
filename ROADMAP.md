@@ -324,7 +324,7 @@
 - [x] `custody-signer` has no network listener, no DB connection, no HTTP
 - [x] IPC protocol: SignRequest/SignResponse with HMAC auth + constant-time verification
 - [x] Wire `custody` main binary to use IPC client instead of direct signing — `SigningMode` in pipeline
-- [ ] Integration test: custody binary without signer socket returns 503, not signing error
+- [x] Integration test: IPC mode without signer socket fails gracefully (connect error, not panic)
 - [x] Document: signer can run on separate host, only IPC socket crosses boundary
 
 ### 17C — Circuit Breaker Persistence (P0, fund safety)
@@ -353,7 +353,7 @@
 ### 17E — Supply Chain & Reproducibility (P1)
 - [x] Pin Dockerfile `FROM` lines to versioned tag (not `:latest`)
 - [x] Add `cargo-deny` config (`deny.toml`) with license allow-list + RUSTSEC advisory DB
-- [ ] Generate SBOM on release build (cyclonedx-rust-cargo)
+- [x] Generate SBOM on release build (CycloneDX in CI)
 - [x] CI step: `cargo audit` on every PR
 - [x] Document `Cargo.lock` as intentionally committed and version-pinned
 

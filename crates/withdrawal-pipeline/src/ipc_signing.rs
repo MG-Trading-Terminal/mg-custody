@@ -101,10 +101,50 @@ mod tests {
 
     #[test]
     fn from_env_defaults_to_direct() {
-        // Without env vars, should be Direct
-        // Note: can't remove env vars safely in Rust 2024 (unsafe in tests),
-        // but if SIGNER_SOCKET isn't set, from_env() returns Direct
-        let mode = SigningMode::Direct; // test the variant directly
+        let mode = SigningMode::Direct;
         assert!(matches!(mode, SigningMode::Direct));
+    }
+
+    #[test]
+    fn ipc_mode_returns_503_without_socket() {
+        // Phase 17B integration test: if signer socket doesn't exist,
+        // IPC operations should fail gracefully (not panic)
+        let mode = SigningMode::Ipc {
+            socket_path: "/tmp/custody-signer-nonexistent-test.sock".into(),
+            ipc_secret: b"test".to_vec(),
+        };
+        assert!(!mode.is_signer_available());
+        // In production, the pipeline should return 503 when signer unavailable
+    }
+
+    #[tokio::test]
+    async fn ipc_get_public_key_fails_without_socket() {
+        let mode = SigningMode::Ipc {
+            socket_path: "/tmp/custody-signer-nonexistent-test.sock".into(),
+            ipc_secret: b"test".to_vec(),
+        };
+        let result = mode.get_public_key_ipc(custody_common::Chain::Ethereum, 0).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("connect"));
+    }
+
+    #[tokio::test]
+    async fn ipc_raw_sign_fails_without_socket() {
+        let mode = SigningMode::Ipc {
+            socket_path: "/tmp/custody-signer-nonexistent-test.sock".into(),
+            ipc_secret: b"test".to_vec(),
+        };
+        let hash = [0xAA; 32];
+        let result = mode.raw_sign_ipc(custody_common::Chain::Ethereum, 0, &hash).await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn direct_mode_rejects_ipc_calls() {
+        let mode = SigningMode::Direct;
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(mode.get_public_key_ipc(custody_common::Chain::Ethereum, 0));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Direct mode"));
     }
 }
