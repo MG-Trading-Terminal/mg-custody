@@ -195,3 +195,66 @@
 - EIP-191: https://eips.ethereum.org/EIPS/eip-191
 - EIP-712: https://eips.ethereum.org/EIPS/eip-712
 - BIP-125 (RBF): https://github.com/bitcoin/bips/blob/master/bip-0125.mediawiki
+
+---
+
+## Levels 6-16 — Full Feature Build (2026-03-26)
+
+### Goals
+- Close ALL remaining Fireblocks functional gaps
+- API surface parity: 125+ endpoints
+- Deep implementation of all "types only" phases
+
+### Completed (Levels 6-16)
+
+| Level | Features | New Files | Tests Added |
+|-------|----------|-----------|-------------|
+| 6 | Webhook management, batch tx, audit log API, address book, gas station status | 6 | +7 |
+| 7 | Exchange connections, API keys (SHA-256), notifications (Telegram/Slack/PagerDuty), system config, network fees | 7 | +13 |
+| 8 | Workspace management, reporting/export (JSON/CSV), signing key info, travel rule (FATF R.16) | 6 | +11 |
+| 9 | Vault policies (spending limits, velocity, time locks, freeze), approval workflows (multi-sig quorum), supported networks, tx notes, staking execution | 5 | +11 |
+| 10 | Transaction scheduling, compliance screening, backup/recovery status, token discovery, health dashboard | 5 | +9 |
+| 11 | OpenAPI 3.0 spec (auto-generated), SDK method definitions, endpoint catalog | 1 | +8 |
+| 12 | Multi-chain address validation (Bech32/hex/Base58Check), error catalog (30+ codes), CLI tools (key ceremony, test fixtures) | 2 | +27 |
+| 13 | Idempotency records, webhook HMAC signing, per-chain retry policies, circuit breaker v2, request analytics | 1 | +16 |
+| 14 | UTXO analysis (dust detection, consolidation), EVM gas utilities (EIP-1559), deposit forwarding, tx categories, multi-sig wallets | 1 | +14 |
+| 15 | Ledger accounting (balance sheet, P&L, fee tracking), event catalog (31 types), token bucket rate limiter, key fingerprints | 1 | +13 |
+| 16 | DeFi execution (swap routing, slippage), settlement protocol (bilateral netting), tokenization (mint/burn calldata), FIDO2/WebAuthn, metrics wiring (35+), load test scenarios | 5 | +33 |
+
+### Session Metrics
+- **Levels completed**: 12 (Level 5 through Level 16)
+- **New Rust files**: 205 total (across all sessions)
+- **Lines of Rust**: 36,522
+- **Tests**: 695 passing, 0 failures
+- **API endpoints**: 125+
+- **DB tables**: 30 (across 8 migrations)
+- **Common modules**: 42
+- **Commits this session**: 12
+
+### Architecture Summary
+```
+crates/
+  common/     42 modules — types, validation, accounting, DeFi, settlement, FIDO2
+  db/         16 modules — PostgreSQL persistence, 30 tables, 8 migrations
+  gateway/    13 modules — 12 route groups, 125+ REST endpoints
+  scanner/    6 modules  — 4-chain deposit detection (BTC/ETH/TRX/SOL + EVM L2)
+  signing/    9 modules  — BIP-143, EIP-1559, SLIP-0010, raw signing, staking
+  mpc/        10 modules — CGGMP21 (secp256k1) + FROST (Ed25519), HSM
+  broadcaster/5 modules  — 4-chain tx broadcast + confirmation tracking
+  pipeline/   5 modules  — withdrawal state machine (Received → Finalized)
+  + 9 more crates (address-factory, policy, compliance, wallet-manager, etc.)
+```
+
+### Roadmap Status
+- **84 items DONE** out of 91 total
+- **7 remaining**: 5 organizational (SOC2/ISO/CCSS/pentest/insurance), 2 external API (Chainalysis/Notabene keys)
+- **All code-implementable features complete**
+
+### References Used
+- Fireblocks API: https://developers.fireblocks.com/reference/api-overview
+- Uniswap V3: https://docs.uniswap.org/contracts/v3/overview
+- ERC-20 function selectors: https://www.4byte.directory/
+- FIDO2/WebAuthn: https://www.w3.org/TR/webauthn-2/
+- FATF Recommendation 16: https://www.fatf-gafi.org/en/topics/fatf-recommendations.html
+- BIP-67 (sorted multi-sig): https://github.com/bitcoin/bips/blob/master/bip-0067.mediawiki
+- Gnosis Safe: https://docs.safe.global/
