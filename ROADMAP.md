@@ -387,4 +387,7 @@
 | FIDO2/WebAuthn | Level 16 | ✅ Done |
 | Metrics wiring (35+) | Level 16 | ✅ Done |
 | Load test scenarios | Level 16 | ✅ Done |
+| Token database (55+) | Level 17 | ✅ Done |
+| Price engine (Chainlink/Pyth) | Level 17 | ✅ Done |
+| NFT custody (721/1155) | Level 17 | ✅ Done |
 | SOC 2 / CCSS | Phase 16 | Planned |

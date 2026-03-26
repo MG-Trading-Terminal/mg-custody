@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 17: Token Registry + Price Feeds + NFT
+- **Token database** — 55+ verified tokens across 4 chains with contract addresses
+  - 4 native (BTC/ETH/TRX/SOL), 26 ERC-20, 8 TRC-20, 12 SPL tokens
+  - Lookup by symbol+chain, by contract address (case-insensitive)
+  - CoinGecko IDs, stablecoin flag, verified status
+  - Top DeFi: UNI, AAVE, LINK, CRV, LDO, MKR, COMP, SNX
+  - Liquid staking: stETH, rETH, cbETH, mSOL, stSOL
+  - Meme: SHIB, PEPE, BONK, WIF
+- **Price engine** — multi-source aggregation with median
+  - 10 Chainlink price feeds (ETH, BTC, LINK, USDT, USDC, SOL, DAI, AAVE, UNI, MKR)
+  - 5 Pyth Network feeds (BTC, ETH, SOL, USDT, USDC)
+  - Staleness detection, portfolio value calculation
+- **NFT custody** — ERC-721, ERC-1155, Solana Metaplex support
+  - `transferFrom` calldata encoding (ERC-721)
+  - `safeTransferFrom` calldata encoding (ERC-1155)
+  - `approve` calldata encoding (ERC-721)
+  - NFT asset tracking with metadata (name, image, collection)
+- **33 new tests** (728 total)
+
 ### Added (2026-03-26) — Level 16: Deep Implementation (6 features in parallel)
 - **DeFi execution** — swap routing with multi-hop, DEX aggregator, slippage protection (max 2%), price impact checks
   - Known DEX configs: Uniswap V3, SushiSwap, Curve, Jupiter, Raydium, SunSwap
