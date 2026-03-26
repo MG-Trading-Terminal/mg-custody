@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 25: ABI Decoder + Tron Energy + Event Parsing
+- **ABI decoder** — 26 function selectors, 7 event topics, Transfer event decoding
+- **Tron Energy** — TRC-20 cost estimation, resource checks, freeze calculation
+- **19 new tests** (881 total)
+
 ### Added (2026-03-26) — Level 24: ENS + Safe{Wallet} + ERC-4626 Vaults
 - **ENS/Name Resolution** — namehash computation (verified vitalik.eth), resolver/addr calldata
   - Unstoppable Domains, Solana Name Service, SpaceID support

@@ -1,3 +1,4 @@
+pub mod abi_decoder;
 pub mod accounting;
 pub mod alerts;
 pub mod bitcoin_advanced;
@@ -58,6 +59,7 @@ pub mod token_ops;
 pub mod token_scan;
 pub mod token_registry;
 pub mod tokenization;
+pub mod tron_energy;
 pub mod types;
 pub mod validation;
 pub mod vault;
