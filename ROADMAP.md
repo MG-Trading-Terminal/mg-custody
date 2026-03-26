@@ -381,4 +381,10 @@
 | Event catalog (31) | Level 15 | ✅ Done |
 | Token bucket limiter | Level 15 | ✅ Done |
 | Key fingerprints | Level 15 | ✅ Done |
+| DeFi execution | Level 16 | ✅ Done |
+| Settlement protocol | Level 16 | ✅ Done |
+| Tokenization execution | Level 16 | ✅ Done |
+| FIDO2/WebAuthn | Level 16 | ✅ Done |
+| Metrics wiring (35+) | Level 16 | ✅ Done |
+| Load test scenarios | Level 16 | ✅ Done |
 | SOC 2 / CCSS | Phase 16 | Planned |

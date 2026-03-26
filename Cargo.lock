@@ -1879,6 +1879,7 @@ dependencies = [
  "hmac",
  "once_cell",
  "prometheus",
+ "rand 0.8.5",
  "reqwest",
  "rust_decimal",
  "rust_decimal_macros",

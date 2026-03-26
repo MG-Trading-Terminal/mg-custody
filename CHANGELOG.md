@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 16: Deep Implementation (6 features in parallel)
+- **DeFi execution** — swap routing with multi-hop, DEX aggregator, slippage protection (max 2%), price impact checks
+  - Known DEX configs: Uniswap V3, SushiSwap, Curve, Jupiter, Raydium, SunSwap
+- **Settlement protocol** — inter-custody bilateral netting with real algorithm
+  - `bilateral_net()` reduces gross legs to net transfers, calculates savings %
+  - Protocol messages: Hello, ProposeSettlement, Accept, Reject, ConfirmExecution
+- **Tokenization execution** — ERC-20 deploy calldata, mint/burn/pause/unpause encoding
+  - Function selectors: mint (0x40c10f19), burn (0x42966c68), pause (0x8456cb59)
+  - Constructor args ABI encoding
+- **FIDO2/WebAuthn** — credential registration/authentication types
+  - Challenge generation, attestation options, authenticator selection
+  - UserVerification::Required for custody approvals
+- **Prometheus metrics wiring** — 35+ metric definitions with standard labels
+  - HTTP, deposits, withdrawals, signing, chain health, vaults, policy, compliance, webhooks
+  - Load test scenarios: smoke (5 rps), standard (50), peak (150), stress (500)
+- **33 new tests** (695 total)
+
 ### Added (2026-03-26) — Level 15: Accounting & Events
 - **Ledger accounting** — balance sheets, asset balances with available calculation
   - P&L calculation (withdrawal fees - network fees - gas costs)
