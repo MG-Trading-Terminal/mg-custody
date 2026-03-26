@@ -393,4 +393,7 @@
 | Uniswap/Curve calldata | Level 18 | ✅ Done |
 | Cross-chain bridges | Level 18 | ✅ Done |
 | Token allowance mgmt | Level 18 | ✅ Done |
+| Lido/Rocket Pool/Marinade | Level 19 | ✅ Done |
+| WalletConnect v2 protocol | Level 19 | ✅ Done |
+| Cosmos SDK chains (5) | Level 19 | ✅ Done |
 | SOC 2 / CCSS | Phase 16 | Planned |

@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 19: Staking Contracts + WalletConnect v2 + Cosmos
+- **Lido staking calldata** — `submit()` for staking, `requestWithdrawals()` for unstaking
+- **Rocket Pool** — `deposit()` for rETH minting, `burn()` for redemption
+- **Marinade Finance** — Solana deposit instruction discriminator, program IDs
+- **Known validators** — 5 validators/pools (Lido, Rocket Pool, Coinbase, Marinade, Jito) with APY/fees
+- **WalletConnect v2** — full session lifecycle types
+  - Pairing, session, peer metadata, namespace building (EIP-155 + Solana)
+  - WC URI parsing, JSON-RPC request types, EVM + Solana method constants
+- **Cosmos SDK chains** — 5 chains (Cosmos Hub, Osmosis, Celestia, dYdX, Injective)
+  - MsgSend, MsgDelegate, MsgUndelegate, MsgWithdrawRewards, IBC MsgTransfer
+  - Transaction body builders for send + IBC transfer
+- **25 new tests** (765 total)
+
 ### Added (2026-03-26) — Level 18: DeFi Calldata + Bridges + Allowances
 - **Uniswap V3 calldata** — `exactInputSingle` ABI encoding with fee tier, recipient, price limit
 - **Curve calldata** — `exchange(int128,int128,uint256,uint256)` pool swap encoding
