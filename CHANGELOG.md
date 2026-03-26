@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — MPC Transport + HSM Guard
+- **MPC network transport** — `MpcTransport` trait with HMAC-authenticated messaging
+  - InMemoryTransport for testing, session/round-based message filtering
+  - HMAC sign/verify on all inter-party messages, tamper detection
+- **HSM runtime guard** — `assert_hsm_operational()` panics if HSM not wired
+  - `check_hsm_health()` for monitoring, `is_operational()`/`hsm_type()` on trait
+- **11 new tests** (1096 total)
+
 ### Added (2026-03-26) — EVM Access Lists + Address Poisoning Detection
 - **EVM Access Lists (EIP-2930)** — gas savings estimation, storage slot computation
   - Balance/allowance mapping slot calculation (keccak256)

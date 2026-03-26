@@ -26,6 +26,7 @@ pub mod key_rotation;
 pub mod presigning;
 pub mod coordinator;
 pub mod key_store;
+pub mod transport;
 
 use anyhow::Result;
 use custody_common::Chain;

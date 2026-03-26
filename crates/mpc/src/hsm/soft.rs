@@ -65,6 +65,14 @@ impl HsmAdapter for SoftwareHsm {
             .collect();
         Ok(keys)
     }
+
+    fn is_operational(&self) -> bool {
+        true // software HSM is always operational (for dev/test)
+    }
+
+    fn hsm_type(&self) -> &'static str {
+        "software"
+    }
 }
 
 #[cfg(test)]
@@ -92,6 +100,22 @@ mod tests {
         hsm.store_share("key1", 1, b"data").unwrap();
         hsm.delete_share("key1", 1).unwrap();
         assert!(hsm.load_share("key1", 1).is_err());
+    }
+
+    #[test]
+    fn software_hsm_is_operational() {
+        let hsm = SoftwareHsm::new();
+        assert!(hsm.is_operational());
+        assert_eq!(hsm.hsm_type(), "software");
+    }
+
+    #[test]
+    fn hsm_health_check() {
+        let hsm = SoftwareHsm::new();
+        let health = super::super::check_hsm_health(&hsm);
+        assert!(health.is_operational);
+        assert!(health.can_list_keys);
+        assert_eq!(health.hsm_type, "software");
     }
 
     #[test]

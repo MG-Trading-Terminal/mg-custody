@@ -64,7 +64,7 @@
 - [x] CGGMP21 threshold signing (keygen + sign + verify via round-based sim)
 - [x] Key share rotation types (pending cggmp21 reshare support)
 - [x] Presigning cache for low-latency operations
-- [ ] **Network transport between MPC parties (authenticated channels)**
+- [x] **Network transport between MPC parties (authenticated channels)** — `MpcTransport` trait + InMemoryTransport + HMAC auth
 - [ ] **Share persistence across process restarts**
 - [ ] **Multi-process party coordination**
 
@@ -74,7 +74,7 @@
 - [x] Sign + verify roundtrip tested for all 3 combinations of 2-of-3
 - [x] Wrong message verification fails (security test)
 - [x] Distributed DKG types + config (round-based ready)
-- [ ] **Network transport between FROST parties**
+- [x] **Network transport between FROST parties** — shared `MpcTransport` trait
 - [ ] **Distributed DKG implementation (not just types)**
 
 ### 4C — HSM Integration (production key storage) ⚠️ TYPES ONLY
@@ -88,7 +88,7 @@
 - [x] Hardware-enforced rate limiting on signing operations
 - [ ] **Live PKCS#11 session management (actual HSM calls)**
 - [ ] **CloudHSM API integration (actual AWS SDK calls)**
-- [ ] **Runtime guard: panic if HSM mode selected but not wired**
+- [x] **Runtime guard: panic if HSM mode selected but not wired** — `assert_hsm_operational()` + health check
 
 ### 4D — Key Lifecycle Management ✅ types done
 - [x] Key rotation schedule (quarterly default, configurable)

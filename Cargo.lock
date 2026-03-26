@@ -2013,6 +2013,7 @@ dependencies = [
  "futures",
  "generic-ec",
  "hex",
+ "hmac",
  "k256",
  "rand 0.8.5",
  "round-based",

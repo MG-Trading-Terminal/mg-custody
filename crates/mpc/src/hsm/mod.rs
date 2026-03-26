@@ -24,4 +24,40 @@ pub trait HsmAdapter: Send + Sync {
 
     /// List all key IDs stored in this HSM.
     fn list_keys(&self) -> Result<Vec<String>>;
+
+    /// Check if this HSM is operational (not a stub).
+    fn is_operational(&self) -> bool { false }
+
+    /// HSM type name for logging/diagnostics.
+    fn hsm_type(&self) -> &'static str { "unknown" }
+}
+
+/// Runtime guard: panic if HSM mode is required but adapter is not operational.
+///
+/// Call this during startup when config says `hsm_mode = true`.
+pub fn assert_hsm_operational(adapter: &dyn HsmAdapter) {
+    if !adapter.is_operational() {
+        panic!(
+            "FATAL: HSM mode enabled but adapter '{}' is not operational. \
+             Cannot start custody service with unimplemented HSM. \
+             Either configure a real HSM or set hsm_mode = false.",
+            adapter.hsm_type()
+        );
+    }
+}
+
+/// Check HSM health (non-panicking version).
+pub fn check_hsm_health(adapter: &dyn HsmAdapter) -> HsmHealthCheck {
+    HsmHealthCheck {
+        hsm_type: adapter.hsm_type().to_string(),
+        is_operational: adapter.is_operational(),
+        can_list_keys: adapter.list_keys().is_ok(),
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HsmHealthCheck {
+    pub hsm_type: String,
+    pub is_operational: bool,
+    pub can_list_keys: bool,
 }
