@@ -1,5 +1,6 @@
 pub mod alerts;
 pub mod chain_adapter;
+pub mod cli;
 pub mod config;
 pub mod config_validation;
 pub mod connectivity;
@@ -31,6 +32,7 @@ pub mod staking_ops;
 pub mod token_registry;
 pub mod tokenization;
 pub mod types;
+pub mod validation;
 pub mod vault;
 pub mod waas;
 pub mod webhook;

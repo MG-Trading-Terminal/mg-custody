@@ -367,4 +367,7 @@
 | OpenAPI spec | Level 11 | ✅ Done |
 | SDK generation | Level 11 | ✅ Done |
 | Endpoint catalog | Level 11 | ✅ Done |
+| Address validation | Level 12 | ✅ Done |
+| Error catalog | Level 12 | ✅ Done |
+| CLI tools | Level 12 | ✅ Done |
 | SOC 2 / CCSS | Phase 16 | Planned |

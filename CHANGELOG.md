@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Level 12: Hardening & Validation
+- **Multi-chain address validation** — real format validation for all 4 chains
+  - Bitcoin: Bech32 (bc1q/bc1p), Legacy (1), P2SH (3) with character validation
+  - Ethereum: 0x-prefix, 42 chars, hex validation, zero address rejection
+  - Tron: T-prefix, 34 chars, Base58Check validation
+  - Solana: 32-44 chars, Base58 validation
+- **Error catalog** — 30+ standardized error codes across 7 categories
+  - General (1xxx), Validation (2xxx), Vault (3xxx), Transaction (4xxx),
+    Signing (5xxx), Policy (6xxx), Compliance (7xxx)
+- **CLI tools** — key ceremony steps, wallet info, test fixtures
+  - Shamir 3-of-5 ceremony workflow generator
+  - Default wallet info for all 4 chains with derivation paths
+  - Integration test fixtures per chain
+- **27 new tests** (619 total), all green
+
 ### Added (2026-03-26) — Level 11: Developer Experience
 - **OpenAPI 3.0 spec** — auto-generated from endpoint catalog
   - 100+ endpoints documented with tags, auth requirements, rate limits
