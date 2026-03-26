@@ -66,7 +66,7 @@
 - [x] Presigning cache for low-latency operations
 - [x] **Network transport between MPC parties (authenticated channels)** — `MpcTransport` trait + InMemoryTransport + HMAC auth
 - [x] **Share persistence across process restarts** — `ShareStore` trait + FileShareStore + integrity verification
-- [ ] **Multi-process party coordination**
+- [x] **Multi-process party coordination** — `SessionCoordinator` state machine with round management
 
 ### 4B — FROST threshold EdDSA for Ed25519 chains ✅ crypto done
 - [x] FROST trusted dealer keygen (frost-ed25519 v2.2, RFC 9591)

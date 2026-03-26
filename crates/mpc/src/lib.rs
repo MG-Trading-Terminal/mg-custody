@@ -25,6 +25,7 @@ pub mod hsm;
 pub mod key_rotation;
 pub mod presigning;
 pub mod coordinator;
+pub mod coordinator_v2;
 pub mod key_store;
 pub mod share_store;
 pub mod transport;
