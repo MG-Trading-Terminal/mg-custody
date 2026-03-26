@@ -14,6 +14,7 @@ custody-policy = { path = "../policy" }
 custody-compliance = { path = "../compliance" }
 custody-scanner = { path = "../scanner" }
 custody-mpc = { path = "../mpc" }
+custody-signer-service = { path = "../signer-service" }
 custody-utxo = { path = "../utxo" }
 custody-address-factory = { path = "../address-factory" }
 sha2 = { workspace = true }

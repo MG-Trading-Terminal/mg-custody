@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — IPC Signing Wired into Pipeline
+- **SigningMode** in withdrawal pipeline — Direct (dev) or IPC (production)
+  - Auto-detect from `SIGNER_SOCKET` + `SIGNER_IPC_SECRET` env vars
+  - `get_public_key_ipc()`, `raw_sign_ipc()` convenience methods
+  - Phase 17B complete: pipeline can now sign via isolated signer process
+
 ### Added (2026-03-26) — Expanded Security Tests (33 total)
 - Address poisoning detection, error recovery classification
 - Proof of Reserves solvency/insolvency, circuit breaker error messages

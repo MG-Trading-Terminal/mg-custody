@@ -2230,6 +2230,7 @@ dependencies = [
  "custody-mpc",
  "custody-policy",
  "custody-scanner",
+ "custody-signer-service",
  "custody-signing",
  "custody-utxo",
  "dashmap",

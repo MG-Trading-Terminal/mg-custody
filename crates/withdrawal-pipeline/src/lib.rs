@@ -10,6 +10,7 @@
 //! - Time delays for Tier 2+
 
 pub mod fee_bump;
+pub mod ipc_signing;
 pub mod nonce_manager;
 pub mod pipeline;
 pub mod validation;

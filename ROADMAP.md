@@ -323,7 +323,7 @@
 - [x] IPC transport: Unix domain socket with HMAC-authenticated request/response
 - [x] `custody-signer` has no network listener, no DB connection, no HTTP
 - [x] IPC protocol: SignRequest/SignResponse with HMAC auth + constant-time verification
-- [ ] Wire `custody` main binary to use IPC client instead of direct signing
+- [x] Wire `custody` main binary to use IPC client instead of direct signing — `SigningMode` in pipeline
 - [ ] Integration test: custody binary without signer socket returns 503, not signing error
 - [x] Document: signer can run on separate host, only IPC socket crosses boundary
 
