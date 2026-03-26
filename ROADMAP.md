@@ -368,7 +368,7 @@
 ### 17G — Go-to-Market Foundation (P2)
 - [ ] Positioning doc: "Open-source custody engine (self-hosted Fireblocks alternative)"
 - [ ] Identify first 2 user archetypes: crypto startup + trading desk
-- [ ] Quickstart guide: "secure deployment in 30 minutes"
+- [x] Quickstart guide: "secure deployment in 30 minutes" (docs/QUICKSTART.md)
 - [x] GitHub packaging: description, topics, social preview, CONTRIBUTING.md
 - [ ] Onboarding walkthrough for first 2 users (hands-on)
 

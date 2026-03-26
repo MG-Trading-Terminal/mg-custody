@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Quickstart + 80+ tokens + 17G
+- **docs/QUICKSTART.md** — secure deployment in 30 minutes, 8-step guide
+- **Token database expanded** — 80+ tokens (was 55): 24 new ERC-20 (DeFi, stablecoins, infrastructure) + 7 new SPL
+  - New stablecoins: USDe, GHO, crvUSD, PYUSD, LUSD
+  - New DeFi: DYDX, 1INCH, PENDLE, BLUR, ENA, EIGEN, ETHFI, SAFE
+  - New infrastructure: W (Wormhole), ZRO (LayerZero), WLD (Worldcoin)
+  - New Solana: ORCA, RENDER, W, TENSOR, HNT, MOBILE
+
 ### Changed (2026-03-26) — CI hardening + signer in Docker
 - **CI pipeline** — pinned toolchain 1.85.0, added security job (cargo-deny + attack tests), signer binary build
 - **All 9 migrations** run in CI integration tests (was only migration 001)

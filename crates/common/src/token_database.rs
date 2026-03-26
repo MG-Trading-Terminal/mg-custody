@@ -75,6 +75,32 @@ pub fn all_tokens() -> Vec<TokenEntry> {
     tokens.push(erc20("IMX", "Immutable X", "0xF57e7e7C23978C3cAEC3C3548E3D615c346e79fF", 18, false, "immutable-x"));
     tokens.push(erc20("ENS", "Ethereum Name Service", "0xC18360217D8F7Ab5e7c516566761Ea12Ce7F9D72", 18, false, "ethereum-name-service"));
 
+    // --- Ethereum ERC-20 (batch 2 — DeFi + infrastructure) ---
+    tokens.push(erc20("DYDX", "dYdX", "0x92D6C1e31e14520e676a687F0a93788B716BEff5", 18, false, "dydx"));
+    tokens.push(erc20("1INCH", "1inch", "0x111111111117dC0aa78b770fA6A738034120C302", 18, false, "1inch"));
+    tokens.push(erc20("SUSHI", "SushiSwap", "0x6B3595068778DD592e39A122f4f5a5cF09C90fE2", 18, false, "sushi"));
+    tokens.push(erc20("BAL", "Balancer", "0xba100000625a3754423978a60c9317c58a424e3D", 18, false, "balancer"));
+    tokens.push(erc20("YFI", "yearn.finance", "0x0bc529c00C6401aEF6D220BE8C6Ea1667F6Ad93e", 18, false, "yearn-finance"));
+    tokens.push(erc20("PENDLE", "Pendle", "0x808507121B80c02388fAd14726482e061B8da827", 18, false, "pendle"));
+    tokens.push(erc20("RPL", "Rocket Pool", "0xD33526068D116cE69F19A9ee46F0bd304F21A51f", 18, false, "rocket-pool"));
+    tokens.push(erc20("SSV", "SSV Network", "0x9D65fF81a3c488d585bBfb0Bfe3c7707c7d3aD1d", 18, false, "ssv-network"));
+    tokens.push(erc20("BLUR", "Blur", "0x5283D291DBCF85356A21bA090E6db59121208b44", 18, false, "blur"));
+    tokens.push(erc20("ENA", "Ethena", "0x57e114B691Db790C35207b2e685D4A43181e6061", 18, false, "ethena"));
+    tokens.push(erc20("EIGEN", "EigenLayer", "0xec53bF9167f50cDEB3Ae105f56099aaaB9061F83", 18, false, "eigenlayer"));
+    tokens.push(erc20("ETHFI", "EtherFi", "0xFe0c30065B384F05761f15d0CC899D4F9F9Cc0eB", 18, false, "ether-fi"));
+    tokens.push(erc20("SAFE", "Safe", "0x5aFE3855358E112B5647B952709E6165e1c1eEEe", 18, false, "safe"));
+    tokens.push(erc20("W", "Wormhole", "0xB0fFa8000886e57F86dd5264b987B9B06651AE90", 18, false, "wormhole"));
+    tokens.push(erc20("ZRO", "LayerZero", "0x6985884C4392D348587B19cb9eAAf157F13271cd", 18, false, "layerzero"));
+    tokens.push(erc20("PYTH", "Pyth Network", "0xefD766cCb38EaF1dfd701853BFCe31359239F305", 6, false, "pyth-network"));
+    tokens.push(erc20("WLD", "Worldcoin", "0x163f8C2467924be0ae7B5347228CABF260318753", 18, false, "worldcoin"));
+    tokens.push(erc20("ONDO", "Ondo Finance", "0xfAbA6f8e4a5E8Ab82F62fe7C39859FA577269BE3", 18, false, "ondo-finance"));
+    tokens.push(erc20("weETH", "Wrapped eETH", "0xCd5fE23C85820F7B72D0926FC9b05b43E359b7ee", 18, false, "wrapped-eeth"));
+    tokens.push(erc20("USDe", "Ethena USDe", "0x4c9EDD5852cd905f086C759E8383e09bff1E68B3", 18, true, "ethena-usde"));
+    tokens.push(erc20("GHO", "GHO", "0x40D16FC0246aD3160Ccc09B8D0D3A2cD28aE6C2f", 18, true, "gho"));
+    tokens.push(erc20("crvUSD", "Curve USD", "0xf939E0A03FB07F59A73314E73794Be0E57ac1b4E", 18, true, "crvusd"));
+    tokens.push(erc20("PYUSD", "PayPal USD", "0x6c3ea9036406852006290770BEdFcAbA0e23A0e8", 6, true, "paypal-usd"));
+    tokens.push(erc20("LUSD", "Liquity USD", "0x5f98805A4E8be255a32880FDeC7F6728C6568bA0", 18, true, "liquity-usd"));
+
     // --- Tron TRC-20 ---
     tokens.push(trc20("USDT", "Tether USD", "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", 6, true, "tether"));
     tokens.push(trc20("USDC", "USD Coin", "TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8", 6, true, "usd-coin"));
@@ -98,6 +124,13 @@ pub fn all_tokens() -> Vec<TokenEntry> {
     tokens.push(spl("JUP", "Jupiter", "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN", 6, false, "jupiter-exchange-solana"));
     tokens.push(spl("mSOL", "Marinade SOL", "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So", 9, false, "marinade-staked-sol"));
     tokens.push(spl("stSOL", "Lido Staked SOL", "7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj", 9, false, "lido-staked-sol"));
+    tokens.push(spl("ORCA", "Orca", "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE", 6, false, "orca"));
+    tokens.push(spl("MNGO", "Mango", "MangoCzJ36AjZyKwVj3VnYU4GTonjfVEnJmvvWaxLac", 6, false, "mango-markets"));
+    tokens.push(spl("RENDER", "Render", "rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof", 8, false, "render-token"));
+    tokens.push(spl("W", "Wormhole", "85VBFQZC9TZkfaptBWjvUw7YbZjy52A6mjtPGjstQAmQ", 6, false, "wormhole"));
+    tokens.push(spl("TENSOR", "Tensor", "TNSRxcUxoT9xBG3de7PiJyTDYu7kskLqcpddxnEJAS6", 9, false, "tensor"));
+    tokens.push(spl("HNT", "Helium", "hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux", 8, false, "helium"));
+    tokens.push(spl("MOBILE", "Helium Mobile", "mb1eu7TzEc71KxDpsmsKoucSSuuo6KWzSY2qPAqTL7W9", 6, false, "helium-mobile"));
 
     tokens
 }
@@ -169,7 +202,7 @@ mod tests {
     #[test]
     fn total_token_count() {
         let tokens = all_tokens();
-        assert!(tokens.len() >= 50, "Should have 50+ tokens, got {}", tokens.len());
+        assert!(tokens.len() >= 80, "Should have 80+ tokens, got {}", tokens.len());
     }
 
     #[test]
@@ -181,13 +214,13 @@ mod tests {
     #[test]
     fn ethereum_tokens_count() {
         let eth = tokens_for_chain(Chain::Ethereum);
-        assert!(eth.len() >= 25, "Should have 25+ ETH tokens, got {}", eth.len());
+        assert!(eth.len() >= 45, "Should have 45+ ETH tokens, got {}", eth.len());
     }
 
     #[test]
     fn solana_tokens_count() {
         let sol = tokens_for_chain(Chain::Solana);
-        assert!(sol.len() >= 10, "Should have 10+ SOL tokens, got {}", sol.len());
+        assert!(sol.len() >= 17, "Should have 17+ SOL tokens, got {}", sol.len());
     }
 
     #[test]
