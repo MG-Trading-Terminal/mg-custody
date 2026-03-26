@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-26) — Error Recovery Patterns
+- **RPC error classification** — 11 error classes (connection, rate limit, nonce, gas, blockhash, etc.)
+- **Recovery actions** — 7 strategies (retry, backoff, rebuild, replace, abort, manual, skip)
+- **Stuck transaction detection** — per-chain thresholds (ETH 5min, BTC 1hr, SOL 90s, TRX 1min)
+- **Recovery recommendations** — ETH/BTC: RBF after timeout, SOL: always rebuild, TRX: rebuild after 5min
+- **16 new tests** (1058 total)
+
 ### Added (2026-03-26) — Quickstart + 80+ tokens + 17G
 - **docs/QUICKSTART.md** — secure deployment in 30 minutes, 8-step guide
 - **Token database expanded** — 80+ tokens (was 55): 24 new ERC-20 (DeFi, stablecoins, infrastructure) + 7 new SPL

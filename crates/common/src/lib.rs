@@ -22,6 +22,7 @@ pub mod eip712;
 pub mod erc4337;
 pub mod erc4626;
 pub mod error;
+pub mod error_recovery;
 pub mod fido2;
 pub mod events;
 pub mod evm_chains;
