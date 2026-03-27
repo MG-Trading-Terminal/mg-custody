@@ -30,6 +30,7 @@ pub mod distributed_dkg;
 pub mod key_store;
 pub mod share_store;
 pub mod transport;
+pub mod http_transport;
 
 use anyhow::Result;
 use custody_common::Chain;

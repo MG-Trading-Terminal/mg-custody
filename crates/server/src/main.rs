@@ -683,7 +683,7 @@ async fn main() -> anyhow::Result<()> {
                             db_l2.clone(), Chain::Ethereum, 10,
                         );
                         let scanner = match custody_scanner::evm::EvmScanner::new(
-                            &name, cid, &rpc, db_l2.clone(), address_cache, vec![], confs,
+                            &name, cid, "ETH", 18, &rpc, db_l2.clone(), address_cache, vec![], confs,
                         ) {
                             Ok(s) => s,
                             Err(e) => {

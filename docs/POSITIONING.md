@@ -42,7 +42,7 @@ A Rust-based custody service that manages private keys, signs transactions, moni
 
 ## Why Not Build From Scratch?
 
-- **1112 tests** proving correctness of signing, key derivation, and security
+- **1352 tests** proving correctness of signing, key derivation, and security
 - **Real cryptography**: BIP-143 (Bitcoin), EIP-1559 (Ethereum), SLIP-0010 (Solana)
 - **Security architecture**: threat model, attack simulation tests, circuit breakers
 - **Production patterns**: double-entry ledger, idempotent APIs, webhook retry

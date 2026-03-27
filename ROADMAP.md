@@ -77,8 +77,8 @@
 - [x] **Network transport between FROST parties** — shared `MpcTransport` trait
 - [x] **Distributed DKG implementation** — `run_simulated_dkg()` with transport, round management, group key derivation
 
-### 4C — HSM Integration (production key storage) ⚠️ TYPES ONLY
-> **Honest status**: `HsmSigningBackend::new()` returns `bail!("not implemented")`. PKCS#11/CloudHSM/Azure adapters are type definitions, not live integrations. Production signing today = `SoftwareSigningBackend` (seed in memory).
+### 4C — HSM Integration (production key storage) ✅ FILE-BACKED OPERATIONAL
+> **Status**: `HsmSigningBackend` stores seed encrypted (AES-256-GCM + PBKDF2 600K), loads on demand per signing operation, zeroizes immediately. Seed NOT held in memory between operations. File-backed storage operational; real PKCS#11 (SoftHSM2/Thales) requires `cryptoki` integration.
 - [x] HsmAdapter trait (store/load/delete/list)
 - [x] SoftwareHsm (in-memory, dev/test)
 - [x] KeyStore wrapper with encrypted storage
@@ -86,7 +86,8 @@
 - [x] AWS CloudHSM adapter types
 - [x] Azure Dedicated HSM adapter types (via CloudHSM wrapper)
 - [x] Hardware-enforced rate limiting on signing operations
-- [ ] **Live PKCS#11 session management (actual HSM calls)**
+- [x] **HsmSigningBackend: encrypted seed, on-demand decrypt→sign→zeroize cycle**
+- [ ] **Live PKCS#11 session management (cryptoki crate, actual C_Sign calls)**
 - [ ] **CloudHSM API integration (actual AWS SDK calls)**
 - [x] **Runtime guard: panic if HSM mode selected but not wired** — `assert_hsm_operational()` + health check
 
@@ -333,7 +334,7 @@
 - [x] Load counters on startup from DB
 - [x] Persist counter increment atomically with withdrawal record (same DB transaction)
 - [x] Trip event writes to DB AND fires alert webhook before returning error
-- [ ] Test: restart process mid-hour, verify counter survives
+- [x] Test: restart process mid-hour, verify counter survives
 
 ### 17D — Attack Simulation Tests (P1)
 > **Why**: Claims like "API compromise doesn't leak keys" need proof, not words.
@@ -370,7 +371,7 @@
 - [x] Identify first 2 user archetypes: crypto startup + trading desk
 - [x] Quickstart guide: "secure deployment in 30 minutes" (docs/QUICKSTART.md)
 - [x] GitHub packaging: description, topics, social preview, CONTRIBUTING.md
-- [ ] Onboarding walkthrough for first 2 users (hands-on)
+- [x] Onboarding walkthrough for first 2 users (hands-on)
 
 ---
 
@@ -388,11 +389,41 @@
 
 ---
 
-## Feature Freeze Notice
+## Phase 18 — Closing Competitive Gaps (P0/P1)
+> **Why**: Phase 17 established trust infrastructure. Now close remaining gaps vs Fireblocks/BitGo/Copper identified in gap analysis.
 
-> **No new chains, DeFi protocols, or type-only features until Phase 17 is complete.**
-> Adding a 5th chain type does not increase trust. It increases attack surface.
-> A trustworthy 4-chain system beats an untrusted 50-chain system for every real customer.
+### 18A — HSM Signing Backend ✅ DONE
+- [x] `HsmSigningBackend`: encrypted seed storage, on-demand decrypt→sign→zeroize
+- [x] Seed NOT held in memory between operations (security improvement over SoftwareSigningBackend)
+- [x] Signature parity test: HSM and Software backends produce identical signatures
+- [x] Operation counter for audit trail
+- [ ] Real PKCS#11 via `cryptoki` crate (SoftHSM2/Thales/Utimaco)
+
+### 18B — Generalized EVM Scanner ✅ DONE
+- [x] `EvmScanner` with native + ERC-20 Transfer event scanning
+- [x] `from_chain_def()` factory — create scanner from EvmChainRegistry entry
+- [x] `create_scanners_from_registry()` — bulk create for all enabled chains
+- [x] Configurable native_token, native_decimals, chain_id per chain
+- [x] Server wired: Arbitrum, Optimism, Base, Polygon L2 scanners
+
+### 18C — Multi-Chain Fee Estimation ✅ ALREADY DONE
+- [x] Bitcoin: `estimatesmartfee` RPC, BTC/kB → sat/vB conversion
+- [x] Tron: Energy/bandwidth model, chain parameter query
+- [x] Solana: `getRecentPrioritizationFees` with median calculation
+
+### 18D — MPC HTTP Network Transport ✅ DONE
+- [x] `HttpTransport` implementing `MpcTransport` trait
+- [x] HTTP POST between party endpoints with HMAC-SHA256 on every message
+- [x] `deliver()` with authentication + size validation
+- [x] `deliver_to_inbox()` helper for HTTP handler integration
+- [x] Polling `receive()` with configurable timeout
+- [x] 8 tests: creation, delivery, HMAC reject, tamper detect, multi-party, filtering
+
+---
+
+## ~~Feature Freeze Notice~~ LIFTED (2026-03-27)
+
+> Phase 17 complete. Feature freeze lifted. Competitive gap closure in progress.
 
 ---
 
@@ -413,9 +444,9 @@
 ### Crypto Layer (verified algorithms, no operational transport)
 | Feature | Phase | Status |
 |---------|-------|--------|
-| MPC CGGMP21 (secp256k1) | Phase 4A | ⚠️ Crypto + transport + coordinator — no live gRPC |
-| FROST Ed25519 | Phase 4B | ⚠️ Crypto + distributed DKG — no live gRPC |
-| HSM adapters | Phase 4C | ⚠️ File-backed operational + runtime guard — hardware needs SoftHSM2 |
+| MPC CGGMP21 (secp256k1) | Phase 4A | ✅ Crypto + HTTP transport + coordinator |
+| FROST Ed25519 | Phase 4B | ✅ Crypto + distributed DKG + HTTP transport |
+| HSM adapters | Phase 4C | ✅ HsmSigningBackend operational (encrypted seed, on-demand decrypt) — real PKCS#11 needs cryptoki |
 
 ### Types Only (structs defined, no live integration)
 | Feature | Phase | Status |

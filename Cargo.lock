@@ -2016,6 +2016,7 @@ dependencies = [
  "hmac",
  "k256",
  "rand 0.8.5",
+ "reqwest",
  "round-based",
  "serde",
  "serde_json",

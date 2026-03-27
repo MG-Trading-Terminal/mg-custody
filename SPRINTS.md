@@ -316,3 +316,55 @@ crates/
 
 ### Decision
 **Feature freeze effective immediately.** Next work = Phase 17A (THREAT_MODEL.md + SECURITY.md), then 17C (circuit breaker persistence), then 17B (signer isolation).
+
+---
+
+## Phase 17 Completion Sprint (2026-03-27)
+
+### Goals
+- Close remaining Phase 17 items (17C test + 17G onboarding)
+- Phase 17 fully complete → unblock Phase 16
+
+### Completed
+| Task | Output | Status | Notes |
+|------|--------|--------|-------|
+| Circuit breaker restart persistence test | crates/db/tests/integration.rs | DONE | 9-step test: record $5M, drop connection, reconnect, verify counters survived, verify tripped state survives |
+| Onboarding walkthrough | docs/ONBOARDING.md | DONE | 2 archetypes: crypto startup (testnet setup, deposit, withdrawal, webhooks) + trading desk (vaults, approvals, raw signing, circuit breaker) |
+| ROADMAP/CHANGELOG/SPRINTS update | All 3 docs | DONE | Phase 17 fully checked off |
+
+### Metrics
+- **Phase 17 status**: COMPLETE (all items checked)
+- **New test**: 1 integration test (circuit breaker restart persistence)
+- **New doc**: docs/ONBOARDING.md (~250 lines)
+- **Phase 16 (Security Certifications)**: Now unblocked
+
+### References Used
+- Fireblocks onboarding: https://developers.fireblocks.com/docs/quickstart
+- BitGo getting started: https://developers.bitgo.com/guides/get-started
+
+---
+
+## Phase 18 — Competitive Gap Closure (2026-03-27)
+
+### Goals
+- Close remaining P0/P1 gaps from gap analysis
+- Lift feature freeze (Phase 17 complete)
+
+### Completed
+| Task | Crate | Status | Tests | Notes |
+|------|-------|--------|-------|-------|
+| HsmSigningBackend (18A) | signing | DONE | +5 | Encrypted seed, on-demand decrypt→sign→zeroize, parity verified |
+| Generalized EVM Scanner (18B) | scanner | DONE | +6 | from_chain_def(), native + ERC-20, registry factory |
+| Multi-chain fees (18C) | fee-estimator | ALREADY DONE | 0 | BTC/TRX/SOL estimators existed |
+| MPC HTTP Transport (18D) | mpc | DONE | +8 | HttpTransport, HMAC auth, deliver/receive, multi-party |
+| Feature freeze lifted | ROADMAP | DONE | - | Phase 17 complete, gap closure in progress |
+
+### Metrics
+- **New tests**: 19 (HSM: 5, EVM scanner: 6, HTTP transport: 8)
+- **New files**: 2 (http_transport.rs, ONBOARDING.md)
+- **Gaps closed**: P0-2 (HSM), P1-1 (EVM L2 scanners), P0-1 transport
+- **Feature freeze**: LIFTED
+
+### References Used
+- PKCS#11 spec: https://docs.oasis-open.org/pkcs11/pkcs11-base/v2.40/pkcs11-base-v2.40.html
+- EVM chain IDs: https://chainlist.org/

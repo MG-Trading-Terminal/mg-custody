@@ -5,6 +5,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-27) — Phase 18: Competitive Gap Closure
+
+- **HsmSigningBackend (18A)** — encrypted seed on disk, on-demand decrypt→sign→zeroize per operation
+  - Seed NOT held in memory between signing ops (unlike SoftwareSigningBackend)
+  - HSM and Software backends produce identical signatures (parity test)
+  - Operation counter for audit, wrong password rejected
+  - 5 new tests, P0-2 gap closed
+- **Generalized EVM Scanner (18B)** — works with any EVM chain from registry
+  - Native token + ERC-20 Transfer event scanning (same as Ethereum scanner)
+  - `from_chain_def()` factory creates scanner from EvmChainDef
+  - `create_scanners_from_registry()` bulk creates for all enabled chains
+  - Server wired: Arbitrum, Optimism, Base, Polygon L2 scanners active
+  - 6 new tests, P1-1 gap partially closed
+- **MPC HTTP Transport (18D)** — real network transport for MPC parties
+  - `HttpTransport` implements `MpcTransport` via HTTP POST
+  - HMAC-SHA256 authentication on every inter-party message
+  - `deliver()` with auth verification + 1MB size limit
+  - Polling `receive()` with configurable timeout
+  - 8 new tests, P0-1 transport gap closed
+- **Feature freeze lifted** — Phase 17 trust infrastructure complete
+
+### Added (2026-03-27) — Phase 17 Complete
+- **Circuit breaker restart persistence test** — integration test proving counters survive process restart
+  - Records $5M outflow, drops DB connection, reconnects, verifies $5M still tracked
+  - Tests that tripped state also survives restart
+  - Tests that post-restart check correctly blocks over-limit withdrawals
+- **Onboarding walkthrough** — `docs/ONBOARDING.md` with hands-on guides for 2 user archetypes
+  - Archetype 1 (Crypto Startup): testnet setup, deposit detection, withdrawal, webhooks
+  - Archetype 2 (Trading Desk): vault structure, approval workflows, raw signing, circuit breaker tuning
+  - Migration checklist for Fireblocks/BitGo users
+  - Common post-onboarding tasks (HMAC auth, diagnostics, monitoring)
+
 ### Added (2026-03-26) — IPC Signing Wired into Pipeline
 - **SigningMode** in withdrawal pipeline — Direct (dev) or IPC (production)
   - Auto-detect from `SIGNER_SOCKET` + `SIGNER_IPC_SECRET` env vars
