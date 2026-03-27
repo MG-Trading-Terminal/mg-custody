@@ -2,6 +2,7 @@ pub mod abi_decoder;
 pub mod accounting;
 pub mod address_poisoning;
 pub mod alerts;
+pub mod analytics;
 pub mod backup_verification;
 pub mod bitcoin_advanced;
 pub mod bitcoin_fees;
