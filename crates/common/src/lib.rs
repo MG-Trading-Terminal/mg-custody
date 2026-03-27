@@ -44,6 +44,7 @@ pub mod metrics;
 pub mod metrics_wiring;
 pub mod mev_protection;
 pub mod middleware_types;
+pub mod multichain_deploy;
 pub mod name_resolution;
 pub mod nft;
 pub mod notifications;
