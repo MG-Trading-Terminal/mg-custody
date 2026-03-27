@@ -11,6 +11,7 @@ pub mod chain_utils;
 pub mod cli;
 pub mod config;
 pub mod config_validation;
+pub mod compliance_reporting;
 pub mod connectivity;
 pub mod contract_interactions;
 pub mod cross_chain;
