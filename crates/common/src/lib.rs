@@ -3,6 +3,7 @@ pub mod accounting;
 pub mod address_poisoning;
 pub mod alerts;
 pub mod analytics;
+pub mod api_versioning;
 pub mod backup_verification;
 pub mod bitcoin_advanced;
 pub mod bitcoin_fees;
