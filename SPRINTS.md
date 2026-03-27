@@ -287,3 +287,32 @@ crates/
 - Chainlink CCIP: https://docs.chain.link/ccip
 - Solana Token-2022: https://spl.solana.com/token-2022
 - Aave V3: https://docs.aave.com/
+
+---
+
+## Trust Pivot — PM Analysis Sprint (2026-03-26)
+
+### Goals
+- External review analysis: identify trust gaps blocking adoption
+- Honest status audit of all ROADMAP phases
+- Define Phase 17 (Trust Infrastructure) as next priority
+
+### Completed
+| Task | Output | Status | Notes |
+|------|--------|--------|-------|
+| PM gap analysis | Full report | DONE | 9 gaps identified (signer isolation, circuit breaker, HSM, MPC transport, docs) |
+| ROADMAP honest statuses | ROADMAP.md | DONE | Phases 4C/9/10/11/13/14/15 re-marked as types-only |
+| Phase 17 definition | ROADMAP.md | DONE | 7 sub-phases: 17A-17G, P0/P1/P2 prioritized |
+| Feature freeze | ROADMAP.md | DONE | No new features until Phase 17 complete |
+| Honest Status Tracker | ROADMAP.md | DONE | Replaced misleading parity tracker with 4-tier honest status |
+| CHANGELOG update | CHANGELOG.md | DONE | Trust pivot entry added |
+
+### Key Findings
+- **P0 fund safety bug**: Circuit breaker counters reset on process restart ($10M limit bypass)
+- **P0 false claim**: Signer isolation (Zone 3) doesn't exist — single binary, single process
+- **P0 false claim**: HSM marked "Done" but returns `unimplemented!()`
+- **P0 false claim**: MPC marked "Done" but has no network transport between parties
+- **Strategic pivot**: Stop adding features, start adding trust artifacts
+
+### Decision
+**Feature freeze effective immediately.** Next work = Phase 17A (THREAT_MODEL.md + SECURITY.md), then 17C (circuit breaker persistence), then 17B (signer isolation).
