@@ -33,6 +33,7 @@ pub mod evm_access_list;
 pub mod evm_chains;
 pub mod evm_rlp;
 pub mod gas_optimization;
+pub mod gas_station_v2;
 pub mod governance;
 pub mod grafana;
 pub mod incident;
