@@ -4,3 +4,6 @@
 *.key
 *.secret
 .DS_Store
+dashboard/node_modules/
+dashboard/build/
+dashboard/.svelte-kit/

@@ -676,7 +676,7 @@ Phase 19 + 21 ────────> Phase 25 (OpenAPI)
 |---------|-------|--------|----------|
 | RBAC enforcement middleware | Phase 19 | ✅ Done — middleware + extractors + guards on ALL 125+ endpoints | P0 |
 | FIDO2/WebAuthn verification | Phase 20 | ✅ Done — registration + authentication flows, challenge management, credential CRUD | P0 |
-| **Web Dashboard (SvelteKit)** | Phase 21 | ❌ Not started — zero frontend code | P0 |
+| **Web Dashboard (SvelteKit)** | Phase 21 | 🔶 Phase 21A done — scaffold, 9 pages, API client, security headers, axum ServeDir | P0 |
 | AML/KYT real vendor integration | Phase 22 | ❌ Not started — trait stubs only | P1 |
 | UTXO consolidation execution | Phase 23 | ❌ Not started — detection only | P1 |
 | Swap execution engine | Phase 24 | ❌ Not started — calldata builders only | P2 |

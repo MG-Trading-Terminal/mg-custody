@@ -10,6 +10,7 @@ use chrono::Utc;
 use custody_common::*;
 use std::time::Duration;
 use tower_http::cors::{CorsLayer, Any};
+use tower_http::services::ServeDir;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
@@ -45,12 +46,28 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::governance_routes::governance_router())
         .merge(crate::operations_routes::operations_router())
         .merge(crate::embedded_routes::embedded_router())
+        // Dashboard static files (SvelteKit build output)
+        // Fallback to index.html for client-side routing
+        .fallback_service(dashboard_service())
+        .layer(axum_mw::from_fn(crate::middleware::security_headers))
         .layer(axum_mw::from_fn_with_state(rbac_state, rbac_middleware::rbac_auth))
         .layer(axum_mw::from_fn(crate::request_id::request_id_middleware))
         .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(30)))
         .layer(cors_layer())
         .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+/// Serve dashboard static files from `dashboard/build/`.
+/// Falls back to `index.html` for SPA client-side routing.
+fn dashboard_service() -> tower_http::services::ServeDir<tower_http::services::ServeFile> {
+    let dashboard_dir = std::env::var("CUSTODY_DASHBOARD_DIR")
+        .unwrap_or_else(|_| "dashboard/build".into());
+    ServeDir::new(&dashboard_dir)
+        .append_index_html_on_directories(true)
+        .fallback(tower_http::services::ServeFile::new(
+            format!("{}/index.html", dashboard_dir),
+        ))
 }
 
 pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {

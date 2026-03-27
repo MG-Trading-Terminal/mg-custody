@@ -116,6 +116,38 @@ pub async fn hmac_auth(
     Err(StatusCode::UNAUTHORIZED)
 }
 
+/// Security headers middleware for dashboard pages.
+///
+/// CSP: default-src 'self' — no external resources (air-gap compatible).
+/// X-Frame-Options: DENY — prevent clickjacking of approval flows.
+/// HSTS: 1 year with includeSubDomains.
+pub async fn security_headers(
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+
+    headers.insert(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss:; img-src 'self' data:; font-src 'self'"
+            .parse().unwrap(),
+    );
+    headers.insert("X-Frame-Options", "DENY".parse().unwrap());
+    headers.insert("X-Content-Type-Options", "nosniff".parse().unwrap());
+    headers.insert(
+        "Strict-Transport-Security",
+        "max-age=31536000; includeSubDomains".parse().unwrap(),
+    );
+    headers.insert("Referrer-Policy", "same-origin".parse().unwrap());
+    headers.insert(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=()".parse().unwrap(),
+    );
+
+    response
+}
+
 /// Rate limiting middleware.
 pub async fn rate_limit(
     State(mw): State<MiddlewareState>,

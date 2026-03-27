@@ -38,6 +38,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   - connectivity/platform/embedded/exchange/admin/settlement/staking routes
 - **14 new tests** (1384 total, 0 failures)
 
+### Added (2026-03-27) — Phase 21A: Web Dashboard Infrastructure
+
+- **SvelteKit dashboard** (`dashboard/`) — `adapter-static` compiles to pure HTML/CSS/JS, no Node.js in production
+  - 9 pages: Dashboard, Wallets, Transactions, Approvals, Addresses, Policies, Users, Audit Log, Settings
+  - Login page with email+password → Bearer token flow
+  - TypeScript API client (`$lib/api.ts`) with auto 401 → redirect to login
+  - Dark theme, sidebar navigation, CSS variables
+- **axum static file serving** — `ServeDir` with `index.html` fallback for SPA routing
+  - Configurable via `CUSTODY_DASHBOARD_DIR` env var (default: `dashboard/build`)
+- **Security headers middleware** — CSP `default-src 'self'`, `X-Frame-Options: DENY`, HSTS 1yr, `nosniff`, `Referrer-Policy: same-origin`, `Permissions-Policy` (no camera/mic/geo)
+- **Air-gap compatible** — zero CDN dependencies, all assets bundled
+
 ### Added (2026-03-27) — Phase 20: FIDO2/WebAuthn Verification
 
 - **DB migration 012: fido2** — `fido2_credentials` (credential_id, public_key_cose, sign_count, aaguid, enabled) + `fido2_challenges` (hash, purpose, single-use, 5min expiry)
