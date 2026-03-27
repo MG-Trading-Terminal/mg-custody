@@ -76,6 +76,7 @@ pub mod token_ops;
 pub mod token_scan;
 pub mod token_registry;
 pub mod tokenization;
+pub mod travel_rule_v2;
 pub mod tron_energy;
 pub mod tx_management;
 pub mod tx_simulation;
