@@ -1,4 +1,5 @@
 pub mod abi_decoder;
+pub mod access_control;
 pub mod accounting;
 pub mod address_cache;
 pub mod address_poisoning;
