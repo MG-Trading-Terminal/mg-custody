@@ -17,6 +17,7 @@ pub mod embedded_wallets;
 pub mod governance;
 pub mod nonces;
 pub mod notification_channels;
+pub mod payment_flows;
 pub mod policy;
 pub mod scan_progress;
 pub mod scheduled_tx;
