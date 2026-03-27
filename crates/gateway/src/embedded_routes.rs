@@ -7,8 +7,10 @@ use axum::{
     routing::{get, post},
 };
 use chrono::Utc;
+use custody_common::analytics::TransactionLabel;
 use custody_common::embedded_wallets::*;
 use custody_common::contract_interactions::*;
+use custody_common::payment_flows::*;
 use uuid::Uuid;
 
 use crate::errors::ApiError;
@@ -26,6 +28,13 @@ pub fn embedded_router() -> Router<AppState> {
         .route("/v1/contracts/{address}/{chain}", get(get_contract))
         // Contract calls
         .route("/v1/contracts/call", post(contract_call))
+        // Payment flows
+        .route("/v1/payment-flows", get(list_payment_flows))
+        .route("/v1/payment-flows", post(create_payment_flow))
+        .route("/v1/payment-flows/{id}", get(get_payment_flow))
+        // Transaction labels
+        .route("/v1/transactions/{id}/labels", get(get_tx_labels))
+        .route("/v1/transactions/{id}/labels", axum::routing::put(set_tx_labels))
 }
 
 // --- Embedded wallets ---
@@ -125,4 +134,61 @@ async fn contract_call(
             error: None,
         }))
     }
+}
+
+// --- Payment flows ---
+
+async fn list_payment_flows(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<PaymentFlow>>, ApiError> {
+    let flows = state.db.list_payment_flows().await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+    Ok(Json(flows))
+}
+
+async fn create_payment_flow(
+    State(state): State<AppState>,
+    Json(flow): Json<PaymentFlow>,
+) -> Result<(StatusCode, Json<PaymentFlow>), ApiError> {
+    state.db.insert_payment_flow(&flow).await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+    tracing::info!(id = %flow.id, name = %flow.name, "Payment flow created");
+    Ok((StatusCode::CREATED, Json(flow)))
+}
+
+async fn get_payment_flow(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<PaymentFlow>, ApiError> {
+    let flow = state.db.find_payment_flow(id).await
+        .map_err(|e| ApiError::internal(&e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Payment flow not found"))?;
+    Ok(Json(flow))
+}
+
+// --- Transaction labels ---
+
+async fn get_tx_labels(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let label = state.db.get_transaction_label(id).await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+    match label {
+        Some(l) => Ok(Json(serde_json::to_value(&l).unwrap())),
+        None => Ok(Json(serde_json::json!({"transaction_id": id, "labels": []}))),
+    }
+}
+
+async fn set_tx_labels(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(label): Json<TransactionLabel>,
+) -> Result<Json<TransactionLabel>, ApiError> {
+    let mut label = label;
+    label.transaction_id = id;
+    label.updated_at = Utc::now();
+    state.db.upsert_transaction_label(&label).await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+    Ok(Json(label))
 }
