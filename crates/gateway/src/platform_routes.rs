@@ -13,6 +13,7 @@ use rust_decimal_macros::dec;
 use uuid::Uuid;
 
 use crate::errors::ApiError;
+use crate::rbac_middleware::{RequireAdmin, RequireEditor, RequireViewer};
 use crate::state::AppState;
 
 /// Build the platform router.
@@ -45,6 +46,7 @@ pub fn platform_router() -> Router<AppState> {
 // ---------------------------------------------------------------------------
 
 async fn list_workspaces(
+    _auth: RequireViewer,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<WorkspaceDetail>>, ApiError> {
     let workspaces = state.db.list_workspaces().await
@@ -53,6 +55,7 @@ async fn list_workspaces(
 }
 
 async fn create_workspace(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Json(req): Json<CreateWorkspaceRequest>,
 ) -> Result<(StatusCode, Json<WorkspaceDetail>), ApiError> {
@@ -77,6 +80,7 @@ async fn create_workspace(
 }
 
 async fn get_workspace(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<WorkspaceDetail>, ApiError> {
@@ -87,6 +91,7 @@ async fn get_workspace(
 }
 
 async fn update_workspace(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateWorkspaceRequest>,
@@ -105,6 +110,7 @@ async fn update_workspace(
 // ---------------------------------------------------------------------------
 
 async fn list_workspace_users(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(workspace_id): Path<Uuid>,
 ) -> Result<Json<Vec<WorkspaceUser>>, ApiError> {
@@ -114,6 +120,7 @@ async fn list_workspace_users(
 }
 
 async fn create_workspace_user(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(workspace_id): Path<Uuid>,
     Json(req): Json<CreateUserRequest>,
@@ -136,6 +143,7 @@ async fn create_workspace_user(
 }
 
 async fn delete_workspace_user(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path((_workspace_id, user_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ApiError> {
@@ -152,6 +160,7 @@ async fn delete_workspace_user(
 // ---------------------------------------------------------------------------
 
 async fn list_deposit_addresses(
+    _auth: RequireViewer,
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // List addresses across all chains
@@ -174,6 +183,7 @@ async fn list_deposit_addresses(
 }
 
 async fn bind_address_to_vault(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(address): Path<String>,
     Json(req): Json<BindAddressRequest>,
@@ -198,6 +208,7 @@ async fn bind_address_to_vault(
 // ---------------------------------------------------------------------------
 
 async fn generate_report(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Json(req): Json<ReportRequest>,
 ) -> Result<Json<ReportResult>, ApiError> {
@@ -263,6 +274,7 @@ async fn generate_report(
 // ---------------------------------------------------------------------------
 
 async fn get_vault_keys(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(vault_id): Path<Uuid>,
 ) -> Result<Json<Vec<SigningKeyInfo>>, ApiError> {
@@ -289,6 +301,7 @@ async fn get_vault_keys(
 }
 
 async fn get_vault_key_for_chain(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path((vault_id, chain)): Path<(Uuid, String)>,
 ) -> Result<Json<SigningKeyInfo>, ApiError> {
@@ -322,6 +335,7 @@ async fn get_vault_key_for_chain(
 // ---------------------------------------------------------------------------
 
 async fn submit_travel_rule(
+    _auth: RequireEditor,
     State(state): State<AppState>,
     Json(req): Json<SubmitTravelRuleRequest>,
 ) -> Result<(StatusCode, Json<TravelRuleData>), ApiError> {
@@ -364,6 +378,7 @@ async fn submit_travel_rule(
 }
 
 async fn get_travel_rule(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(withdrawal_id): Path<Uuid>,
 ) -> Result<Json<TravelRuleData>, ApiError> {

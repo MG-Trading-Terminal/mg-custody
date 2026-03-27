@@ -14,6 +14,7 @@ use custody_common::payment_flows::*;
 use uuid::Uuid;
 
 use crate::errors::ApiError;
+use crate::rbac_middleware::{RequireAdmin, RequireEditor, RequireSigner, RequireViewer};
 use crate::state::AppState;
 
 pub fn embedded_router() -> Router<AppState> {
@@ -40,6 +41,7 @@ pub fn embedded_router() -> Router<AppState> {
 // --- Embedded wallets ---
 
 async fn create_embedded_wallet(
+    _auth: RequireEditor,
     State(state): State<AppState>,
     Json(req): Json<CreateEmbeddedWalletRequest>,
 ) -> Result<(StatusCode, Json<EmbeddedWallet>), ApiError> {
@@ -61,6 +63,7 @@ async fn create_embedded_wallet(
 }
 
 async fn get_embedded_wallet(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<EmbeddedWallet>, ApiError> {
@@ -71,6 +74,7 @@ async fn get_embedded_wallet(
 }
 
 async fn list_user_wallets(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Vec<EmbeddedWallet>>, ApiError> {
@@ -82,6 +86,7 @@ async fn list_user_wallets(
 // --- Deployed contracts ---
 
 async fn list_contracts(
+    _auth: RequireViewer,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<DeployedContract>>, ApiError> {
     let contracts = state.db.list_deployed_contracts(None).await
@@ -90,6 +95,7 @@ async fn list_contracts(
 }
 
 async fn register_contract(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Json(contract): Json<DeployedContract>,
 ) -> Result<(StatusCode, Json<DeployedContract>), ApiError> {
@@ -101,6 +107,7 @@ async fn register_contract(
 }
 
 async fn get_contract(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path((address, chain)): Path<(String, String)>,
 ) -> Result<Json<DeployedContract>, ApiError> {
@@ -113,6 +120,7 @@ async fn get_contract(
 // --- Contract calls ---
 
 async fn contract_call(
+    _auth: RequireSigner,
     Json(req): Json<ContractCallRequest>,
 ) -> Result<Json<ContractCallResult>, ApiError> {
     if req.is_read_only {
@@ -139,6 +147,7 @@ async fn contract_call(
 // --- Payment flows ---
 
 async fn list_payment_flows(
+    _auth: RequireViewer,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<PaymentFlow>>, ApiError> {
     let flows = state.db.list_payment_flows().await
@@ -147,6 +156,7 @@ async fn list_payment_flows(
 }
 
 async fn create_payment_flow(
+    _auth: RequireEditor,
     State(state): State<AppState>,
     Json(flow): Json<PaymentFlow>,
 ) -> Result<(StatusCode, Json<PaymentFlow>), ApiError> {
@@ -157,6 +167,7 @@ async fn create_payment_flow(
 }
 
 async fn get_payment_flow(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<PaymentFlow>, ApiError> {
@@ -169,6 +180,7 @@ async fn get_payment_flow(
 // --- Transaction labels ---
 
 async fn get_tx_labels(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -181,6 +193,7 @@ async fn get_tx_labels(
 }
 
 async fn set_tx_labels(
+    _auth: RequireEditor,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(label): Json<TransactionLabel>,

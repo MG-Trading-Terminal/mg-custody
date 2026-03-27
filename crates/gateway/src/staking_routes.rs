@@ -12,6 +12,7 @@ use rust_decimal::Decimal;
 use serde::Deserialize;
 
 use crate::errors::ApiError;
+use crate::rbac_middleware::{RequireSigner, RequireViewer};
 use crate::state::AppState;
 
 /// Build staking API router.
@@ -34,6 +35,7 @@ struct StakeRequest {
 }
 
 async fn stake(
+    _auth: RequireSigner,
     State(_state): State<AppState>,
     Json(req): Json<StakeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -82,6 +84,7 @@ struct UnstakeRequest {
 }
 
 async fn unstake(
+    _auth: RequireSigner,
     State(_state): State<AppState>,
     Json(req): Json<UnstakeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -95,6 +98,7 @@ async fn unstake(
 }
 
 async fn list_positions(
+    _auth: RequireViewer,
     State(_state): State<AppState>,
 ) -> Json<serde_json::Value> {
     // In production: query staking_positions table
@@ -105,6 +109,7 @@ async fn list_positions(
 }
 
 async fn list_rewards(
+    _auth: RequireViewer,
     State(_state): State<AppState>,
 ) -> Json<serde_json::Value> {
     Json(serde_json::json!({
@@ -114,6 +119,7 @@ async fn list_rewards(
 }
 
 async fn list_validators(
+    _auth: RequireViewer,
     State(_state): State<AppState>,
 ) -> Json<serde_json::Value> {
     // Pre-configured safe validators

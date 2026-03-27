@@ -18,6 +18,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::errors::ApiError;
+use crate::rbac_middleware::{RequireViewer, RequireEditor, RequireSigner, RequireAdmin};
 use crate::state::AppState;
 
 /// Build the vault router — merged into the main router.
@@ -58,11 +59,11 @@ pub fn vault_router() -> Router<AppState> {
 // ---------------------------------------------------------------------------
 
 async fn create_vault(
+    auth: RequireAdmin,
     State(state): State<AppState>,
     Json(req): Json<CreateVaultRequest>,
 ) -> Result<(StatusCode, Json<Vault>), ApiError> {
-    // TODO: extract owner_id from auth context. For now use a placeholder.
-    let owner_id = Uuid::nil();
+    let owner_id = auth.0.user_id;
     let now = Utc::now();
 
     let vault = Vault {
@@ -89,16 +90,18 @@ struct ListVaultsQuery {
 }
 
 async fn list_vaults(
+    auth: RequireViewer,
     State(state): State<AppState>,
     Query(q): Query<ListVaultsQuery>,
 ) -> Result<Json<Vec<Vault>>, ApiError> {
-    let owner_id = Uuid::nil();
+    let owner_id = auth.0.user_id;
     let vaults = state.db.list_vaults(owner_id, q.include_hidden).await
         .map_err(|e| ApiError::internal(&e.to_string()))?;
     Ok(Json(vaults))
 }
 
 async fn get_vault(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<VaultDetail>, ApiError> {
@@ -113,6 +116,7 @@ async fn get_vault(
 }
 
 async fn update_vault(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateVaultRequest>,
@@ -128,6 +132,7 @@ async fn update_vault(
 }
 
 async fn delete_vault(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
@@ -155,6 +160,7 @@ async fn delete_vault(
 // ---------------------------------------------------------------------------
 
 async fn create_vault_account(
+    _auth: RequireEditor,
     State(state): State<AppState>,
     Path(vault_id): Path<Uuid>,
     Json(req): Json<CreateVaultAccountRequest>,
@@ -197,6 +203,7 @@ async fn create_vault_account(
 }
 
 async fn list_vault_accounts(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(vault_id): Path<Uuid>,
 ) -> Result<Json<Vec<VaultAccount>>, ApiError> {
@@ -206,6 +213,7 @@ async fn list_vault_accounts(
 }
 
 async fn get_vault_account(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path((vault_id, account_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<VaultAccount>, ApiError> {
@@ -224,6 +232,7 @@ async fn get_vault_account(
 // ---------------------------------------------------------------------------
 
 async fn raw_sign(
+    _auth: RequireSigner,
     State(state): State<AppState>,
     Path(vault_id): Path<Uuid>,
     Json(req): Json<RawSignRequest>,
@@ -295,6 +304,7 @@ async fn raw_sign(
 // ---------------------------------------------------------------------------
 
 async fn create_transfer(
+    _auth: RequireEditor,
     State(state): State<AppState>,
     Json(req): Json<CreateTransferRequest>,
 ) -> Result<Json<InternalTransfer>, ApiError> {
@@ -397,6 +407,7 @@ async fn create_transfer(
 }
 
 async fn get_transfer(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<InternalTransfer>, ApiError> {
@@ -427,6 +438,7 @@ struct TransactionQuery {
 }
 
 async fn list_transactions(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Query(q): Query<TransactionQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -461,6 +473,7 @@ async fn list_transactions(
 }
 
 async fn get_transaction(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Transaction>, ApiError> {
@@ -475,6 +488,7 @@ async fn get_transaction(
 // ---------------------------------------------------------------------------
 
 async fn cancel_transaction(
+    _auth: RequireSigner,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -518,6 +532,7 @@ async fn cancel_transaction(
 }
 
 async fn accelerate_transaction(
+    _auth: RequireSigner,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<AccelerateRequest>,
@@ -567,6 +582,7 @@ async fn accelerate_transaction(
 // ---------------------------------------------------------------------------
 
 async fn list_assets(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Query(q): Query<AssetQuery>,
 ) -> Result<Json<Vec<ManagedAsset>>, ApiError> {
@@ -581,6 +597,7 @@ struct AssetQuery {
 }
 
 async fn get_asset(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path((symbol, chain)): Path<(String, String)>,
 ) -> Result<Json<ManagedAsset>, ApiError> {
@@ -591,6 +608,7 @@ async fn get_asset(
 }
 
 async fn create_asset(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Json(req): Json<CreateAssetRequest>,
 ) -> Result<(StatusCode, Json<ManagedAsset>), ApiError> {
@@ -613,6 +631,7 @@ async fn create_asset(
 }
 
 async fn update_asset(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateAssetRequest>,
@@ -628,6 +647,7 @@ async fn update_asset(
 }
 
 async fn delete_asset(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
@@ -646,6 +666,7 @@ async fn delete_asset(
 // ---------------------------------------------------------------------------
 
 async fn estimate_fee(
+    _auth: RequireViewer,
     Query(q): Query<FeeEstimateQuery>,
 ) -> Result<Json<FeeEstimateResponse>, ApiError> {
     let asset_str = q.asset.as_deref().unwrap_or(match q.chain {

@@ -14,6 +14,7 @@ use rust_decimal::Decimal;
 use serde::Deserialize;
 
 use crate::errors::ApiError;
+use crate::rbac_middleware::{RequireAdmin, RequireEditor};
 use crate::state::AppState;
 
 /// Build settlement API router.
@@ -33,6 +34,7 @@ struct SubmitSettlementRequest {
 }
 
 async fn submit_settlement(
+    _auth: RequireEditor,
     State(_state): State<AppState>,
     Json(req): Json<SubmitSettlementRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -71,6 +73,7 @@ async fn submit_settlement(
 }
 
 async fn net_settlements(
+    _auth: RequireAdmin,
     State(_state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // In production: load pending orders from DB and net them

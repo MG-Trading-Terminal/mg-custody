@@ -6,6 +6,7 @@
 use axum::{Json, Router, extract::{Path, State, Query}, routing::get};
 use serde::Deserialize;
 use crate::errors::ApiError;
+use crate::rbac_middleware::RequireViewer;
 use crate::state::AppState;
 
 /// Additional exchange API routes.
@@ -26,6 +27,7 @@ struct DepositQuery {
 }
 
 async fn list_user_deposits(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Query(query): Query<DepositQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -67,6 +69,7 @@ async fn list_user_deposits(
 }
 
 async fn list_chain_addresses(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(chain): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -86,7 +89,7 @@ async fn list_chain_addresses(
     })))
 }
 
-async fn supported_assets() -> Json<serde_json::Value> {
+async fn supported_assets(_auth: RequireViewer) -> Json<serde_json::Value> {
     let registry = custody_common::token_registry::TokenRegistry::with_defaults();
     let chains = [custody_common::Chain::Ethereum, custody_common::Chain::Bitcoin,
                   custody_common::Chain::Tron, custody_common::Chain::Solana];
@@ -108,7 +111,7 @@ async fn supported_assets() -> Json<serde_json::Value> {
     Json(serde_json::json!({"assets": assets, "count": assets.len()}))
 }
 
-async fn system_limits() -> Json<serde_json::Value> {
+async fn system_limits(_auth: RequireViewer) -> Json<serde_json::Value> {
     // Load from config
     let config = custody_common::CustodyConfig::load_from("config/default.toml")
         .unwrap_or_else(|_| custody_common::CustodyConfig::load().unwrap());

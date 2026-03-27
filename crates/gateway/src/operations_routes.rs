@@ -15,6 +15,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::errors::ApiError;
+use crate::rbac_middleware::{RequireAdmin, RequireEditor, RequireViewer};
 use crate::state::AppState;
 
 pub fn operations_router() -> Router<AppState> {
@@ -47,6 +48,7 @@ struct ScheduledQuery {
 }
 
 async fn list_scheduled(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Query(q): Query<ScheduledQuery>,
 ) -> Result<Json<Vec<ScheduledTransaction>>, ApiError> {
@@ -56,6 +58,7 @@ async fn list_scheduled(
 }
 
 async fn create_scheduled(
+    _auth: RequireEditor,
     State(state): State<AppState>,
     Json(req): Json<CreateScheduledTxRequest>,
 ) -> Result<(StatusCode, Json<ScheduledTransaction>), ApiError> {
@@ -90,6 +93,7 @@ async fn create_scheduled(
 }
 
 async fn get_scheduled(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ScheduledTransaction>, ApiError> {
@@ -100,6 +104,7 @@ async fn get_scheduled(
 }
 
 async fn cancel_scheduled(
+    _auth: RequireEditor,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -117,6 +122,7 @@ async fn cancel_scheduled(
 // ---------------------------------------------------------------------------
 
 async fn screen_address(
+    _auth: RequireViewer,
     Json(req): Json<ScreenAddressRequest>,
 ) -> Result<Json<ScreeningResult>, ApiError> {
     // Simulated screening — in production would call Chainalysis/Elliptic
@@ -137,6 +143,7 @@ async fn screen_address(
 }
 
 async fn screening_history(
+    _auth: RequireViewer,
     Path(address): Path<String>,
 ) -> Json<serde_json::Value> {
     // Return mock screening history
@@ -152,7 +159,7 @@ async fn screening_history(
 // Backup & recovery status
 // ---------------------------------------------------------------------------
 
-async fn backup_status() -> Json<BackupStatus> {
+async fn backup_status(_auth: RequireAdmin) -> Json<BackupStatus> {
     Json(BackupStatus {
         seed_encrypted: true,
         seed_backup_count: 3,
@@ -206,6 +213,7 @@ async fn backup_status() -> Json<BackupStatus> {
 // ---------------------------------------------------------------------------
 
 async fn discover_token(
+    _auth: RequireAdmin,
     Json(req): Json<DiscoverTokenRequest>,
 ) -> Result<Json<DiscoveredToken>, ApiError> {
     // Simulated — in production would call RPC to get token metadata
@@ -240,7 +248,7 @@ async fn discover_token(
 // Health dashboard
 // ---------------------------------------------------------------------------
 
-async fn health_dashboard() -> Json<SystemHealth> {
+async fn health_dashboard(_auth: RequireViewer) -> Json<SystemHealth> {
     let now = Utc::now();
     Json(SystemHealth {
         status: HealthStatus::Healthy,
@@ -285,7 +293,7 @@ async fn health_dashboard() -> Json<SystemHealth> {
     })
 }
 
-async fn pipeline_status() -> Json<PipelineHealth> {
+async fn pipeline_status(_auth: RequireViewer) -> Json<PipelineHealth> {
     Json(PipelineHealth {
         received: 0, validated: 0, signed: 0,
         broadcast: 0, confirming: 0, stuck_count: 0,

@@ -15,6 +15,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::errors::ApiError;
+use crate::rbac_middleware::{RequireAdmin, RequireEditor, RequireViewer};
 use crate::state::AppState;
 
 /// Build the operations router.
@@ -46,6 +47,7 @@ pub fn ops_router() -> Router<AppState> {
 // ---------------------------------------------------------------------------
 
 async fn list_webhooks(
+    _auth: RequireViewer,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<WebhookEndpoint>>, ApiError> {
     let endpoints = state.db.list_webhook_endpoints().await
@@ -54,6 +56,7 @@ async fn list_webhooks(
 }
 
 async fn create_webhook(
+    _auth: RequireEditor,
     State(state): State<AppState>,
     Json(req): Json<CreateWebhookRequest>,
 ) -> Result<(StatusCode, Json<WebhookEndpoint>), ApiError> {
@@ -86,6 +89,7 @@ async fn create_webhook(
 }
 
 async fn get_webhook(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<WebhookEndpoint>, ApiError> {
@@ -96,6 +100,7 @@ async fn get_webhook(
 }
 
 async fn update_webhook(
+    _auth: RequireEditor,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateWebhookRequest>,
@@ -120,6 +125,7 @@ async fn update_webhook(
 }
 
 async fn delete_webhook(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
@@ -132,6 +138,7 @@ async fn delete_webhook(
 }
 
 async fn test_webhook(
+    _auth: RequireEditor,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<WebhookTestResult>, ApiError> {
@@ -180,6 +187,7 @@ async fn test_webhook(
 // ---------------------------------------------------------------------------
 
 async fn batch_withdraw(
+    _auth: RequireEditor,
     State(state): State<AppState>,
     Json(req): Json<BatchWithdrawalRequest>,
 ) -> Result<Json<BatchWithdrawalResponse>, ApiError> {
@@ -297,6 +305,7 @@ struct AuditLogQuery {
 }
 
 async fn list_audit_log(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Query(q): Query<AuditLogQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -353,6 +362,7 @@ struct AddressBookQuery {
 }
 
 async fn list_address_book(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Query(q): Query<AddressBookQuery>,
 ) -> Result<Json<Vec<AddressBookEntry>>, ApiError> {
@@ -362,6 +372,7 @@ async fn list_address_book(
 }
 
 async fn create_address_book_entry(
+    _auth: RequireEditor,
     State(state): State<AppState>,
     Json(req): Json<CreateAddressBookRequest>,
 ) -> Result<(StatusCode, Json<AddressBookEntry>), ApiError> {
@@ -398,6 +409,7 @@ async fn create_address_book_entry(
 }
 
 async fn get_address_book_entry(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<AddressBookEntry>, ApiError> {
@@ -408,6 +420,7 @@ async fn get_address_book_entry(
 }
 
 async fn update_address_book_entry(
+    _auth: RequireEditor,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateAddressBookRequest>,
@@ -427,6 +440,7 @@ async fn update_address_book_entry(
 }
 
 async fn delete_address_book_entry(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
@@ -442,7 +456,7 @@ async fn delete_address_book_entry(
 // Gas station status
 // ---------------------------------------------------------------------------
 
-async fn gas_station_status() -> Json<serde_json::Value> {
+async fn gas_station_status(_auth: RequireViewer) -> Json<serde_json::Value> {
     use rust_decimal_macros::dec;
 
     // Return current gas station config/status per chain

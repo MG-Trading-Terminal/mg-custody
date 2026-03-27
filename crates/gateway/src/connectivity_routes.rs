@@ -15,6 +15,7 @@ use rust_decimal_macros::dec;
 use uuid::Uuid;
 
 use crate::errors::ApiError;
+use crate::rbac_middleware::{RequireAdmin, RequireViewer};
 use crate::state::AppState;
 
 /// Build the connectivity router.
@@ -52,6 +53,7 @@ pub fn connectivity_router() -> Router<AppState> {
 // ---------------------------------------------------------------------------
 
 async fn list_connections(
+    _auth: RequireViewer,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ExchangeConnection>>, ApiError> {
     let connections = state.db.list_connections().await
@@ -60,6 +62,7 @@ async fn list_connections(
 }
 
 async fn create_connection(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Json(req): Json<CreateConnectionRequest>,
 ) -> Result<(StatusCode, Json<ExchangeConnection>), ApiError> {
@@ -85,6 +88,7 @@ async fn create_connection(
 }
 
 async fn get_connection(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ExchangeConnection>, ApiError> {
@@ -95,6 +99,7 @@ async fn get_connection(
 }
 
 async fn update_connection(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateConnectionRequest>,
@@ -111,6 +116,7 @@ async fn update_connection(
 }
 
 async fn delete_connection(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
@@ -123,6 +129,7 @@ async fn delete_connection(
 }
 
 async fn heartbeat_connection(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -140,6 +147,7 @@ async fn heartbeat_connection(
 // ---------------------------------------------------------------------------
 
 async fn list_api_keys(
+    _auth: RequireViewer,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ApiKey>>, ApiError> {
     let keys = state.db.list_api_keys().await
@@ -148,6 +156,7 @@ async fn list_api_keys(
 }
 
 async fn create_api_key(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Json(req): Json<CreateApiKeyRequest>,
 ) -> Result<(StatusCode, Json<CreateApiKeyResponse>), ApiError> {
@@ -190,6 +199,7 @@ async fn create_api_key(
 }
 
 async fn get_api_key(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ApiKey>, ApiError> {
@@ -200,6 +210,7 @@ async fn get_api_key(
 }
 
 async fn revoke_api_key(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -213,6 +224,7 @@ async fn revoke_api_key(
 }
 
 async fn delete_api_key(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
@@ -229,6 +241,7 @@ async fn delete_api_key(
 // ---------------------------------------------------------------------------
 
 async fn list_notification_channels(
+    _auth: RequireViewer,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<NotificationChannel>>, ApiError> {
     let channels = state.db.list_notification_channels().await
@@ -237,6 +250,7 @@ async fn list_notification_channels(
 }
 
 async fn create_notification_channel(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Json(req): Json<CreateNotificationChannelRequest>,
 ) -> Result<(StatusCode, Json<NotificationChannel>), ApiError> {
@@ -258,6 +272,7 @@ async fn create_notification_channel(
 }
 
 async fn delete_notification_channel(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
@@ -270,6 +285,7 @@ async fn delete_notification_channel(
 }
 
 async fn toggle_notification_channel(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(body): Json<serde_json::Value>,
@@ -283,6 +299,7 @@ async fn toggle_notification_channel(
 }
 
 async fn test_notification(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -303,12 +320,13 @@ async fn test_notification(
 // System configuration
 // ---------------------------------------------------------------------------
 
-async fn get_system_config() -> Json<SystemConfig> {
+async fn get_system_config(_auth: RequireViewer) -> Json<SystemConfig> {
     // Return defaults — in production this would read from DB
     Json(SystemConfig::default())
 }
 
 async fn update_system_config(
+    _auth: RequireAdmin,
     Json(req): Json<UpdateSystemConfigRequest>,
 ) -> Result<Json<SystemConfig>, ApiError> {
     let mut config = SystemConfig::default();
@@ -334,7 +352,7 @@ async fn update_system_config(
 // Network fees & status
 // ---------------------------------------------------------------------------
 
-async fn get_network_fees() -> Json<serde_json::Value> {
+async fn get_network_fees(_auth: RequireViewer) -> Json<serde_json::Value> {
     let fees = vec![
         NetworkFeeCache {
             chain: Chain::Ethereum,
@@ -377,7 +395,7 @@ async fn get_network_fees() -> Json<serde_json::Value> {
     Json(serde_json::json!({"fees": fees}))
 }
 
-async fn get_network_status() -> Json<serde_json::Value> {
+async fn get_network_status(_auth: RequireViewer) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "chains": {
             "ethereum": {"status": "healthy", "block": 19_500_000, "latency_ms": 45},

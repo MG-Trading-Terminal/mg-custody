@@ -13,9 +13,10 @@ use axum::{
 };
 use serde::Deserialize;
 use std::sync::Arc;
-use crate::state::AppState;
 use crate::errors::ApiError;
+use crate::rbac_middleware::RequireAdmin;
 use crate::rate_limit::RateLimiter;
+use crate::state::AppState;
 
 /// Build admin API router with separate auth + tighter rate limiting.
 pub fn admin_router(state: AppState) -> Router {
@@ -72,6 +73,7 @@ async fn admin_rate_limit(
 }
 
 async fn system_stats(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let eth_progress = state.db.get_scan_progress(custody_common::Chain::Ethereum).await.unwrap_or(None);
@@ -108,6 +110,7 @@ async fn system_stats(
 }
 
 async fn list_deposits(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let detected = state.db.deposits_by_status(custody_common::DepositStatus::Detected).await
@@ -127,6 +130,7 @@ async fn list_deposits(
 }
 
 async fn list_withdrawals(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let received = state.db.withdrawals_by_status(custody_common::WithdrawalStatus::Received).await
@@ -151,6 +155,7 @@ async fn list_withdrawals(
 }
 
 async fn pending_approvals(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let pending = state.db.withdrawals_by_status(custody_common::WithdrawalStatus::PendingApproval).await
@@ -176,6 +181,7 @@ struct LedgerQuery {
 }
 
 async fn ledger_entries(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Query(query): Query<LedgerQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -203,6 +209,7 @@ async fn ledger_entries(
 }
 
 async fn failed_webhooks(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let failed = state.db.failed_webhook_deliveries(50).await
@@ -224,6 +231,7 @@ async fn failed_webhooks(
 }
 
 async fn ws_client_count(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
 ) -> Json<serde_json::Value> {
     let count = state.event_broadcaster.subscriber_count();

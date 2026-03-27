@@ -15,6 +15,7 @@ use rust_decimal_macros::dec;
 use uuid::Uuid;
 
 use crate::errors::ApiError;
+use crate::rbac_middleware::{RequireAdmin, RequireEditor, RequireSigner, RequireViewer};
 use crate::state::AppState;
 
 pub fn governance_router() -> Router<AppState> {
@@ -47,6 +48,7 @@ pub fn governance_router() -> Router<AppState> {
 // ---------------------------------------------------------------------------
 
 async fn list_vault_policies(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(vault_id): Path<Uuid>,
 ) -> Result<Json<Vec<VaultPolicy>>, ApiError> {
@@ -56,6 +58,7 @@ async fn list_vault_policies(
 }
 
 async fn create_vault_policy(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(vault_id): Path<Uuid>,
     Json(req): Json<CreateVaultPolicyRequest>,
@@ -79,6 +82,7 @@ async fn create_vault_policy(
 }
 
 async fn get_vault_policy(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<VaultPolicy>, ApiError> {
@@ -89,6 +93,7 @@ async fn get_vault_policy(
 }
 
 async fn update_vault_policy(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateVaultPolicyRequest>,
@@ -103,6 +108,7 @@ async fn update_vault_policy(
 }
 
 async fn delete_vault_policy(
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
@@ -117,6 +123,7 @@ async fn delete_vault_policy(
 // ---------------------------------------------------------------------------
 
 async fn get_approval_workflow(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(withdrawal_id): Path<Uuid>,
 ) -> Result<Json<ApprovalWorkflow>, ApiError> {
@@ -127,6 +134,7 @@ async fn get_approval_workflow(
 }
 
 async fn submit_approval_decision(
+    _auth: RequireSigner,
     State(state): State<AppState>,
     Path(withdrawal_id): Path<Uuid>,
     Json(req): Json<SubmitApprovalRequest>,
@@ -171,6 +179,7 @@ async fn submit_approval_decision(
 }
 
 async fn list_vault_pending_approvals(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(vault_id): Path<Uuid>,
 ) -> Result<Json<Vec<ApprovalWorkflow>>, ApiError> {
@@ -183,11 +192,12 @@ async fn list_vault_pending_approvals(
 // Supported networks
 // ---------------------------------------------------------------------------
 
-async fn list_supported_networks() -> Json<Vec<NetworkInfo>> {
+async fn list_supported_networks(_auth: RequireViewer) -> Json<Vec<NetworkInfo>> {
     Json(all_networks())
 }
 
 async fn get_network_detail(
+    _auth: RequireViewer,
     Path(chain): Path<String>,
 ) -> Result<Json<NetworkInfo>, ApiError> {
     let chain_parsed = Chain::parse_str(&chain);
@@ -198,6 +208,7 @@ async fn get_network_detail(
 }
 
 async fn list_network_tokens(
+    _auth: RequireViewer,
     Path(chain): Path<String>,
 ) -> Json<Vec<NetworkToken>> {
     let chain_parsed = Chain::parse_str(&chain);
@@ -269,6 +280,7 @@ fn all_networks() -> Vec<NetworkInfo> {
 // ---------------------------------------------------------------------------
 
 async fn list_transaction_notes(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(tx_id): Path<Uuid>,
 ) -> Result<Json<Vec<TransactionNote>>, ApiError> {
@@ -278,6 +290,7 @@ async fn list_transaction_notes(
 }
 
 async fn create_transaction_note(
+    _auth: RequireEditor,
     State(state): State<AppState>,
     Path(tx_id): Path<Uuid>,
     Json(req): Json<CreateNoteRequest>,
@@ -300,12 +313,13 @@ async fn create_transaction_note(
 // Staking execution
 // ---------------------------------------------------------------------------
 
-async fn list_staking_positions() -> Json<Vec<StakingPositionSummary>> {
+async fn list_staking_positions(_auth: RequireViewer) -> Json<Vec<StakingPositionSummary>> {
     // Placeholder — would query from staking_positions table
     Json(vec![])
 }
 
 async fn stake(
+    _auth: RequireSigner,
     Json(req): Json<StakeRequest>,
 ) -> Result<Json<StakingPositionSummary>, ApiError> {
     if req.amount <= Decimal::ZERO {
@@ -346,6 +360,7 @@ async fn stake(
 }
 
 async fn unstake(
+    _auth: RequireSigner,
     Json(req): Json<UnstakeRequest>,
 ) -> Result<Json<StakingPositionSummary>, ApiError> {
     if req.amount <= Decimal::ZERO {
