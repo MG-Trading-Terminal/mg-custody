@@ -73,6 +73,7 @@ mod security_tests;
 pub mod sdk;
 pub mod settlement;
 pub mod settlement_ops;
+pub mod solana_actions;
 pub mod solana_instructions;
 pub mod solana_versioned;
 pub mod settlement_protocol;
