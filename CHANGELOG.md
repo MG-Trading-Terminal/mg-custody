@@ -30,6 +30,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   - `approve_withdrawal`: Signer+
   - `get_withdrawal_status`: Viewer+
   - `get_wallet_balance`: Viewer+
+- **RBAC guards on ALL 125+ endpoints** across 11 route files:
+  - vault_routes: Viewer (list/get), Editor (create account, transfer), Signer (raw-sign, cancel, accelerate), Admin (create/update/delete vault, manage assets)
+  - ops_routes: Admin (rescan, consolidate), Editor (batch withdraw)
+  - governance_routes: Viewer (list), Signer (approve), Admin (create/update policies)
+  - operations_routes: Viewer (list), Admin (schedule, compliance config)
+  - connectivity/platform/embedded/exchange/admin/settlement/staking routes
 - **14 new tests** (1384 total, 0 failures)
 
 ### Added (2026-03-27) — ROADMAP Expansion: Phases 19-25

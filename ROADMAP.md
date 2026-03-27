@@ -448,7 +448,7 @@
 - [x] Absolute 8h + idle 30m timeout validation
 - [x] HMAC-authed service requests get Admin role (backward compatible)
 - [x] 14 new tests: sessions, RBAC extractors, password verification
-- [ ] Apply guards to remaining 120+ endpoints (vault, ops, connectivity, platform, governance, operations, embedded routes)
+- [x] Apply guards to ALL 125+ endpoints across 11 route files (vault, ops, connectivity, platform, governance, operations, embedded, exchange, admin, settlement, staking)
 - [ ] Permission denials logged to audit trail
 
 ---
@@ -674,7 +674,7 @@ Phase 19 + 21 ────────> Phase 25 (OpenAPI)
 
 | Feature | Phase | Status | Priority |
 |---------|-------|--------|----------|
-| RBAC enforcement middleware | Phase 19 | 🔶 In progress — middleware + extractors + core guards done, remaining endpoints pending | P0 |
+| RBAC enforcement middleware | Phase 19 | ✅ Done — middleware + extractors + guards on ALL 125+ endpoints | P0 |
 | FIDO2/WebAuthn verification | Phase 20 | ❌ Not started — types exist, no crypto verification | P0 |
 | **Web Dashboard (SvelteKit)** | Phase 21 | ❌ Not started — zero frontend code | P0 |
 | AML/KYT real vendor integration | Phase 22 | ❌ Not started — trait stubs only | P1 |
