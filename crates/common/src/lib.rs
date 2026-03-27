@@ -84,6 +84,7 @@ pub mod vault;
 pub mod waas;
 pub mod web3_provider;
 pub mod webhook;
+pub mod workspace_admin;
 pub mod walletconnect;
 pub mod walletconnect_v2;
 pub mod yield_strategies;
