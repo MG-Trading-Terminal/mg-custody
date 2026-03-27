@@ -64,6 +64,7 @@ pub mod platform;
 pub mod polkadot;
 pub mod polkadot_chain;
 pub mod price_engine;
+pub mod risk_engine;
 pub mod price_feeds;
 pub mod price_oracle;
 pub mod prometheus_metrics;
