@@ -74,6 +74,25 @@ pub struct GasFundingRequest {
     pub fund_amount: Decimal,
 }
 
+/// Record of a gas funding transaction that was submitted to the withdrawal pipeline.
+///
+/// Each row represents one native-token transfer from the hot wallet to a deposit
+/// address that needed gas for ERC-20 / TRC-20 / SPL token sweeps.
+/// This is stored alongside the withdrawal record so operators can audit gas spend.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GasFundingTx {
+    /// Custody-internal ID, matches the `withdrawals.id` row inserted.
+    pub withdrawal_id: uuid::Uuid,
+    pub chain: Chain,
+    /// Deposit address receiving the gas.
+    pub target_address: String,
+    /// Native gas token: ETH / TRX / SOL.
+    pub gas_asset: String,
+    /// Amount of native token sent.
+    pub amount: Decimal,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
 impl GasStation {
     pub fn new(configs: Vec<GasStationConfig>) -> Self {
         Self { configs }

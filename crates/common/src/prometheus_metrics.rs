@@ -102,6 +102,16 @@ pub static POLICY_DECISIONS: Lazy<CounterVec> = Lazy::new(|| {
     ).unwrap()
 });
 
+// ── RBAC metrics ────────────────────────────────────────────────
+
+pub static PERMISSION_DENIALS: Lazy<CounterVec> = Lazy::new(|| {
+    register_counter_vec!(
+        "custody_permission_denials_total",
+        "RBAC permission denials by required role and method",
+        &["required_role", "method"]
+    ).unwrap()
+});
+
 // ── Compliance metrics ───────────────────────────────────────────
 
 pub static COMPLIANCE_SCREENINGS: Lazy<CounterVec> = Lazy::new(|| {

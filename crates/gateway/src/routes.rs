@@ -19,6 +19,12 @@ use crate::errors::ApiError;
 use crate::rbac_middleware::{RequireViewer, RequireEditor, RequireSigner};
 use crate::state::AppState;
 
+/// USD threshold above which FIDO2 second-factor is required for withdrawal approval.
+///
+/// Corresponds to Tier 2 in the approval table ($10K–$100K requires 1 approver with FIDO2).
+const FIDO2_REQUIRED_THRESHOLD_USD: rust_decimal::Decimal =
+    rust_decimal::Decimal::from_parts(10_000, 0, 0, false, 0);
+
 pub fn router(state: AppState) -> Router {
     use axum::middleware as axum_mw;
     use crate::rbac_middleware::{self, RbacState};
@@ -211,11 +217,23 @@ async fn get_withdrawal_status(
     }))
 }
 
+/// Request body for withdrawal approval.
+#[derive(serde::Deserialize)]
+struct ApproveWithdrawalBody {
+    approved: bool,
+    #[serde(default)]
+    approver: Option<String>,
+    // Required when withdrawal.amount >= FIDO2_REQUIRED_THRESHOLD_USD
+    fido2_credential_id: Option<String>,
+    fido2_challenge: Option<String>,
+    fido2_sign_count: Option<i64>,
+}
+
 async fn approve_withdrawal(
     _auth: RequireSigner,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
-    Json(body): Json<serde_json::Value>,
+    Json(body): Json<ApproveWithdrawalBody>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let withdrawal = state.db.find_withdrawal(id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?
@@ -223,14 +241,69 @@ async fn approve_withdrawal(
 
     if withdrawal.status != WithdrawalStatus::PendingApproval {
         return Err(ApiError::conflict(&format!(
-            "Withdrawal is {:?}, not PendingApproval", withdrawal.status
+            "Withdrawal {} is {:?}, not PendingApproval", id, withdrawal.status
         )));
     }
 
-    let approved = body.get("approved").and_then(|v| v.as_bool()).unwrap_or(false);
-    let approver = body.get("approver").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let approver = body.approver.as_deref().unwrap_or("unknown");
 
-    if approved {
+    // Tier 2+ withdrawals ($10K+) require FIDO2 second factor.
+    if withdrawal.amount >= FIDO2_REQUIRED_THRESHOLD_USD {
+        let cred_id = body.fido2_credential_id.as_deref().ok_or_else(|| {
+            ApiError::bad_request(&format!(
+                "Withdrawal {} amount {} requires FIDO2 (fido2_credential_id missing)",
+                id, withdrawal.amount
+            ))
+        })?;
+        let challenge = body.fido2_challenge.as_deref().ok_or_else(|| {
+            ApiError::bad_request(&format!(
+                "Withdrawal {} amount {} requires FIDO2 (fido2_challenge missing)",
+                id, withdrawal.amount
+            ))
+        })?;
+        let sign_count = body.fido2_sign_count.ok_or_else(|| {
+            ApiError::bad_request(&format!(
+                "Withdrawal {} amount {} requires FIDO2 (fido2_sign_count missing)",
+                id, withdrawal.amount
+            ))
+        })?;
+
+        // 1. Consume challenge — single-use, checks expiry atomically.
+        let consumed = state.db.consume_fido2_challenge(challenge, "withdrawal_approval").await
+            .map_err(|e| ApiError::internal(&e.to_string()))?;
+        if consumed.is_none() {
+            tracing::warn!(id = %id, approver, "FIDO2 challenge invalid or expired");
+            return Err(ApiError::unauthorized("FIDO2 challenge invalid, expired, or already consumed"));
+        }
+
+        // 2. Verify the credential exists and is enabled.
+        let credential = state.db.find_fido2_credential_by_cred_id(cred_id).await
+            .map_err(|e| ApiError::internal(&e.to_string()))?
+            .ok_or_else(|| ApiError::unauthorized("FIDO2 credential not found"))?;
+
+        if !credential.enabled {
+            tracing::warn!(id = %id, approver, "FIDO2 credential disabled");
+            return Err(ApiError::unauthorized("FIDO2 credential is disabled"));
+        }
+
+        // 3. Enforce monotonically increasing sign count (cloned key detection).
+        //    update_fido2_sign_count returns false if new_count <= stored count.
+        let updated = state.db.update_fido2_sign_count(cred_id, sign_count).await
+            .map_err(|e| ApiError::internal(&e.to_string()))?;
+        if !updated {
+            tracing::warn!(
+                id = %id, approver,
+                "FIDO2 sign count did not advance — possible cloned authenticator"
+            );
+            return Err(ApiError::unauthorized(
+                "FIDO2 sign count invalid — authenticator may be cloned"
+            ));
+        }
+
+        tracing::info!(id = %id, approver, "FIDO2 verification passed for high-value withdrawal");
+    }
+
+    if body.approved {
         state.db.update_withdrawal_status(id, WithdrawalStatus::Validated).await
             .map_err(|e| ApiError::internal(&e.to_string()))?;
         tracing::info!(id = %id, approver, "Withdrawal approved");

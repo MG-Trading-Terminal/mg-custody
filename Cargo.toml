@@ -92,7 +92,7 @@ spl-token = "7"
 chrono = { version = "0.4", features = ["serde"] }
 
 # IDs
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
 
 # Config
 figment = { version = "0.10", features = ["toml", "env"] }

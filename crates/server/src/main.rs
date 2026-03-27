@@ -734,6 +734,93 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // UTXO consolidation loop (daily at 03:00 UTC — when fees are typically low)
+    {
+        let consolidation_db = db.clone();
+        tokio::spawn(async move {
+            tracing::info!("Starting UTXO consolidation scheduler");
+            let policy = custody_utxo::consolidation::ConsolidationPolicy::default();
+            loop {
+                tokio::time::sleep(Duration::from_secs(3600)).await; // check hourly
+
+                // Load current UTXOs from DB and convert to utxo crate types
+                let db_utxos = match consolidation_db.get_unspent_utxos().await {
+                    Ok(u) => u,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Failed to load UTXOs for consolidation check");
+                        continue;
+                    }
+                };
+                let utxos: Vec<custody_utxo::Utxo> = db_utxos.into_iter().map(|r| {
+                    custody_utxo::Utxo {
+                        id: r.id,
+                        txid: r.txid,
+                        vout: r.vout as u32,
+                        amount_sats: r.amount_sats as u64,
+                        address: r.address,
+                        confirmations: r.confirmations as u64,
+                        locked: r.locked,
+                    }
+                }).collect();
+
+                // Check fee environment (use conservative 5 sat/vB for planning)
+                let fee_rate = 5u64;
+                let now = chrono::Utc::now();
+
+                if !custody_utxo::consolidation::should_consolidate(utxos.len(), fee_rate, &policy, now) {
+                    continue;
+                }
+
+                // Get hot wallet address for consolidation destination
+                let hot_address = "bc1q_hot_wallet_placeholder".to_string(); // TODO: derive from config
+
+                if let Some(plan) = custody_utxo::consolidation::plan_consolidation(&utxos, fee_rate, &hot_address, &policy) {
+                    tracing::info!(
+                        inputs = plan.inputs.len(),
+                        total_sats = plan.total_input_sats,
+                        fee_sats = plan.estimated_fee_sats,
+                        output_sats = plan.output_sats,
+                        "UTXO consolidation planned — submitting to pipeline"
+                    );
+                    // TODO: Create consolidation withdrawal and submit to pipeline
+                    // The withdrawal should have tx_type = "consolidation" to bypass circuit breaker
+                }
+            }
+        });
+    }
+
+    // Session cleanup loop (hourly — purge expired/revoked sessions)
+    {
+        let session_db = db.clone();
+        tokio::spawn(async move {
+            tracing::info!("Starting session cleanup loop");
+            loop {
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+                match session_db.cleanup_expired_sessions().await {
+                    Ok(count) if count > 0 => tracing::info!(cleaned = count, "Expired sessions cleaned"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(error = %e, "Session cleanup failed"),
+                }
+            }
+        });
+    }
+
+    // FIDO2 challenge cleanup loop (hourly)
+    {
+        let fido2_db = db.clone();
+        tokio::spawn(async move {
+            tracing::info!("Starting FIDO2 challenge cleanup loop");
+            loop {
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+                match fido2_db.cleanup_expired_challenges().await {
+                    Ok(count) if count > 0 => tracing::info!(cleaned = count, "Expired FIDO2 challenges cleaned"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(error = %e, "FIDO2 challenge cleanup failed"),
+                }
+            }
+        });
+    }
+
     // ─── HTTP Server with graceful shutdown ─────────────────────────
     let bind_addr = &config.api.bind;
     tracing::info!(

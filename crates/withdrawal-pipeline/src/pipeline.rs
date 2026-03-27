@@ -134,6 +134,36 @@ impl WithdrawalPipeline {
         for w in self.db.withdrawals_by_status(WithdrawalStatus::Received).await? {
             match validation::validate_withdrawal(&w) {
                 Ok(()) => {
+                    // Whitelist check — opt-in: if no whitelist rows exist for the chain,
+                    // all destinations are allowed.  If whitelist rows exist, only listed
+                    // addresses may receive funds.
+                    match self.db.is_address_whitelisted(&w.destination_address, w.chain.as_str()).await {
+                        Ok(true) => { /* allowed */ }
+                        Ok(false) => {
+                            tracing::warn!(
+                                id = %w.id,
+                                chain = %w.chain.as_str(),
+                                addr = %w.destination_address,
+                                "Destination address not whitelisted — rejecting"
+                            );
+                            self.db.update_withdrawal_status_with_error(
+                                w.id,
+                                WithdrawalStatus::Failed,
+                                "Destination address not whitelisted",
+                            ).await?;
+                            continue;
+                        }
+                        Err(e) => {
+                            // Treat whitelist lookup failure as a hard block: do not
+                            // allow funds to move when the safety check is unavailable.
+                            tracing::error!(
+                                id = %w.id, error = %e,
+                                "Whitelist check failed — deferring withdrawal"
+                            );
+                            continue;
+                        }
+                    }
+
                     match validation::check_circuit_breaker(
                         w.amount, self.max_single_usd, hourly_used,
                         self.max_hourly_usd, daily_used, self.max_daily_usd,

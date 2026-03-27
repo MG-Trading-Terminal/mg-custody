@@ -102,6 +102,28 @@ impl CustodyDb {
         Ok(())
     }
 
+    /// Update withdrawal status and record an error message in the same operation.
+    ///
+    /// Used when a withdrawal must be marked Failed with a human-readable reason
+    /// that will be returned to the caller via the status endpoint.
+    pub async fn update_withdrawal_status_with_error(
+        &self,
+        id: Uuid,
+        status: WithdrawalStatus,
+        error_message: &str,
+    ) -> anyhow::Result<()> {
+        let status_str = format!("{:?}", status).to_lowercase();
+        sqlx::query(
+            "UPDATE withdrawals SET status = $1, error_message = $2 WHERE id = $3",
+        )
+        .bind(&status_str)
+        .bind(error_message)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Set tx_hash after broadcast.
     pub async fn set_withdrawal_tx_hash(
         &self,

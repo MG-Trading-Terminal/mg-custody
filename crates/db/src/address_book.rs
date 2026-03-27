@@ -104,6 +104,39 @@ impl CustodyDb {
             .await?;
         Ok(result.rows_affected() > 0)
     }
+
+    /// Check whether a destination address is whitelisted for a given chain.
+    ///
+    /// Whitelist is opt-in: if the `address_book` table has no rows with
+    /// `whitelisted = true` for this chain, all addresses are permitted.
+    /// If any whitelisted entries exist for the chain, only those addresses pass.
+    ///
+    /// Returns `true` if the address is allowed, `false` if it is blocked.
+    pub async fn is_address_whitelisted(&self, address: &str, chain: &str) -> anyhow::Result<bool> {
+        // Count how many whitelisted entries exist for this chain.
+        let (whitelist_count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM address_book WHERE chain = $1 AND whitelisted = true",
+        )
+        .bind(chain)
+        .fetch_one(&self.pool)
+        .await?;
+
+        // No whitelisted entries → whitelist is not configured → allow all.
+        if whitelist_count == 0 {
+            return Ok(true);
+        }
+
+        // Whitelist is active: check if this specific address is in it.
+        let (present,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM address_book WHERE address = $1 AND chain = $2 AND whitelisted = true",
+        )
+        .bind(address)
+        .bind(chain)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(present > 0)
+    }
 }
 
 #[derive(sqlx::FromRow)]

@@ -153,6 +153,13 @@ pub async fn rbac_auth(
     Ok(next.run(request).await)
 }
 
+/// Record a permission denial in Prometheus metrics.
+fn record_denial(required_role: &str, method: &str) {
+    custody_common::prometheus_metrics::PERMISSION_DENIALS
+        .with_label_values(&[required_role, method])
+        .inc();
+}
+
 /// Extract AuthContext from request extensions (set by rbac_auth middleware).
 pub struct AuthUser(pub AuthContext);
 
@@ -188,7 +195,14 @@ where
         if ctx.role.has_at_least(&Role::Viewer) {
             Ok(RequireViewer(ctx))
         } else {
-            tracing::warn!(user = %ctx.email, role = ?ctx.role, "Permission denied: requires Viewer");
+            let path = parts.uri.path();
+            let method = parts.method.as_str();
+            tracing::warn!(
+                user = %ctx.email, role = ?ctx.role, path, method,
+                required_role = "viewer", event = "permission_denied",
+                "RBAC denial: user lacks Viewer role"
+            );
+            record_denial("viewer", method);
             Err(StatusCode::FORBIDDEN)
         }
     }
@@ -210,7 +224,14 @@ where
         if ctx.role.has_at_least(&Role::Editor) {
             Ok(RequireEditor(ctx))
         } else {
-            tracing::warn!(user = %ctx.email, role = ?ctx.role, "Permission denied: requires Editor");
+            let path = parts.uri.path();
+            let method = parts.method.as_str();
+            tracing::warn!(
+                user = %ctx.email, role = ?ctx.role, path, method,
+                required_role = "editor", event = "permission_denied",
+                "RBAC denial: user lacks Editor role"
+            );
+            record_denial("editor", method);
             Err(StatusCode::FORBIDDEN)
         }
     }
@@ -232,7 +253,14 @@ where
         if ctx.role.has_at_least(&Role::Signer) {
             Ok(RequireSigner(ctx))
         } else {
-            tracing::warn!(user = %ctx.email, role = ?ctx.role, "Permission denied: requires Signer");
+            let path = parts.uri.path();
+            let method = parts.method.as_str();
+            tracing::warn!(
+                user = %ctx.email, role = ?ctx.role, path, method,
+                required_role = "signer", event = "permission_denied",
+                "RBAC denial: user lacks Signer role"
+            );
+            record_denial("signer", method);
             Err(StatusCode::FORBIDDEN)
         }
     }
@@ -254,7 +282,14 @@ where
         if ctx.role.has_at_least(&Role::Admin) {
             Ok(RequireAdmin(ctx))
         } else {
-            tracing::warn!(user = %ctx.email, role = ?ctx.role, "Permission denied: requires Admin");
+            let path = parts.uri.path();
+            let method = parts.method.as_str();
+            tracing::warn!(
+                user = %ctx.email, role = ?ctx.role, path, method,
+                required_role = "admin", event = "permission_denied",
+                "RBAC denial: user lacks Admin role"
+            );
+            record_denial("admin", method);
             Err(StatusCode::FORBIDDEN)
         }
     }
@@ -276,7 +311,14 @@ where
         if ctx.role.has_at_least(&Role::Owner) {
             Ok(RequireOwner(ctx))
         } else {
-            tracing::warn!(user = %ctx.email, role = ?ctx.role, "Permission denied: requires Owner");
+            let path = parts.uri.path();
+            let method = parts.method.as_str();
+            tracing::warn!(
+                user = %ctx.email, role = ?ctx.role, path, method,
+                required_role = "owner", event = "permission_denied",
+                "RBAC denial: user lacks Owner role"
+            );
+            record_denial("owner", method);
             Err(StatusCode::FORBIDDEN)
         }
     }
