@@ -40,6 +40,7 @@ pub mod gas_station_v2;
 pub mod governance;
 pub mod grafana;
 pub mod incident;
+pub mod insurance;
 pub mod jupiter;
 pub mod lending;
 pub mod load_test;
