@@ -15,7 +15,7 @@ pub mod risk;
 pub mod screening;
 pub mod travel_rule;
 
-pub use screening::{ScreeningProvider, ScreeningResult, RiskLevel};
+pub use screening::{ScreeningProvider, ScreeningResult, RiskLevel, EllipticProvider, ScreeningService, ScreeningFallback, CachedScreening};
 pub use ofac::{SanctionsList, SanctionsChecker};
 pub use travel_rule::{TravelRuleProvider, TravelRuleData};
 pub use risk::RiskAssessment;

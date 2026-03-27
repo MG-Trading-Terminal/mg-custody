@@ -38,6 +38,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   - connectivity/platform/embedded/exchange/admin/settlement/staking routes
 - **14 new tests** (1384 total, 0 failures)
 
+### Added (2026-03-27) — Phase 22: AML/KYT + Phase 23: UTXO Consolidation
+
+- **Elliptic Lens provider** (`EllipticProvider`) — full HTTP integration for wallet exposure + source-of-funds screening
+  - POST `/v2/wallet/synchronous` for address screening
+  - POST `/v2/txn/synchronous` for transaction screening
+  - Risk score → RiskLevel mapping (0.3/0.6/0.8 thresholds)
+  - Graceful degradation on API errors
+- **ScreeningService** — multi-provider orchestration with worst-of aggregation
+  - `AnyScreeningProvider` enum dispatch (avoids dyn-incompatible async traits)
+  - Configurable fallback: `Block` (safe) or `AllowAndFlag` (operator choice)
+  - Cache TTL configuration (default 24h)
+  - `add_chainalysis()` / `add_elliptic()` builder pattern
+- **UTXO Consolidation** (`crates/utxo/src/consolidation.rs`)
+  - `ConsolidationPolicy`: min UTXO count (50), max per tx (20), max fee rate (10 sat/vB), schedule
+  - `should_consolidate()`: checks UTXO count + fee environment + schedule window
+  - `plan_consolidation()`: selects smallest UTXOs first, estimates fee + savings
+  - Skips locked and unconfirmed UTXOs, validates destination is internal
+- **12 new tests** (6 screening + 6 consolidation)
+
 ### Added (2026-03-27) — Phase 21A: Web Dashboard Infrastructure
 
 - **SvelteKit dashboard** (`dashboard/`) — `adapter-static` compiles to pure HTML/CSS/JS, no Node.js in production

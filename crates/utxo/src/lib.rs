@@ -9,6 +9,8 @@
 //! - Branch and Bound: <https://murch.one/erhardt2016coinselection.pdf>
 //! - Dust limit: 546 satoshis (Bitcoin Core DEFAULT_DUST_RELAY_TX_FEE)
 
+pub mod consolidation;
+
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
