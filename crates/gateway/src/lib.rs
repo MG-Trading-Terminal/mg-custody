@@ -6,6 +6,7 @@
 pub mod admin_routes;
 pub mod auth;
 pub mod connectivity_routes;
+pub mod embedded_routes;
 pub mod exchange_routes;
 pub mod errors;
 pub mod governance_routes;
