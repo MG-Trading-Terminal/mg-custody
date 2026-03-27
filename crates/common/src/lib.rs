@@ -8,6 +8,7 @@ pub mod backup_verification;
 pub mod bitcoin_advanced;
 pub mod bitcoin_fees;
 pub mod bitcoin_script;
+pub mod chain_abstraction;
 pub mod chain_adapter;
 pub mod chain_utils;
 pub mod cli;
