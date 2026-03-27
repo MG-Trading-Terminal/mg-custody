@@ -60,6 +60,7 @@ pub mod price_oracle;
 pub mod prometheus_metrics;
 pub mod rpc_failover;
 pub mod safe_wallet;
+pub mod sandbox;
 pub mod scheduler;
 #[cfg(test)]
 mod security_tests;
