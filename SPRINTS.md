@@ -1,5 +1,44 @@
 # Sprint Log
 
+## Sprint N+2 — Phase 27: Gnosis Safe + Scheduled Withdrawals + WebSocket Enhancements (2026-03-27)
+
+### Goals
+- Implement Gnosis Safe multi-sig wallet execution engine with EIP-712 hash + signature collection
+- Implement scheduled/recurring withdrawals with cron-style scheduling
+- Enhance WebSocket feed: auth, new event types (BalanceUpdate, TransactionStatusChange, ApprovalRequired)
+
+### Completed
+| Task | Crate | Status | Tests | Notes |
+|------|-------|--------|-------|-------|
+| `SafeWallet` + `SafeManagedTx` types | common | DONE | 12 | EIP-712 hash, threshold logic, exec calldata |
+| `compute_safe_tx_hash()` EIP-712 | common | DONE | 3 | Deterministic, chain-ID separated, no float |
+| `SafeOperation` re-export | common | DONE | — | Avoids import path fragmentation |
+| `WithdrawalSchedule` + `ScheduledWithdrawal` | common | DONE | 17 | Once/Daily/Weekly/Monthly, advance(), disable |
+| Migration 013: `scheduled_withdrawals` | db | DONE | — | TEXT amount, partial index for due schedules |
+| Migration 014: `safe_wallets` + `safe_transactions` | db | DONE | — | JSONB owners/signatures, TEXT value |
+| DB CRUD for scheduled withdrawals | db | DONE | 7 | encode/decode all schedule types |
+| DB CRUD for Safe wallets + transactions | db | DONE | 4 | Status/op roundtrips, case-insensitive lookup |
+| Safe API routes (6 endpoints) | gateway | DONE | 4 | Full RBAC: Admin/Editor/Signer/Viewer |
+| Scheduled withdrawal API routes (3 endpoints) | gateway | DONE | — | In user_router, all RBAC |
+| WebSocket auth (`?token=`) | gateway | DONE | 8 | Session resolution, graceful fallback |
+| `WsEvent` new types + helpers | gateway | DONE | 5 | BalanceUpdate, TxStatusChange, ApprovalRequired |
+| Shared filter (Arc<Mutex>) | gateway | DONE | — | Fixes borrow-across-spawn |
+| Scheduled withdrawal background loop (60s) | server | DONE | — | Due-schedule detection + pipeline submit |
+| Module wiring (lib.rs × 3 + routes.rs) | all | DONE | — | Both routers updated |
+
+### Metrics
+- **New tests added**: 52 (12 safe_executor + 17 scheduled_withdrawal + 4 safe_wallets_db + 7 scheduled_withdrawals_db + 4 safe_routes + 8 websocket)
+- **Tests passing**: 929 custody-common — all green; full suite 0 failures
+- **New files**: 6 (`safe_executor.rs`, `scheduled_withdrawal.rs`, `safe_wallets.rs` DB, `scheduled_withdrawals.rs` DB, `safe_routes.rs`, migrations ×2)
+- **Modified files**: 5 (`lib.rs` ×3, `routes.rs`, `user_routes.rs`, `websocket.rs`, `main.rs`)
+- **Clippy**: zero new warnings in any new file
+
+### References Used
+- Gnosis Safe v1.4.1 contract: https://github.com/safe-global/safe-contracts/blob/v1.4.1/contracts/Safe.sol
+- EIP-712 Typed Structured Data: https://eips.ethereum.org/EIPS/eip-712
+- Safe signature sorting (checkNSignatures): Safe.sol#L249 — owners sorted ascending
+- WebSocket token-in-querystring: standard practice for browser WS clients (MDN WebSocket API)
+
 ## Sprint N+1 — Phase 26: Notification Dispatch + CSV Export + QR SVG (2026-03-27)
 
 ### Goals

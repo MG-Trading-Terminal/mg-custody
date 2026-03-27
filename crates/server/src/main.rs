@@ -84,6 +84,8 @@ async fn main() -> anyhow::Result<()> {
             let migrations: &[(&str, &str)] = &[
                 ("001_initial_schema", include_str!("../../db/migrations/001_initial_schema.sql")),
                 ("002_signed_tx_bytes", include_str!("../../db/migrations/002_signed_tx_bytes.sql")),
+                ("013_scheduled_withdrawals", include_str!("../../db/migrations/013_scheduled_withdrawals.sql")),
+                ("014_safe_wallets", include_str!("../../db/migrations/014_safe_wallets.sql")),
             ];
             for (name, sql) in migrations {
                 if let Err(e) = sqlx::raw_sql(sql).execute(&pool).await {
@@ -816,6 +818,92 @@ async fn main() -> anyhow::Result<()> {
                     Ok(count) if count > 0 => tracing::info!(cleaned = count, "Expired FIDO2 challenges cleaned"),
                     Ok(_) => {}
                     Err(e) => tracing::warn!(error = %e, "FIDO2 challenge cleanup failed"),
+                }
+            }
+        });
+    }
+
+    // Scheduled withdrawal execution loop (every 60 seconds)
+    {
+        let sched_db = db.clone();
+        let sched_pipeline = withdrawal_pipeline.clone();
+        tokio::spawn(async move {
+            tracing::info!("Starting scheduled withdrawal executor loop");
+            loop {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                let now = chrono::Utc::now();
+
+                let due = match sched_db.due_scheduled_withdrawals(now).await {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Failed to load due scheduled withdrawals");
+                        continue;
+                    }
+                };
+
+                if due.is_empty() { continue; }
+
+                tracing::info!(count = due.len(), "Processing due scheduled withdrawals");
+
+                for mut sw in due {
+                    // Build a withdrawal record and submit to pipeline
+                    let w = custody_common::Withdrawal {
+                        id: uuid::Uuid::new_v4(),
+                        // Use the scheduled withdrawal's own ID as idempotency key
+                        // with execution count to avoid duplicates on retry.
+                        exchange_withdrawal_id: uuid::Uuid::new_v4(),
+                        asset: custody_common::Asset::new(&sw.asset),
+                        chain: sw.chain,
+                        destination_address: sw.destination.clone(),
+                        amount: sw.amount,
+                        fee: None,
+                        status: custody_common::WithdrawalStatus::Received,
+                        wallet_tier: custody_common::WalletTier::Hot,
+                        tx_hash: None,
+                        block_height: None,
+                        confirmations: 0,
+                        error_message: None,
+                        created_at: now,
+                        signed_at: None,
+                        broadcast_at: None,
+                        confirmed_at: None,
+                        delay_release_at: None,
+                    };
+
+                    match sched_db.insert_withdrawal(&w).await {
+                        Ok(_) => {
+                            tracing::info!(
+                                scheduled_id = %sw.id,
+                                withdrawal_id = %w.id,
+                                asset = %sw.asset,
+                                amount = %sw.amount,
+                                "Scheduled withdrawal queued"
+                            );
+
+                            // Advance the schedule (update next_execution, count, enabled)
+                            let still_active = sw.advance(now);
+                            if let Err(e) = sched_db.advance_scheduled_withdrawal(
+                                sw.id,
+                                now,
+                                sw.next_execution,
+                                sw.executions_count,
+                                still_active,
+                            ).await {
+                                tracing::warn!(
+                                    scheduled_id = %sw.id,
+                                    error = %e,
+                                    "Failed to advance scheduled withdrawal"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                scheduled_id = %sw.id,
+                                error = %e,
+                                "Failed to queue scheduled withdrawal"
+                            );
+                        }
+                    }
                 }
             }
         });

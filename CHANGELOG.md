@@ -5,6 +5,58 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-27) — Phase 27: Gnosis Safe Multi-Sig + Scheduled Withdrawals + WebSocket Enhancements
+
+- **`crates/common/src/safe_executor.rs`** — Gnosis Safe multi-sig execution engine:
+  - `SafeWallet` — registered Safe proxy with address, chain, threshold, owners, nonce
+  - `SafeManagedTx` — proposed transaction with EIP-712 hash, signatures, status state machine
+  - `SafeTxStatus` — `Proposed → Signing → Ready → Executed / Failed`
+  - `SafeOperation` re-exported from `safe_wallet` for downstream use
+  - `SafeSignature` — 65-byte ECDSA signature with signer + timestamp
+  - `SafeWallet::propose_transaction()` — computes EIP-712 safe_tx_hash, returns `SafeManagedTx`
+  - `SafeManagedTx::add_signature()` — validates owner membership, rejects duplicates + wrong length, transitions status
+  - `SafeManagedTx::is_ready()` — checks `signatures.len() >= threshold`
+  - `SafeManagedTx::encode_exec()` — builds `execTransaction` calldata (0x6a761202) with signatures sorted ascending per Safe.sol#checkNSignatures
+  - `compute_safe_tx_hash()` — full EIP-712: `0x1901 || domainSeparator || keccak256(encodeTransactionData)`, uses `sha3::Keccak256` directly, no float, deterministic
+  - API request/response types: `RegisterSafeRequest`, `ProposeSafeTxRequest`, `AddSafeSignatureRequest`, `SafeWalletResponse`, `SafeManagedTxResponse` — all amounts as string-encoded Decimal
+  - 12 unit tests: hash determinism, different chain IDs, different nonces, signature validation, threshold logic, encode_exec selector, case-insensitive owner check, no-float response
+- **`crates/common/src/scheduled_withdrawal.rs`** — Scheduled and recurring withdrawals:
+  - `WithdrawalSchedule` — `Once`, `Daily { hour_utc }`, `Weekly { day, hour_utc }`, `Monthly { day_of_month, hour_utc }`
+  - `WithdrawalSchedule::next_occurrence(after)` — computes next UTC execution time; `Monthly` clamps day ≤ 28 for all months
+  - `ScheduledWithdrawal` — full record with `executions_count`, `max_executions`, `enabled`, `next_execution`
+  - `ScheduledWithdrawal::should_execute(now)` — enabled && due && not exhausted
+  - `ScheduledWithdrawal::advance(now)` — atomic: increments count, updates `last_executed`, computes next occurrence, disables `Once` and exhausted schedules
+  - 17 unit tests: all schedule variants, boundary conditions, month crossings, disable-on-exhaust, no-float amount
+- **`crates/db/migrations/013_scheduled_withdrawals.sql`** — `scheduled_withdrawals` table; amount stored as TEXT; indexed on `(next_execution WHERE enabled = true)` and `user_id`
+- **`crates/db/migrations/014_safe_wallets.sql`** — `safe_wallets` table (threshold, owners as JSONB, nonce) + `safe_transactions` table (value_wei as TEXT, data as BYTEA, signatures as JSONB); indexes on `lower(safe_address)` and status
+- **`crates/db/src/scheduled_withdrawals.rs`** — CRUD: `insert_scheduled_withdrawal`, `list_scheduled_withdrawals`, `due_scheduled_withdrawals`, `advance_scheduled_withdrawal`, `cancel_scheduled_withdrawal`; schedule serialized to `(schedule_type TEXT, schedule_config JSONB)`; 7 unit tests: roundtrip for all schedule types, unknown type error, weekday parsing, Decimal precision
+- **`crates/db/src/safe_wallets.rs`** — CRUD: `upsert_safe_wallet`, `find_safe_wallet`, `list_safe_wallets`, `insert_safe_tx`, `update_safe_tx`, `find_safe_tx`, `list_safe_txs`; value stored as TEXT; 4 unit tests: status roundtrip, op roundtrip, error cases
+- **`crates/gateway/src/safe_routes.rs`** — Gnosis Safe API routes:
+  - `POST /v1/safe-wallets` (`RequireAdmin`) — register Safe with threshold/owners validation
+  - `GET /v1/safe-wallets` (`RequireViewer`) — list all registered Safes
+  - `POST /v1/safe-wallets/{address}/transactions` (`RequireEditor`) — propose transaction
+  - `POST /v1/safe-wallets/{address}/transactions/{id}/sign` (`RequireSigner`) — add ECDSA signature
+  - `GET /v1/safe-wallets/{address}/transactions` (`RequireViewer`) — list transactions for a Safe
+  - `POST /v1/safe-wallets/{address}/transactions/{id}/execute` (`RequireSigner`) — encode execTransaction calldata, mark Executed
+  - 4 unit tests: hex decoding edge cases
+- **`crates/gateway/src/user_routes.rs`** — Scheduled withdrawal endpoints:
+  - `POST /v1/user/scheduled-withdrawals` (`RequireEditor`) — create schedule, validates amount > 0
+  - `GET /v1/user/scheduled-withdrawals` (`RequireViewer`) — list user's schedules
+  - `DELETE /v1/user/scheduled-withdrawals/{id}` (`RequireEditor`) — cancel (sets `enabled = false`)
+- **`crates/gateway/src/websocket.rs`** — Enhanced WebSocket with auth + new event types:
+  - `WsEvent` enum adds `BalanceUpdate`, `TransactionStatusChange`, `ApprovalRequired`, `Ping`
+  - Auth via `?token=<bearer>` query param (WS headers inaccessible in browser API)
+  - Session resolved from DB; falls back gracefully on invalid/missing token
+  - `filter` shared between send/recv tasks via `Arc<tokio::sync::Mutex<EventFilter>>`; recv task updates filter from client JSON messages
+  - `balance_update_event()`, `tx_status_change_event()`, `approval_required_event()` — public helpers for pipeline/confirmation tracker to call
+  - Heartbeat `Ping` sent immediately on connect
+  - Lag detection: logs dropped events without disconnecting
+  - 8 unit tests: serialization, no-float amounts, filter integration, new event types
+- **`crates/server/src/main.rs`** — scheduled withdrawal background task (every 60s): loads due schedules, creates `Withdrawal` records, calls `advance_scheduled_withdrawal`; adds migrations 013 + 014 to startup sequence
+- **`crates/common/src/lib.rs`** — exports `safe_executor`, `scheduled_withdrawal`
+- **`crates/db/src/lib.rs`** — exports `safe_wallets`, `scheduled_withdrawals`
+- **`crates/gateway/src/lib.rs`** — exports `safe_routes`
+
 ### Added (2026-03-27) — Phase 26: Notification Dispatch + CSV Export + QR SVG
 
 - **`crates/confirmations/src/notification_dispatch.rs`** — `NotificationDispatcher`:

@@ -5,6 +5,8 @@
 
 pub mod address_book;
 pub mod addresses;
+pub mod safe_wallets;
+pub mod scheduled_withdrawals;
 pub mod api_keys;
 pub mod assets;
 pub mod audit;

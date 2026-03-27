@@ -21,6 +21,9 @@ use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use custody_common::scheduled_withdrawal::{
+    CreateScheduledWithdrawalRequest, ScheduledWithdrawal, ScheduledWithdrawalResponse,
+};
 use custody_common::vault::TransactionFilter;
 
 use crate::auth_routes::hash_password;
@@ -55,6 +58,9 @@ pub fn user_router() -> Router<AppState> {
         .route("/v1/user/activity", get(activity_feed))
         .route("/v1/user/notifications", get(list_notifications))
         .route("/v1/user/notifications/test", post(test_notification))
+        // Scheduled/recurring withdrawals
+        .route("/v1/user/scheduled-withdrawals", post(create_scheduled_withdrawal).get(list_scheduled_withdrawals))
+        .route("/v1/user/scheduled-withdrawals/{id}", axum::routing::delete(cancel_scheduled_withdrawal))
 }
 
 // ---------------------------------------------------------------------------
@@ -939,4 +945,102 @@ mod tests {
     fn xml_attr_escape_no_special_chars_unchanged() {
         assert_eq!(xml_attr_escape("bc1qtest"), "bc1qtest");
     }
+}
+
+// ---------------------------------------------------------------------------
+// POST /v1/user/scheduled-withdrawals
+// ---------------------------------------------------------------------------
+
+/// Create a new scheduled or recurring withdrawal for the authenticated user.
+async fn create_scheduled_withdrawal(
+    auth: RequireEditor,
+    State(state): State<AppState>,
+    Json(req): Json<CreateScheduledWithdrawalRequest>,
+) -> Result<(StatusCode, Json<ScheduledWithdrawalResponse>), ApiError> {
+    if req.amount <= Decimal::ZERO {
+        return Err(ApiError::bad_request("amount must be positive"));
+    }
+    if req.destination.is_empty() {
+        return Err(ApiError::bad_request("destination address is required"));
+    }
+
+    let sw = ScheduledWithdrawal::new(
+        auth.0.user_id,
+        req.chain,
+        req.asset.clone(),
+        req.amount,
+        req.destination.clone(),
+        req.schedule,
+    )
+    .ok_or_else(|| {
+        ApiError::bad_request("schedule has no future occurrences (Once schedule is in the past?)")
+    })?;
+
+    // Apply max_executions from request
+    let mut sw = sw;
+    sw.max_executions = req.max_executions;
+
+    state.db.insert_scheduled_withdrawal(&sw).await.map_err(|e| {
+        tracing::error!(
+            user_id = %auth.0.user_id,
+            asset = %req.asset,
+            error = %e,
+            "Failed to insert scheduled withdrawal"
+        );
+        ApiError::internal(&e.to_string())
+    })?;
+
+    tracing::info!(
+        user_id = %auth.0.user_id,
+        id = %sw.id,
+        asset = %sw.asset,
+        chain = %sw.chain,
+        amount = %sw.amount,
+        "Scheduled withdrawal created"
+    );
+
+    Ok((StatusCode::CREATED, Json(sw.into())))
+}
+
+// ---------------------------------------------------------------------------
+// GET /v1/user/scheduled-withdrawals
+// ---------------------------------------------------------------------------
+
+async fn list_scheduled_withdrawals(
+    auth: RequireViewer,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<ScheduledWithdrawalResponse>>, ApiError> {
+    let schedules = state
+        .db
+        .list_scheduled_withdrawals(auth.0.user_id)
+        .await
+        .map_err(|e| ApiError::internal(&format!("scheduled withdrawal query failed: {e}")))?;
+
+    Ok(Json(schedules.into_iter().map(ScheduledWithdrawalResponse::from).collect()))
+}
+
+// ---------------------------------------------------------------------------
+// DELETE /v1/user/scheduled-withdrawals/{id}
+// ---------------------------------------------------------------------------
+
+async fn cancel_scheduled_withdrawal(
+    auth: RequireEditor,
+    State(state): State<AppState>,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let cancelled = state
+        .db
+        .cancel_scheduled_withdrawal(id, auth.0.user_id)
+        .await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+
+    if !cancelled {
+        return Err(ApiError::not_found(&format!(
+            "Scheduled withdrawal {id} not found or already cancelled"
+        )));
+    }
+
+    tracing::info!(user_id = %auth.0.user_id, id = %id, "Scheduled withdrawal cancelled");
+
+    Ok(Json(serde_json::json!({ "status": "cancelled", "id": id })))
 }
