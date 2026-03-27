@@ -26,5 +26,6 @@ pub mod settlement_routes;
 pub mod swap_routes;
 pub mod staking_routes;
 pub mod state;
+pub mod user_routes;
 pub mod vault_routes;
 pub mod websocket;

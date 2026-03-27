@@ -1,16 +1,22 @@
 <script lang="ts">
 	let { children } = $props();
 
-	const navItems = [
-		{ href: '/', label: 'Dashboard', icon: '~' },
-		{ href: '/wallets', label: 'Wallets', icon: 'W' },
-		{ href: '/transactions', label: 'Transactions', icon: 'T' },
-		{ href: '/approvals', label: 'Approvals', icon: 'A' },
-		{ href: '/addresses', label: 'Addresses', icon: '@' },
-		{ href: '/policies', label: 'Policies', icon: 'P' },
-		{ href: '/users', label: 'Users', icon: 'U' },
-		{ href: '/audit', label: 'Audit Log', icon: 'L' },
-		{ href: '/settings', label: 'Settings', icon: 'S' },
+	const userItems = [
+		{ href: '/',            label: 'Portfolio',     icon: '$' },
+		{ href: '/deposit',     label: 'Deposit',       icon: '+' },
+		{ href: '/withdraw',    label: 'Withdraw',      icon: '-' },
+		{ href: '/transactions',label: 'Transactions',  icon: 'T' },
+		{ href: '/approvals',   label: 'Approvals',     icon: 'A' },
+		{ href: '/profile',     label: 'Profile',       icon: 'Me' },
+	];
+
+	const adminItems = [
+		{ href: '/wallets',    label: 'Wallets',    icon: 'W' },
+		{ href: '/policies',   label: 'Policies',   icon: 'P' },
+		{ href: '/users',      label: 'Users',      icon: 'U' },
+		{ href: '/addresses',  label: 'Addresses',  icon: '@' },
+		{ href: '/audit',      label: 'Audit Log',  icon: 'L' },
+		{ href: '/settings',   label: 'Settings',   icon: 'S' },
 	];
 </script>
 
@@ -24,7 +30,22 @@
 			<h2>MG Custody</h2>
 		</div>
 		<ul>
-			{#each navItems as item}
+			{#each userItems as item}
+				<li>
+					<a href={item.href}>
+						<span class="icon">{item.icon}</span>
+						{item.label}
+					</a>
+				</li>
+			{/each}
+		</ul>
+
+		<div class="section-sep">
+			<span>Admin</span>
+		</div>
+
+		<ul>
+			{#each adminItems as item}
 				<li>
 					<a href={item.href}>
 						<span class="icon">{item.icon}</span>
@@ -58,6 +79,8 @@
 		border-right: 1px solid var(--border, #30363d);
 		padding: 1rem 0;
 		flex-shrink: 0;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.logo {
@@ -95,10 +118,25 @@
 	}
 
 	.icon {
-		width: 1.2rem;
+		width: 1.4rem;
 		text-align: center;
 		font-weight: bold;
+		font-size: 0.78rem;
 		color: var(--accent, #58a6ff);
+	}
+
+	.section-sep {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.9rem 1rem 0.4rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--fg-muted, #8b949e);
+		border-top: 1px solid var(--border, #30363d);
+		margin-top: 0.5rem;
 	}
 
 	.content {

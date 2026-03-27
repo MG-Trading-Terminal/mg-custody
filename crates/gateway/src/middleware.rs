@@ -68,15 +68,14 @@ pub async fn hmac_auth(
     let method = request.method().as_str().to_string();
 
     // Check timestamp staleness (30 seconds)
-    if !timestamp.is_empty() {
-        if let Ok(ts) = timestamp.parse::<i64>() {
+    if !timestamp.is_empty()
+        && let Ok(ts) = timestamp.parse::<i64>() {
             let now = chrono::Utc::now().timestamp();
             if (now - ts).abs() > 30 {
                 tracing::warn!(path = %path, "Stale request timestamp");
                 return Err(StatusCode::UNAUTHORIZED);
             }
         }
-    }
 
     // Extract body bytes for HMAC verification
     if !signature.is_empty() && !timestamp.is_empty() {

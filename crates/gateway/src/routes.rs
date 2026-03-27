@@ -53,6 +53,7 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::operations_routes::operations_router())
         .merge(crate::embedded_routes::embedded_router())
         .merge(crate::swap_routes::swap_router())
+        .merge(crate::user_routes::user_router())
         // Dashboard static files (SvelteKit build output)
         // Fallback to index.html for client-side routing
         .fallback_service(dashboard_service())
@@ -96,6 +97,7 @@ pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
         .route("/v1/ws", get(crate::websocket::ws_handler))
         .merge(crate::auth_routes::auth_router())
         .merge(crate::fido2_routes::fido2_router())
+        .merge(crate::user_routes::user_router())
         .layer(axum_mw::from_fn_with_state(rbac_state, rbac_middleware::rbac_auth))
         .layer(axum_mw::from_fn(crate::request_id::request_id_middleware))
         .layer(axum_mw::from_fn_with_state(mw_state.clone(), middleware::rate_limit))

@@ -321,9 +321,8 @@ async fn list_audit_log(
                 let entry_op = serde_json::to_string(&e.operation).unwrap_or_default();
                 if !entry_op.contains(op) { return false; }
             }
-            if let Some(ref actor) = q.actor {
-                if !e.actor.contains(actor) { return false; }
-            }
+            if let Some(ref actor) = q.actor
+                && !e.actor.contains(actor) { return false; }
             if let Some(ref chain) = q.chain {
                 if let Some(c) = e.chain {
                     if c.as_str() != chain { return false; }

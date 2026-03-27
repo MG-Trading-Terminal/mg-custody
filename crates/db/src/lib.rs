@@ -29,6 +29,7 @@ pub mod vaults;
 pub mod workspaces;
 pub mod webhook_deliveries;
 pub mod webhook_endpoints;
+pub mod user_portfolio;
 pub mod utxos;
 pub mod withdrawals;
 

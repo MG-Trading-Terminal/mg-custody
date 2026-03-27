@@ -196,6 +196,17 @@ impl CustodyDb {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Count active FIDO2 credentials for a user.
+    pub async fn count_fido2_credentials(&self, user_id: Uuid) -> anyhow::Result<i64> {
+        let (count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM fido2_credentials WHERE user_id = $1 AND enabled = true",
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count)
+    }
+
     /// Check if a user has any active FIDO2 credentials.
     pub async fn user_has_fido2(&self, user_id: Uuid) -> anyhow::Result<bool> {
         let count: (i64,) = sqlx::query_as(

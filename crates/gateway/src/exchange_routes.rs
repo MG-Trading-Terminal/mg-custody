@@ -53,7 +53,7 @@ async fn list_user_deposits(
 
     let limit = query.limit.unwrap_or(50) as usize;
     let filtered: Vec<_> = deposits.iter()
-        .filter(|d| query.user_id.map_or(true, |uid| d.user_id == uid))
+        .filter(|d| query.user_id.is_none_or(|uid| d.user_id == uid))
         .take(limit)
         .map(|d| serde_json::json!({
             "id": d.id, "user_id": d.user_id,

@@ -86,54 +86,52 @@ pub async fn rbac_auth(
     let now = Utc::now();
 
     // Try Bearer token auth first
-    if let Some(auth_header) = request.headers().get("Authorization") {
-        if let Ok(header_str) = auth_header.to_str() {
-            if let Some(token) = header_str.strip_prefix("Bearer ") {
-                match rbac.db.load_session(token).await {
-                    Ok(Some(session)) => {
-                        if !session.is_valid(now) {
-                            tracing::warn!(
-                                user = %session.email,
-                                path = %path,
-                                "Session expired or revoked"
-                            );
-                            return Err(StatusCode::UNAUTHORIZED);
-                        }
-
-                        // IP binding check
-                        if !session.ip_matches(&ip) {
-                            tracing::warn!(
-                                user = %session.email,
-                                session_ip = %session.ip_address,
-                                request_ip = %ip,
-                                path = %path,
-                                "Session IP mismatch — possible hijack"
-                            );
-                            return Err(StatusCode::UNAUTHORIZED);
-                        }
-
-                        // Touch session (update last_active_at)
-                        let _ = rbac.db.touch_session(&session.token_hash).await;
-
-                        let ctx = AuthContext {
-                            user_id: session.user_id,
-                            workspace_id: session.workspace_id,
-                            email: session.email,
-                            role: session.role,
-                            auth_method: "session".into(),
-                        };
-                        request.extensions_mut().insert(ctx);
-                        return Ok(next.run(request).await);
-                    }
-                    Ok(None) => {
-                        tracing::warn!(path = %path, "Invalid session token");
-                        return Err(StatusCode::UNAUTHORIZED);
-                    }
-                    Err(e) => {
-                        tracing::error!(error = %e, "Session lookup failed");
-                        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-                    }
+    if let Some(auth_header) = request.headers().get("Authorization")
+        && let Ok(header_str) = auth_header.to_str()
+        && let Some(token) = header_str.strip_prefix("Bearer ") {
+        match rbac.db.load_session(token).await {
+            Ok(Some(session)) => {
+                if !session.is_valid(now) {
+                    tracing::warn!(
+                        user = %session.email,
+                        path = %path,
+                        "Session expired or revoked"
+                    );
+                    return Err(StatusCode::UNAUTHORIZED);
                 }
+
+                // IP binding check
+                if !session.ip_matches(&ip) {
+                    tracing::warn!(
+                        user = %session.email,
+                        session_ip = %session.ip_address,
+                        request_ip = %ip,
+                        path = %path,
+                        "Session IP mismatch — possible hijack"
+                    );
+                    return Err(StatusCode::UNAUTHORIZED);
+                }
+
+                // Touch session (update last_active_at)
+                let _ = rbac.db.touch_session(&session.token_hash).await;
+
+                let ctx = AuthContext {
+                    user_id: session.user_id,
+                    workspace_id: session.workspace_id,
+                    email: session.email,
+                    role: session.role,
+                    auth_method: "session".into(),
+                };
+                request.extensions_mut().insert(ctx);
+                return Ok(next.run(request).await);
+            }
+            Ok(None) => {
+                tracing::warn!(path = %path, "Invalid session token");
+                return Err(StatusCode::UNAUTHORIZED);
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "Session lookup failed");
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
         }
     }

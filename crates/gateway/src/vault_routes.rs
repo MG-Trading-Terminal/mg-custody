@@ -319,11 +319,10 @@ async fn create_transfer(
     }
 
     // Idempotency check
-    if let Some(ref key) = req.idempotency_key {
-        if let Some(existing) = state.db.find_internal_transfer_by_key(key).await
+    if let Some(ref key) = req.idempotency_key
+        && let Some(existing) = state.db.find_internal_transfer_by_key(key).await
             .map_err(|e| ApiError::internal(&e.to_string()))? {
-            return Ok(Json(existing));
-        }
+        return Ok(Json(existing));
     }
 
     // Verify both vaults exist
