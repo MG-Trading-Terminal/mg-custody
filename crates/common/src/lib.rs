@@ -48,6 +48,7 @@ pub mod multichain_deploy;
 pub mod name_resolution;
 pub mod nft;
 pub mod notifications;
+pub mod operational_tools;
 pub mod operations;
 pub mod payment_flows;
 pub mod platform;
