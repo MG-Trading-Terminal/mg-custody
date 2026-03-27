@@ -25,6 +25,7 @@ pub mod defi_execution;
 pub mod dex_calldata;
 pub mod developer;
 pub mod eip712;
+pub mod eip4844;
 pub mod embedded_wallets;
 pub mod erc4337;
 pub mod erc4626;
