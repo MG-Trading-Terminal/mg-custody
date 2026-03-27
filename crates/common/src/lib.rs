@@ -28,6 +28,7 @@ pub mod error;
 pub mod error_recovery;
 pub mod fido2;
 pub mod events;
+pub mod exchange_api;
 pub mod evm_access_list;
 pub mod evm_chains;
 pub mod evm_rlp;
