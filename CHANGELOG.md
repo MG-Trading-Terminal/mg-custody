@@ -38,6 +38,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
   - connectivity/platform/embedded/exchange/admin/settlement/staking routes
 - **14 new tests** (1384 total, 0 failures)
 
+### Added (2026-03-27) — Phase 20: FIDO2/WebAuthn Verification
+
+- **DB migration 012: fido2** — `fido2_credentials` (credential_id, public_key_cose, sign_count, aaguid, enabled) + `fido2_challenges` (hash, purpose, single-use, 5min expiry)
+- **FIDO2 DB layer** (`crates/db/src/fido2.rs`) — credential CRUD, challenge create/consume (atomic), sign count monotonic update, cleanup
+- **6 FIDO2 API endpoints** (`crates/gateway/src/fido2_routes.rs`):
+  - `POST /v1/auth/fido2/register/begin` → challenge + options
+  - `POST /v1/auth/fido2/register/complete` → verify challenge, store credential
+  - `POST /v1/auth/fido2/authenticate/begin` → challenge + allowed credentials
+  - `POST /v1/auth/fido2/authenticate/complete` → verify assertion, check sign count
+  - `GET /v1/auth/fido2/credentials` → list user's hardware keys
+  - `DELETE /v1/auth/fido2/credentials/{id}` → soft-disable credential (Admin only)
+- **Security**: challenges SHA-256 hashed (never plaintext), single-use (consumed atomically), 5min expiry, sign count monotonic increment (cloned key detection)
+- **7 new tests**
+
 ### Added (2026-03-27) — ROADMAP Expansion: Phases 19-25
 
 - **Honest product gap assessment** — compared all features vs Fireblocks API

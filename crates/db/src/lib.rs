@@ -14,6 +14,7 @@ pub mod custody_ledger;
 pub mod deployed_contracts;
 pub mod deposits;
 pub mod embedded_wallets;
+pub mod fido2;
 pub mod governance;
 pub mod nonces;
 pub mod notification_channels;

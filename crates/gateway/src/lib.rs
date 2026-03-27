@@ -9,6 +9,7 @@ pub mod auth_routes;
 pub mod connectivity_routes;
 pub mod embedded_routes;
 pub mod exchange_routes;
+pub mod fido2_routes;
 pub mod errors;
 pub mod governance_routes;
 pub mod health;
