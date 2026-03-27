@@ -1,5 +1,6 @@
 pub mod abi_decoder;
 pub mod accounting;
+pub mod address_cache;
 pub mod address_poisoning;
 pub mod alerts;
 pub mod analytics;
