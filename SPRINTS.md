@@ -368,3 +368,53 @@ crates/
 ### References Used
 - PKCS#11 spec: https://docs.oasis-open.org/pkcs11/pkcs11-base/v2.40/pkcs11-base-v2.40.html
 - EVM chain IDs: https://chainlist.org/
+
+---
+
+## Product Gap Assessment & ROADMAP Expansion (2026-03-27)
+
+### Goals
+- Honest assessment: what do we have vs Fireblocks?
+- Identify all unplanned product gaps
+- Add Phases 19-25 to ROADMAP with technology choices and security rationale
+
+### Completed
+| Task | Output | Status | Notes |
+|------|--------|--------|-------|
+| Fireblocks API feature comparison | Gap analysis | DONE | 20 feature areas compared |
+| Honest assessment of codebase | Status report | DONE | 8 real, 9 types-only, 3 missing |
+| Token audit | Report | DONE | 100+ tokens with verified addresses across 4 chains |
+| Phase 19 planning (RBAC) | ROADMAP.md | DONE | axum middleware, PostgreSQL sessions, default-deny |
+| Phase 20 planning (FIDO2) | ROADMAP.md | DONE | webauthn-rs, registration/auth flows |
+| Phase 21 planning (Dashboard) | ROADMAP.md | DONE | SvelteKit + adapter-static, 9 pages, air-gap compatible |
+| Phase 22 planning (AML) | ROADMAP.md | DONE | Chainalysis KYT v2, Elliptic Lens, cache + fallback |
+| Phase 23 planning (UTXO) | ROADMAP.md | DONE | Consolidation scheduler, fee gate, circuit breaker bypass |
+| Phase 24 planning (Swaps) | ROADMAP.md | DONE | UniswapV3Executor, JupiterExecutor, MEV protection |
+| Phase 25 planning (OpenAPI) | ROADMAP.md | DONE | utoipa, auto-generation from handlers |
+| Dependency graph | ROADMAP.md | DONE | 19→20→21A→[22+23]→21B/C/D→24→25 |
+| Summary table update | ROADMAP.md | DONE | "Product Gaps" section added |
+
+### Key Findings
+- **#1 adoption blocker**: No Web UI — operators cannot use the system
+- **#2 security hole**: RBAC types exist but nothing is enforced — any API caller is god-mode
+- **#3 regulatory blocker**: AML/KYT stubs only — cannot operate in regulated jurisdictions
+- **Technology decision**: SvelteKit for dashboard (static output, no Node.js in prod, air-gap compatible, ~40KB bundle)
+- **Overall product completeness vs Fireblocks**: ~30-40%
+
+### Metrics
+- **New ROADMAP phases**: 7 (Phases 19-25)
+- **New subtasks planned**: 80+
+- **Estimated total effort**: 21-30 weeks
+- **New DB migrations planned**: 3 (011, 012, 013)
+- **New API endpoints planned**: 12+
+- **Tests**: 1234 passing (unchanged — planning only)
+- **Lines of Rust**: 41K (unchanged)
+
+### References Used
+- Fireblocks API: https://developers.fireblocks.com/reference/api-overview
+- webauthn-rs: https://github.com/kanidm/webauthn-rs
+- SvelteKit adapter-static: https://svelte.dev/docs/kit/adapter-static
+- utoipa: https://github.com/juhaku/utoipa
+- Chainalysis KYT: https://docs.chainalysis.com/
+- Elliptic Lens: https://www.elliptic.co/solutions/lens
+- Jupiter v6: https://station.jup.ag/docs

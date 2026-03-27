@@ -5,6 +5,7 @@
 
 pub mod admin_routes;
 pub mod auth;
+pub mod auth_routes;
 pub mod connectivity_routes;
 pub mod embedded_routes;
 pub mod exchange_routes;
@@ -16,6 +17,7 @@ pub mod operations_routes;
 pub mod ops_routes;
 pub mod platform_routes;
 pub mod rate_limit;
+pub mod rbac_middleware;
 pub mod request_id;
 pub mod routes;
 pub mod settlement_routes;

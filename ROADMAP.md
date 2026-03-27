@@ -427,6 +427,202 @@
 
 ---
 
+## Phase 19 — RBAC Enforcement & Session Management (P0, 3-4 weeks)
+> **Why**: Without authorization middleware, ANY authenticated API caller has god-mode access. Types exist (`crates/policy/src/rbac.rs`, `crates/common/src/governance.rs`) but nothing enforces them. Cannot ship a dashboard or onboard users without this.
+> **Tech**: axum `tower::Layer` middleware, sessions in PostgreSQL (no Redis — "all state in PostgreSQL" per CLAUDE.md). `webauthn-rs` for FIDO2 comes in Phase 20.
+
+### 19A — Session Infrastructure ✅ DONE
+- [x] DB migration 011: `sessions` table + `password_hash` column on workspace_users
+- [x] Session creation endpoint: `POST /v1/auth/sessions` → returns opaque Bearer token
+- [x] Session revocation: `DELETE /v1/auth/sessions/{token}`
+- [x] Session listing: `GET /v1/auth/sessions`
+- [x] Session DB layer: create/load/touch/revoke/cleanup, token hashing (SHA-256)
+- [ ] Background task: expire stale sessions (hourly cleanup)
+
+### 19B — RBAC Middleware ✅ DONE
+- [x] `rbac_auth` middleware in `crates/gateway/src/rbac_middleware.rs` — Bearer token → session → AuthContext
+- [x] `RequireViewer/Editor/Signer/Admin/Owner` axum extractors — returns 403 if denied
+- [x] Default-deny: no AuthContext = rejected
+- [x] Permission guards wired on core endpoints (create_address, submit/get/approve withdrawal, wallet balance)
+- [x] Session binding: IP match validation
+- [x] Absolute 8h + idle 30m timeout validation
+- [x] HMAC-authed service requests get Admin role (backward compatible)
+- [x] 14 new tests: sessions, RBAC extractors, password verification
+- [ ] Apply guards to remaining 120+ endpoints (vault, ops, connectivity, platform, governance, operations, embedded routes)
+- [ ] Permission denials logged to audit trail
+
+---
+
+## Phase 20 — FIDO2/WebAuthn Verification (P0, 2-3 weeks)
+> **Why**: Tier 2+ withdrawal approvals ($10K+) require hardware key verification. The types already exist in `crates/common/src/fido2.rs` but nothing actually verifies cryptographic assertions. Hand-rolling WebAuthn verification = security disaster.
+> **Tech**: `webauthn-rs = "0.5"` — maintained by ISRG/Let's Encrypt contributors. The only production-grade Rust WebAuthn library. Handles CBOR attestation parsing, origin checking, and credential storage patterns.
+> **Depends on**: Phase 19 (user/session infrastructure)
+
+- [ ] Add `webauthn-rs` to workspace `Cargo.toml`
+- [ ] DB migration 012: `fido2_credentials` table (id, user_id, credential_id_bytes, public_key_cose, sign_count, aaguid, device_name, registered_at, last_used_at)
+- [ ] DB migration 012: `fido2_challenges` table (challenge_hash, user_id, purpose, created_at, expires_at, consumed_at)
+- [ ] `Fido2Service` in `crates/policy/src/fido2_verify.rs` — wraps `webauthn-rs::Webauthn` instance
+- [ ] Registration flow: `POST /v1/auth/fido2/register/begin` → `POST /v1/auth/fido2/register/complete`
+- [ ] Authentication flow: `POST /v1/auth/fido2/authenticate/begin` → `POST /v1/auth/fido2/authenticate/complete`
+- [ ] Wire FIDO2 verification into `ApprovalRequest.submit_decision()` — require proof for Tier 2+ decisions
+- [ ] Configurable `rp_id` and `rp_origin` from `config/default.toml` (currently hardcoded to `"custody.local"`)
+- [ ] Security: server-side challenges (single-use), sign count monotonic increment, Direct attestation (verifies hardware provenance)
+- [ ] Tests: registration roundtrip, authentication roundtrip, replay rejection, sign count enforcement, expired challenge rejection
+
+---
+
+## Phase 21 — Web Dashboard (P0, 6-8 weeks)
+> **Why**: Zero operators will adopt a custody system with no UI. This is the **#1 adoption blocker**. Operators need a console for approvals, policy management, wallet monitoring.
+> **Depends on**: Phase 19 (RBAC/sessions), Phase 20 (FIDO2 for approval flows)
+
+### Technology Decision: SvelteKit + `adapter-static`
+
+| Alternative | Why rejected |
+|-------------|-------------|
+| React/Next.js | Next.js SSR requires Node.js process in production — violates "single binary" principle. CRA deprecated. |
+| Plain HTML+JS | No component model, no TypeScript, unmaintainable for 9+ pages with real-time state |
+| SolidJS | Smaller ecosystem, fewer battle-tested table/chart components |
+
+**Why SvelteKit**: `@sveltejs/adapter-static` compiles to pure HTML/CSS/JS (~40KB bundle). Zero Node.js in production. Output goes into `dashboard/build/` and axum serves it via `tower_http::services::ServeDir`. TypeScript for type-safe API calls. Built-in routing.
+
+### Security Hardening
+- CSP: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss:; img-src 'self' data:`
+- `X-Frame-Options: DENY` (prevent clickjacking of approval flows)
+- `X-Content-Type-Options: nosniff`
+- `Strict-Transport-Security: max-age=31536000; includeSubDomains`
+- `Referrer-Policy: same-origin`
+- All fonts/icons bundled — **air-gap compatible, zero CDN dependencies**
+- Auth: `HttpOnly` + `Secure` + `SameSite=Strict` cookies
+- No inline JavaScript anywhere
+
+### Deployment
+- Docker multi-stage: `FROM node:22-alpine AS dashboard` → `npm ci && npm run build` → copy `build/` into Rust image
+- `npm ci --offline` works with cached `node_modules` (air-gap support)
+- axum serves dashboard at `/` with fallback to `index.html` for client-side routing
+
+### 21A — Dashboard Infrastructure (2 weeks)
+- [ ] Create `dashboard/` directory with SvelteKit scaffold + `adapter-static`
+- [ ] TypeScript API client generated from endpoint catalog
+- [ ] axum `ServeDir` fallback route in `crates/gateway/src/routes.rs`
+- [ ] Security headers middleware in `crates/gateway/src/middleware.rs` (CSP, HSTS, X-Frame-Options)
+- [ ] Login page with FIDO2 hardware key authentication
+- [ ] Session management (cookie → Bearer token for API calls)
+- [ ] WebSocket client wrapper with auto-reconnection (connects to existing `/v1/ws`)
+- [ ] Shared layout: sidebar navigation, header with user info, notification badge
+- [ ] Dark/light theme (CSS variables only, no JS theme library)
+- [ ] Dockerfile multi-stage build (Node → Rust)
+
+### 21B — Core Pages (3 weeks)
+- [ ] **Dashboard**: total AUM, hot/warm/cold balances, recent transactions, chain health from `/health/chains`, active alerts
+- [ ] **Wallets**: vault list from `/v1/vaults`, per-vault accounts, balances, tier visualization (5%/15%/80%)
+- [ ] **Transactions**: unified list from `/v1/transactions`, filter by chain/status/amount/date, detail panel with on-chain explorer link
+- [ ] **Addresses**: address book, whitelist management, internal vs external categorization, add/remove with policy enforcement
+- [ ] **Audit Log**: tamper-evident log viewer, filter by operation/user/time, hash chain verification indicator
+
+### 21C — Operational Pages (2 weeks)
+- [ ] **Approvals**: pending queue, approve/reject with FIDO2 challenge, history, tier indicator, time-delay countdown
+- [ ] **Policies**: rule list with priority ordering, rule editor (conditions + actions), simulation mode toggle, version history
+- [ ] **Users**: user list with role badges, invite flow, FIDO2 credential management, session listing, disable/enable
+- [ ] **Settings**: chain config, circuit breaker limits, webhook endpoints, API key management, gas station status
+
+### 21D — Polish (1 week)
+- [ ] Responsive design (desktop + tablet minimum)
+- [ ] Keyboard shortcuts (Approve: Ctrl+Enter, Reject: Ctrl+Backspace)
+- [ ] Error boundary with structured error display
+- [ ] Loading/empty/error states for all pages
+- [ ] E2E tests with Playwright (headless)
+
+---
+
+## Phase 22 — AML/KYT Real Vendor Integration (P1, 3-4 weeks)
+> **Why**: Regulatory requirement for any custody service handling real money. `ScreeningProvider` trait exists in `crates/compliance/src/screening.rs` but is a stub — zero actual HTTP calls. Operators in regulated jurisdictions cannot go live without this.
+> **Tech**: `reqwest` (already in workspace) for Chainalysis KYT v2 and Elliptic Lens APIs.
+> **Depends on**: Phase 19 (admin permissions for provider config)
+
+- [ ] `ChainalysisProvider`: implement HTTP calls to `https://api.chainalysis.com/api/kyt/v2/` — register transfer, get risk assessment
+- [ ] `EllipticProvider`: implement `ScreeningProvider` trait against Elliptic Lens API
+- [ ] DB migration 013: `screening_cache` table (address, chain, risk_level, risk_score, provider, screened_at, expires_at)
+- [ ] Cache layer: check DB before vendor API call, TTL configurable (default 24h)
+- [ ] Fallback mode config: `compliance.on_provider_failure = "block" | "allow_and_flag"` — operator chooses behavior when provider is down
+- [ ] Wire screening into deposit processing: post-deposit screen of source address
+- [ ] Wire screening into withdrawal pipeline: pre-sign screen of destination address
+- [ ] Admin endpoints: `POST /v1/admin/compliance/providers`, `GET /v1/admin/compliance/screenings`
+- [ ] Security: API keys encrypted (AES-256-GCM, same pattern as seed storage), no PII in logs
+- [ ] Dashboard integration: screening widget with risk distribution, blocked count, flagged-for-review count
+- [ ] Tests: mock provider responses, cache hit/miss, fallback behavior, high-risk blocking
+
+---
+
+## Phase 23 — UTXO Consolidation Execution (P1, 2-3 weeks)
+> **Why**: Bitcoin operational cost. UTXO set grows with small deposits, increasing fees over time. Detection exists (`crates/utxo/`) and sweep recommendations exist (`crates/wallet-manager/`), but no actual consolidation transactions are built/broadcast.
+> **Tech**: Reuse existing `select_coins()` from `crates/utxo/` and `BitcoinBroadcaster` from `crates/broadcaster/`.
+> **Depends on**: None (uses existing Bitcoin signing pipeline)
+
+- [ ] `ConsolidationPolicy` config: min_utxo_count_trigger (default: 50), max_utxo_per_consolidation (default: 20), max_fee_rate_sat_per_vb (default: 10), schedule (default: daily 03:00 UTC)
+- [ ] `ConsolidationTransaction` builder: select dust + small UTXOs → single-output to internal hot wallet address
+- [ ] Wire through signing pipeline (same flow: Received → Validated → Signed → Broadcast → Confirmed)
+- [ ] Mark consolidation transactions as `tx_type = "consolidation"` — circuit breaker MUST skip these (internal movements, not outflow)
+- [ ] `ConsolidationScheduler` background task: check UTXO count + fee environment → submit if conditions met
+- [ ] Admin manual trigger: `POST /v1/admin/utxo/consolidate`
+- [ ] Security: destination MUST be internal hot wallet address (never external), through full signing pipeline (no shortcuts)
+- [ ] Metrics: `utxo_count` gauge, `consolidation_tx_count` counter, `consolidation_savings_sats` counter
+- [ ] Tests: selection logic, fee gate, circuit breaker bypass, internal-address-only validation
+
+---
+
+## Phase 24 — Swap Execution Engine (P2, 4-6 weeks)
+> **Why**: DeFi access is a competitive differentiator. Calldata builders exist (`dex_calldata.rs` for Uniswap V3, `jupiter.rs` for Jupiter) but nothing fetches quotes, approves tokens, or broadcasts swap transactions.
+> **Tech**: Uniswap V3 SwapRouter02 via `alloy`, Jupiter v6 API for Solana. Direct DEX contract calls — NOT WalletConnect (institutional custody calls contracts directly).
+> **Depends on**: Phase 19 (permission control), Phase 22 (screen swap contracts)
+
+### 24A — Swap Infrastructure
+- [ ] `SwapExecutor` trait: `quote()`, `approve_if_needed()`, `execute()`, `status()`
+- [ ] `UniswapV3Executor`: fetch pool state for fee tier → calculate expected output → encode approve calldata → encode swap via existing `encode_uniswap_v3_swap()` → submit through withdrawal pipeline
+- [ ] `JupiterExecutor`: call Jupiter v6 quote API → call swap API for serialized tx → sign via Solana signer → broadcast
+- [ ] Price validation: on-chain TWAP or Chainlink (ETH) / Pyth (SOL) check before execution
+
+### 24B — Swap API & Controls
+- [ ] `POST /v1/swaps` — create swap request (from_token, to_token, amount, max_slippage_bps)
+- [ ] `GET /v1/swaps/{id}` — swap status
+- [ ] Approval integration: swaps above $10K require approval (reuse existing ApprovalRequest)
+- [ ] Security: exact token approvals only (NEVER `type(uint256).max`), 200bps max slippage enforced, MEV protection (Flashbots Protect on Ethereum, Jito on Solana), swap destination MUST be internal custody address
+- [ ] Dashboard integration: swap page with quote preview, slippage visualization, execution history
+- [ ] Tests: quote fetching (mocked), calldata verification, slippage enforcement, approval flow
+
+---
+
+## Phase 25 — OpenAPI Spec Generation (P2, 1-2 weeks)
+> **Why**: Current spec is hand-maintained in `crates/common/src/developer.rs`. Drifts from actual handlers. Auto-generation enables reliable SDK generation and documentation.
+> **Tech**: `utoipa = "5"` with `utoipa-axum` — derives OpenAPI from handler function signatures. Most mature Rust OpenAPI generator, works with axum extractors. Alternative `aide` is less mature.
+> **Depends on**: Phase 19 (auth in spec), Phase 21 (serve spec on dashboard)
+
+- [ ] Add `utoipa` + `utoipa-axum` to workspace dependencies
+- [ ] Annotate request/response types with `#[derive(utoipa::ToSchema)]`
+- [ ] Annotate route handlers with `#[utoipa::path(...)]` attributes
+- [ ] Serve auto-generated spec at `/v1/openapi.json` (replaces hand-maintained version)
+- [ ] Optional Swagger UI at `/docs` (gated behind config flag, disabled by default in production)
+- [ ] Remove hand-maintained `all_endpoints()` and `generate_openapi_spec()` from `developer.rs`
+- [ ] CI check: compile-time OpenAPI spec validation
+- [ ] Tests: spec is valid OpenAPI 3.1, all endpoints present, auth requirements documented
+
+---
+
+## Dependency Graph (Phases 19-25)
+
+```
+Phase 19 (RBAC) ──┬──> Phase 20 (FIDO2) ──> Phase 21 (Dashboard)
+                   ├──> Phase 22 (AML)
+                   └──> Phase 24 (Swaps — also needs Phase 22)
+
+Phase 23 (UTXO) ─────> independent, can start anytime
+
+Phase 19 + 21 ────────> Phase 25 (OpenAPI)
+```
+
+**Recommended execution**: 19 → 20 → 21A → [22 + 23 in parallel] → 21B/C/D → 24 → 25
+
+---
+
 ## Summary: Honest Status Tracker
 
 ### Core Infrastructure (operational)
@@ -461,7 +657,7 @@
 | EVM L2 chains (9 configs) | Phase 8 | ⏸️ Config only — no live scanner |
 | Cosmos/Polkadot chains | Phase 8B | ⏸️ Types only |
 
-### Trust Infrastructure (MISSING — Phase 17)
+### Trust Infrastructure (Phase 17 ✅ COMPLETE)
 | Feature | Phase | Status |
 |---------|-------|--------|
 | Threat model document | Phase 17A | ✅ THREAT_MODEL.md |
@@ -471,4 +667,17 @@
 | Attack simulation tests | Phase 17D | ✅ 33 security tests |
 | Supply chain (pinning, deny.toml) | Phase 17E | ✅ cargo-deny + Dockerfile pinned |
 | Deployment modes guide | Phase 17F | ✅ docs/DEPLOYMENT_MODES.md |
-| Security certifications | Phase 16 | ❌ Blocked by Phase 17 |
+| Security certifications | Phase 16 | ❌ Blocked — needs SOC 2 auditors |
+
+### Product Gaps (Phases 19-25 — NEXT)
+> Identified 2026-03-27 via honest assessment: strong backend, but missing critical product features for adoption.
+
+| Feature | Phase | Status | Priority |
+|---------|-------|--------|----------|
+| RBAC enforcement middleware | Phase 19 | 🔶 In progress — middleware + extractors + core guards done, remaining endpoints pending | P0 |
+| FIDO2/WebAuthn verification | Phase 20 | ❌ Not started — types exist, no crypto verification | P0 |
+| **Web Dashboard (SvelteKit)** | Phase 21 | ❌ Not started — zero frontend code | P0 |
+| AML/KYT real vendor integration | Phase 22 | ❌ Not started — trait stubs only | P1 |
+| UTXO consolidation execution | Phase 23 | ❌ Not started — detection only | P1 |
+| Swap execution engine | Phase 24 | ❌ Not started — calldata builders only | P2 |
+| OpenAPI auto-generation | Phase 25 | ❌ Not started — hand-maintained spec | P2 |

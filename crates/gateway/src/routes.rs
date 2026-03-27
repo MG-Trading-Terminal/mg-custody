@@ -15,10 +15,13 @@ use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
 use crate::errors::ApiError;
+use crate::rbac_middleware::{RequireViewer, RequireEditor, RequireSigner};
 use crate::state::AppState;
 
 pub fn router(state: AppState) -> Router {
     use axum::middleware as axum_mw;
+    use crate::rbac_middleware::{self, RbacState};
+    let rbac_state = RbacState::new(state.db.clone());
     Router::new()
         .route("/health", get(health))
         .route("/health/chains", get(health_chains))
@@ -33,6 +36,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/openapi.json", get(openapi_spec))
         .route("/v1/sdk/methods", get(sdk_methods))
         .route("/v1/sdk/endpoints", get(endpoint_catalog))
+        .merge(crate::auth_routes::auth_router())
         .merge(crate::vault_routes::vault_router())
         .merge(crate::ops_routes::ops_router())
         .merge(crate::connectivity_routes::connectivity_router())
@@ -40,6 +44,7 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::governance_routes::governance_router())
         .merge(crate::operations_routes::operations_router())
         .merge(crate::embedded_routes::embedded_router())
+        .layer(axum_mw::from_fn_with_state(rbac_state, rbac_middleware::rbac_auth))
         .layer(axum_mw::from_fn(crate::request_id::request_id_middleware))
         .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(30)))
         .layer(cors_layer())
@@ -50,7 +55,9 @@ pub fn router(state: AppState) -> Router {
 pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
     use axum::middleware as axum_mw;
     use crate::middleware::{self, MiddlewareState};
+    use crate::rbac_middleware::{self, RbacState};
     let mw_state = MiddlewareState::new(hmac_secret);
+    let rbac_state = RbacState::new(state.db.clone());
     Router::new()
         .route("/health", get(health))
         .route("/health/chains", get(health_chains))
@@ -62,6 +69,8 @@ pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
         .route("/v1/withdrawals/{id}/approve", post(approve_withdrawal))
         .route("/v1/wallets/{asset}", get(get_wallet_balance))
         .route("/v1/ws", get(crate::websocket::ws_handler))
+        .merge(crate::auth_routes::auth_router())
+        .layer(axum_mw::from_fn_with_state(rbac_state, rbac_middleware::rbac_auth))
         .layer(axum_mw::from_fn(crate::request_id::request_id_middleware))
         .layer(axum_mw::from_fn_with_state(mw_state.clone(), middleware::rate_limit))
         .layer(axum_mw::from_fn_with_state(mw_state, middleware::hmac_auth))
@@ -102,6 +111,7 @@ async fn health_chains() -> Json<serde_json::Value> {
 }
 
 async fn create_address(
+    _auth: RequireEditor,
     State(state): State<AppState>,
     Json(req): Json<CreateAddressRequest>,
 ) -> Result<Json<CreateAddressResponse>, ApiError> {
@@ -120,6 +130,7 @@ async fn create_address(
 }
 
 async fn submit_withdrawal(
+    _auth: RequireEditor,
     State(state): State<AppState>,
     Json(req): Json<SubmitWithdrawalRequest>,
 ) -> Result<(StatusCode, Json<SubmitWithdrawalResponse>), ApiError> {
@@ -161,6 +172,7 @@ async fn submit_withdrawal(
 }
 
 async fn get_withdrawal_status(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<WithdrawalStatusResponse>, ApiError> {
@@ -180,6 +192,7 @@ async fn get_withdrawal_status(
 }
 
 async fn approve_withdrawal(
+    _auth: RequireSigner,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(body): Json<serde_json::Value>,
@@ -211,6 +224,7 @@ async fn approve_withdrawal(
 }
 
 async fn get_wallet_balance(
+    _auth: RequireViewer,
     State(state): State<AppState>,
     Path(asset): Path<String>,
 ) -> Result<Json<WalletBalanceResponse>, ApiError> {

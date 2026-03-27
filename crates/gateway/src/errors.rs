@@ -67,6 +67,15 @@ impl ApiError {
         }
     }
 
+    pub fn forbidden(msg: &str) -> Self {
+        Self {
+            error: "forbidden".into(),
+            message: msg.into(),
+            request_id: Uuid::new_v4().to_string(),
+            status: StatusCode::FORBIDDEN,
+        }
+    }
+
     pub fn rate_limited() -> Self {
         Self {
             error: "rate_limited".into(),

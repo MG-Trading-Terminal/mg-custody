@@ -5,6 +5,52 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-27) — Phase 19A: RBAC Enforcement & Sessions (started)
+
+- **DB migration 011: sessions** — sessions table (token_hash PK, user_id FK, IP/UA binding, absolute 8h + idle 30m timeouts, revocation)
+  - password_hash column added to workspace_users
+  - Session tokens stored as SHA-256 hashes (never plaintext)
+- **Session DB layer** (`crates/db/src/sessions.rs`) — create/load/touch/revoke/cleanup sessions, user lookup by email
+  - `generate_token()`: cryptographically random 32 bytes
+  - `hash_token()`: SHA-256 for storage
+  - `Session::is_valid()`: checks expiry, idle, revocation, user enabled
+  - `Session::ip_matches()`: hijack detection
+- **RBAC middleware** (`crates/gateway/src/rbac_middleware.rs`) — axum middleware + extractors
+  - `rbac_auth`: extracts Bearer token → loads session → validates → injects AuthContext
+  - `AuthUser`, `RequireViewer`, `RequireEditor`, `RequireSigner`, `RequireAdmin`, `RequireOwner` extractors
+  - HMAC-authed requests (service-to-service) get Admin role by default
+  - Default-deny: no auth context = rejected
+- **Auth endpoints** (`crates/gateway/src/auth_routes.rs`) — login, list sessions, revoke
+  - `POST /v1/auth/sessions` — email + password → Bearer token
+  - `GET /v1/auth/sessions` — list active sessions
+  - `DELETE /v1/auth/sessions/{token}` — revoke session
+- **Permission guards wired on core endpoints**:
+  - `create_address`: Editor+
+  - `submit_withdrawal`: Editor+
+  - `approve_withdrawal`: Signer+
+  - `get_withdrawal_status`: Viewer+
+  - `get_wallet_balance`: Viewer+
+- **14 new tests** (1384 total, 0 failures)
+
+### Added (2026-03-27) — ROADMAP Expansion: Phases 19-25
+
+- **Honest product gap assessment** — compared all features vs Fireblocks API
+  - Identified 8 working features, 9 types-only, 3 completely missing
+  - Overall product completeness: ~30-40% of Fireblocks feature set
+- **Phase 19: RBAC Enforcement** — session management + authorization middleware (P0)
+  - PostgreSQL sessions, `RbacMiddleware`, `require_permission()` extractor, default-deny
+- **Phase 20: FIDO2/WebAuthn Verification** — real hardware key verification via `webauthn-rs` (P0)
+  - Registration/authentication flows, Tier 2+ approval enforcement
+- **Phase 21: Web Dashboard** — SvelteKit + `adapter-static`, served by axum (P0)
+  - Technology decision: SvelteKit over React/Next.js (no Node.js in production, ~40KB bundle, air-gap compatible)
+  - 9 pages: Dashboard, Wallets, Transactions, Approvals, Policies, Addresses, Users, Audit Log, Settings
+  - Security: CSP `default-src 'self'`, no inline JS, HSTS, X-Frame-Options: DENY, bundled fonts/icons
+- **Phase 22: AML/KYT Real Integration** — Chainalysis KYT v2 + Elliptic Lens HTTP calls (P1)
+- **Phase 23: UTXO Consolidation Execution** — automated Bitcoin UTXO consolidation (P1)
+- **Phase 24: Swap Execution Engine** — Uniswap V3 + Jupiter live swaps (P2)
+- **Phase 25: OpenAPI Auto-Generation** — `utoipa` replacing hand-maintained spec (P2)
+- **Dependency graph**: 19 → 20 → 21A → [22 + 23] → 21B/C/D → 24 → 25
+
 ### Added (2026-03-27) — Phase 18: Competitive Gap Closure
 
 - **HsmSigningBackend (18A)** — encrypted seed on disk, on-demand decrypt→sign→zeroize per operation

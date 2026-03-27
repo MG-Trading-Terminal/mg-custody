@@ -1939,6 +1939,7 @@ dependencies = [
  "chrono",
  "custody-common",
  "hex",
+ "rand 0.8.5",
  "rust_decimal",
  "rust_decimal_macros",
  "serde",
