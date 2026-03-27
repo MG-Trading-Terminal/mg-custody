@@ -413,9 +413,9 @@
 ### Crypto Layer (verified algorithms, no operational transport)
 | Feature | Phase | Status |
 |---------|-------|--------|
-| MPC CGGMP21 (secp256k1) | Phase 4A | ⚠️ Crypto only — no network transport |
-| FROST Ed25519 | Phase 4B | ⚠️ Crypto only — no network transport |
-| HSM adapters | Phase 4C | ❌ Types only — `unimplemented!()` |
+| MPC CGGMP21 (secp256k1) | Phase 4A | ⚠️ Crypto + transport + coordinator — no live gRPC |
+| FROST Ed25519 | Phase 4B | ⚠️ Crypto + distributed DKG — no live gRPC |
+| HSM adapters | Phase 4C | ⚠️ File-backed operational + runtime guard — hardware needs SoftHSM2 |
 
 ### Types Only (structs defined, no live integration)
 | Feature | Phase | Status |
@@ -435,9 +435,9 @@
 |---------|-------|--------|
 | Threat model document | Phase 17A | ✅ THREAT_MODEL.md |
 | Security architecture doc | Phase 17A | ✅ SECURITY.md |
-| Signer process isolation | Phase 17B | ⚠️ Binary created, IPC wiring pending |
+| Signer process isolation | Phase 17B | ✅ Binary + IPC + pipeline wired |
 | Circuit breaker persistence | Phase 17C | ✅ DB-persisted (migration 009) |
-| Attack simulation tests | Phase 17D | ✅ 24 security tests |
+| Attack simulation tests | Phase 17D | ✅ 33 security tests |
 | Supply chain (pinning, deny.toml) | Phase 17E | ✅ cargo-deny + Dockerfile pinned |
 | Deployment modes guide | Phase 17F | ✅ docs/DEPLOYMENT_MODES.md |
 | Security certifications | Phase 16 | ❌ Blocked by Phase 17 |

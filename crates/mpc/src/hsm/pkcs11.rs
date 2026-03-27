@@ -190,6 +190,16 @@ impl HsmAdapter for Pkcs11Hsm {
         keys.dedup();
         Ok(keys)
     }
+
+    fn is_operational(&self) -> bool {
+        // File-backed mode is always operational
+        // Real PKCS#11 mode would check C_GetSessionInfo()
+        self.config.library_path == "file" || self.storage_dir.is_some()
+    }
+
+    fn hsm_type(&self) -> &'static str {
+        "pkcs11"
+    }
 }
 
 /// AWS CloudHSM adapter (uses PKCS#11 under the hood).
@@ -218,6 +228,12 @@ impl HsmAdapter for CloudHsmAdapter {
     }
     fn list_keys(&self) -> Result<Vec<String>> {
         self.inner.list_keys()
+    }
+    fn is_operational(&self) -> bool {
+        self.inner.is_operational()
+    }
+    fn hsm_type(&self) -> &'static str {
+        "cloud_hsm"
     }
 }
 
@@ -284,6 +300,26 @@ mod tests {
         }
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_backed_is_operational() {
+        let config = Pkcs11Config::file_backed("/tmp/custody-hsm-op-test");
+        let hsm = Pkcs11Hsm::connect(config).unwrap();
+        assert!(hsm.is_operational());
+        assert_eq!(hsm.hsm_type(), "pkcs11");
+        // HSM guard should pass
+        super::super::assert_hsm_operational(&hsm);
+        let _ = std::fs::remove_dir_all("/tmp/custody-hsm-op-test");
+    }
+
+    #[test]
+    fn cloud_hsm_operational() {
+        let config = Pkcs11Config::file_backed("/tmp/custody-cloud-hsm-test");
+        let hsm = CloudHsmAdapter::new("test-cluster", config).unwrap();
+        assert!(hsm.is_operational());
+        assert_eq!(hsm.hsm_type(), "cloud_hsm");
+        let _ = std::fs::remove_dir_all("/tmp/custody-cloud-hsm-test");
     }
 
     #[test]
