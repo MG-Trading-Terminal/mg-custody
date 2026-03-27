@@ -21,6 +21,7 @@ pub mod cross_chain;
 pub mod crypto_utils;
 pub mod cosmos;
 pub mod cosmos_chain;
+pub mod data_export;
 pub mod defi;
 pub mod defi_execution;
 pub mod dex_calldata;
