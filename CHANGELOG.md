@@ -5,6 +5,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-27) — Phase 24: Swap Execution Engine
+
+- **`crates/common/src/swap_executor.rs`** — new `SwapExecutor` trait + two implementations:
+  - `SwapExecutor` trait: `quote()`, `execute()`, `status()` — chain-agnostic interface
+  - `UniswapV3Executor` — Ethereum mainnet + Arbitrum configs; encodes `exactInputSingle` calldata via existing `encode_uniswap_v3_swap()`; validates slippage via `defi_execution::validate_slippage()`; produces 228-byte ABI-encoded calldata
+  - `JupiterExecutor` — Solana; synchronous quote path + async `quote_async()` / `build_swap_tx_async()` for production use; returns base64 serialized transaction
+  - `SwapQuote`, `SwapResult`, `SwapExecution`, `SwapProtocol`, `SwapExecutionStatus` types — all `Decimal`, no f64; full `serde` round-trip
+  - `JupiterQuoteResponse`, `JupiterSwapTxResponse` — camelCase API types matching Jupiter V6 JSON
+  - All amounts as `rust_decimal::Decimal`; `SwapExecution::from_quote_and_result()` for DB record creation
+  - 29 unit tests covering: slippage boundaries, calldata length (228 bytes), quote expiry, chain rejection, EVM address parsing, u256 encoding, JSON round-trips
+- **`crates/gateway/src/swap_routes.rs`** — 3 new API endpoints:
+  - `POST /v1/swaps/quote` — get quote (RequireEditor); chain dispatch to Uniswap/Jupiter
+  - `POST /v1/swaps` — execute quote → unsigned tx (RequireSigner); validates quote_id matches
+  - `GET /v1/swaps/{id}` — swap status (RequireViewer); stub pending DB wiring
+  - 13 unit tests: serialization, round-trips, chain rejection, slippage boundary tests
+- **Module wiring**: added to `crates/common/src/lib.rs` and `crates/gateway/src/lib.rs`; `swap_router()` merged into main router in `routes.rs`
+
+### Added (2026-03-27) — Phase 25: OpenAPI Spec Endpoint
+
+- **`crates/gateway/src/openapi.rs`** — `generate_openapi_v3()` replacing the existing `developer::generate_openapi_spec()`:
+  - Returns OpenAPI **3.1.0** spec (upgraded from 3.0.3)
+  - Full schemas for core types: `CreateAddressRequest/Response`, `SubmitWithdrawalRequest/Response`, `WithdrawalStatusResponse`, `WalletBalanceResponse`, `Chain`, `WithdrawalStatus`
+  - Full schemas for swap types: `SwapQuoteRequest` (with slippage min=1 max=200), `SwapQuote`, `SwapExecuteRequest/Response`, `SwapStatusResponse`, `SwapExecutionStatus`
+  - Two security schemes: `bearerAuth` (HTTP Bearer) + `hmacAuth` (API key in header, HMAC-SHA256)
+  - Amounts documented as `type: string` — explicit guard against float deserialization
+  - 6 shared error response components (`BadRequest`, `Unauthorized`, `Forbidden`, `NotFound`, `Conflict`, `InternalError`)
+  - 33 tags including new `swaps` tag
+  - Remaining 100+ endpoints from developer catalog merged via `remaining_catalog_entries()`
+  - `GET /v1/openapi.json` handler updated in `routes.rs` to use new generator
+  - 22 unit tests: version, security schemes, schemas, swap endpoints, amount type enforcement
+- **Module wiring**: added to `crates/gateway/src/lib.rs`
+
 ### Added (2026-03-27) — Phase 19A: RBAC Enforcement & Sessions (started)
 
 - **DB migration 011: sessions** — sessions table (token_hash PK, user_id FK, IP/UA binding, absolute 8h + idle 30m timeouts, revocation)

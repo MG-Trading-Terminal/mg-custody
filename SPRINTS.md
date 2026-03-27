@@ -1,5 +1,36 @@
 # Sprint Log
 
+## Sprint N — Phase 24 + 25: Swap Engine + OpenAPI 3.1 (2026-03-27)
+
+### Goals
+- Implement swap execution engine (UniswapV3 + Jupiter) with trait abstraction
+- Implement OpenAPI 3.1 spec endpoint with full schemas
+
+### Completed
+| Task | Crate | Status | Tests | Notes |
+|------|-------|--------|-------|-------|
+| `SwapExecutor` trait | common | DONE | — | quote/execute/status |
+| `UniswapV3Executor` | common | DONE | 12 | 228-byte calldata verified |
+| `JupiterExecutor` | common | DONE | 7 | async API methods + sync fallback |
+| Swap types (Quote, Result, Execution) | common | DONE | 10 | Full serde round-trip |
+| `swap_routes.rs` (3 endpoints) | gateway | DONE | 13 | POST quote, POST execute, GET status |
+| `openapi.rs` — OpenAPI 3.1 generator | gateway | DONE | 22 | Full schemas + security schemes |
+| Router wiring | gateway | DONE | — | swap_router merged, openapi handler updated |
+
+### Metrics
+- **New tests added**: 64 (29 swap_executor + 13 swap_routes + 22 openapi)
+- **Total tests**: common 900, gateway 55 — all passing
+- **New files**: 3 (`swap_executor.rs`, `swap_routes.rs`, `openapi.rs`)
+- **Clippy**: zero warnings in new files
+
+### References Used
+- Uniswap V3 `exactInputSingle` ABI: https://docs.uniswap.org/contracts/v3/reference/periphery/SwapRouter
+- Uniswap V3 SwapRouter02 address: 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45
+- Jupiter V6 API: https://quote-api.jup.ag/v6
+- OpenAPI 3.1.0 spec: https://spec.openapis.org/oas/v3.1.0
+
+---
+
 ## Sprint 1 — Foundation (2026-03-24)
 
 ### Goals

@@ -46,6 +46,7 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::governance_routes::governance_router())
         .merge(crate::operations_routes::operations_router())
         .merge(crate::embedded_routes::embedded_router())
+        .merge(crate::swap_routes::swap_router())
         // Dashboard static files (SvelteKit build output)
         // Fallback to index.html for client-side routing
         .fallback_service(dashboard_service())
@@ -258,7 +259,7 @@ async fn get_wallet_balance(
 }
 
 async fn openapi_spec() -> Json<serde_json::Value> {
-    Json(custody_common::developer::generate_openapi_spec())
+    Json(crate::openapi::generate_openapi_v3())
 }
 
 async fn sdk_methods() -> Json<Vec<custody_common::developer::SdkMethod>> {

@@ -88,6 +88,7 @@ pub mod solana_instructions;
 pub mod solana_versioned;
 pub mod settlement_protocol;
 pub mod staking;
+pub mod swap_executor;
 pub mod staking_contracts;
 pub mod staking_ops;
 pub mod token2022;

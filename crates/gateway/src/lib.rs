@@ -6,6 +6,7 @@
 pub mod admin_routes;
 pub mod auth;
 pub mod auth_routes;
+pub mod openapi;
 pub mod connectivity_routes;
 pub mod embedded_routes;
 pub mod exchange_routes;
@@ -22,6 +23,7 @@ pub mod rbac_middleware;
 pub mod request_id;
 pub mod routes;
 pub mod settlement_routes;
+pub mod swap_routes;
 pub mod staking_routes;
 pub mod state;
 pub mod vault_routes;
