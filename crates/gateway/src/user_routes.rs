@@ -7,8 +7,10 @@
 
 use axum::{
     Json, Router,
+    body::Body,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, HeaderValue, StatusCode, header},
+    response::Response,
     routing::{get, post, put},
 };
 use chrono::Utc;
@@ -18,6 +20,8 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+use custody_common::vault::TransactionFilter;
 
 use crate::auth_routes::hash_password;
 use crate::errors::ApiError;
@@ -42,8 +46,10 @@ pub fn user_router() -> Router<AppState> {
     Router::new()
         .route("/v1/user/portfolio", get(portfolio))
         .route("/v1/user/deposit-address/{chain}", get(deposit_address))
+        .route("/v1/user/deposit-address/{chain}/qr", get(deposit_address_qr))
         .route("/v1/user/deposit-history", get(deposit_history))
         .route("/v1/user/withdrawals/estimate", post(estimate_withdrawal))
+        .route("/v1/user/transactions/export", get(export_transactions_csv))
         .route("/v1/user/profile", get(get_profile))
         .route("/v1/user/profile/password", put(change_password))
         .route("/v1/user/activity", get(activity_feed))
@@ -506,6 +512,192 @@ async fn test_notification(
 }
 
 // ---------------------------------------------------------------------------
+// GET /v1/user/transactions/export
+// ---------------------------------------------------------------------------
+
+/// Export unified transaction history as a CSV file.
+///
+/// Fetches up to 200 transactions (newest first) across deposits, withdrawals
+/// and internal transfers and returns them as `text/csv` with a
+/// `Content-Disposition: attachment` header so browsers trigger a download.
+///
+/// CSV schema:
+/// ```text
+/// id,type,chain,asset,amount,status,tx_hash,created_at
+/// ```
+///
+/// No external CSV crate is used — the format is simple enough to build via
+/// plain string concatenation.  Fields that may contain commas or newlines
+/// (status, tx_hash) are always ASCII identifiers so quoting is not needed.
+async fn export_transactions_csv(
+    auth: RequireViewer,
+    State(state): State<AppState>,
+) -> Result<Response<Body>, ApiError> {
+    let _ = auth; // auth enforced by extractor; user_id not needed for org-wide export
+
+    let filter = TransactionFilter {
+        limit: Some(200),
+        ..Default::default()
+    };
+
+    let (transactions, _next_cursor) = state
+        .db
+        .list_transactions(&filter)
+        .await
+        .map_err(|e| ApiError::internal(&format!("transaction query failed: {e}")))?;
+
+    let mut csv = String::with_capacity(256 + transactions.len() * 120);
+    csv.push_str("id,type,chain,asset,amount,status,tx_hash,created_at\r\n");
+
+    for tx in &transactions {
+        let tx_hash = tx.tx_hash.as_deref().unwrap_or("");
+        csv.push_str(&format!(
+            "{},{},{},{},{},{},{},{}\r\n",
+            tx.id,
+            tx.tx_type,
+            tx.chain.as_str(),
+            tx.asset.as_str(),
+            tx.amount,
+            csv_escape(&tx.status),
+            csv_escape(tx_hash),
+            tx.created_at.to_rfc3339(),
+        ));
+    }
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/csv; charset=utf-8"),
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_static(
+            "attachment; filename=\"custody_transactions.csv\"",
+        ),
+    );
+
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
+        .header(
+            header::CONTENT_DISPOSITION,
+            "attachment; filename=\"custody_transactions.csv\"",
+        )
+        .body(Body::from(csv))
+        .map_err(|e| ApiError::internal(&format!("response build failed: {e}")))?;
+
+    Ok(response)
+}
+
+/// Escape a CSV field value by wrapping in double-quotes if it contains
+/// a comma, double-quote, or newline.  Double-quotes within the value are
+/// doubled per RFC 4180.
+fn csv_escape(s: &str) -> String {
+    if s.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GET /v1/user/deposit-address/{chain}/qr
+// ---------------------------------------------------------------------------
+
+/// Return an SVG image that displays the user's deposit address prominently.
+///
+/// This is a placeholder implementation that renders the address as a styled
+/// SVG text block.  When a QR-code crate (e.g. `qrcode`) is added as a
+/// dependency this handler can be updated to emit a proper matrix QR code while
+/// keeping the same HTTP contract.
+///
+/// Response:
+/// - `Content-Type: image/svg+xml`
+/// - Status 200
+async fn deposit_address_qr(
+    auth: RequireViewer,
+    State(state): State<AppState>,
+    Path(chain_str): Path<String>,
+) -> Result<Response<Body>, ApiError> {
+    let chain = match chain_str.as_str() {
+        "bitcoin" | "btc" => custody_common::Chain::Bitcoin,
+        "ethereum" | "eth" => custody_common::Chain::Ethereum,
+        "tron" | "trx" => custody_common::Chain::Tron,
+        "solana" | "sol" => custody_common::Chain::Solana,
+        other => {
+            return Err(ApiError::bad_request(&format!(
+                "Unknown chain '{other}'. Supported: bitcoin, ethereum, tron, solana"
+            )))
+        }
+    };
+
+    let native_asset = custody_common::Asset::new(match chain {
+        custody_common::Chain::Bitcoin => "BTC",
+        custody_common::Chain::Ethereum => "ETH",
+        custody_common::Chain::Tron => "TRX",
+        custody_common::Chain::Solana => "SOL",
+    });
+
+    let addr = state
+        .address_allocator
+        .get_or_create(&state.seed, auth.0.user_id, &native_asset, chain)
+        .await
+        .map_err(|e| ApiError::internal(&format!("address allocation failed: {e}")))?;
+
+    let svg = build_address_svg(&addr.address, &chain_str);
+
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "image/svg+xml")
+        .body(Body::from(svg))
+        .map_err(|e| ApiError::internal(&format!("response build failed: {e}")))?;
+
+    Ok(response)
+}
+
+/// Build an SVG document that displays `address` in a styled text block.
+///
+/// The SVG is 400x200 px with a white background and dark text.  It is
+/// intentionally minimal so it can be rendered inline in a browser without
+/// JavaScript.  Replace with a real QR matrix when a crate is available.
+fn build_address_svg(address: &str, chain: &str) -> String {
+    // Split long addresses into two lines so they fit in 400 px width.
+    let mid = address.len() / 2;
+    let (line1, line2) = address.split_at(mid);
+
+    // SVG escaping: addresses are alphanumeric + a few safe ASCII chars so no
+    // XML escaping is required, but we sanitise anyway for safety.
+    let chain_escaped = xml_attr_escape(chain);
+    let line1_escaped = xml_attr_escape(line1);
+    let line2_escaped = xml_attr_escape(line2);
+
+    format!(
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200" viewBox="0 0 400 200">
+  <rect width="400" height="200" rx="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="200" y="36" font-family="monospace" font-size="13" fill="#64748b"
+        text-anchor="middle" font-weight="bold">{chain_escaped} deposit address</text>
+  <rect x="20" y="52" width="360" height="104" rx="6" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1"/>
+  <text x="200" y="92" font-family="monospace" font-size="11" fill="#1e293b"
+        text-anchor="middle" letter-spacing="0.5">{line1_escaped}</text>
+  <text x="200" y="116" font-family="monospace" font-size="11" fill="#1e293b"
+        text-anchor="middle" letter-spacing="0.5">{line2_escaped}</text>
+  <text x="200" y="148" font-family="sans-serif" font-size="10" fill="#94a3b8"
+        text-anchor="middle">QR code placeholder -- full QR coming in a future release</text>
+</svg>"##
+    )
+}
+
+/// Escape the five XML special characters for use in element text content.
+fn xml_attr_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -640,5 +832,111 @@ mod tests {
         assert_eq!(oracle.get_price("USDC"), Some(dec!(1)));
         assert!(oracle.get_price("BTC").unwrap() > dec!(0));
         assert!(oracle.get_price("ETH").unwrap() > dec!(0));
+    }
+
+    // --- CSV export helpers ---
+
+    #[test]
+    fn csv_escape_plain_string_unchanged() {
+        assert_eq!(csv_escape("confirmed"), "confirmed");
+        assert_eq!(csv_escape("0xdeadbeef"), "0xdeadbeef");
+        assert_eq!(csv_escape(""), "");
+    }
+
+    #[test]
+    fn csv_escape_wraps_comma_in_quotes() {
+        assert_eq!(csv_escape("a,b"), "\"a,b\"");
+    }
+
+    #[test]
+    fn csv_escape_doubles_embedded_quotes() {
+        assert_eq!(csv_escape("say \"hi\""), "\"say \"\"hi\"\"\"");
+    }
+
+    #[test]
+    fn csv_escape_wraps_newline_in_quotes() {
+        assert_eq!(csv_escape("line1\nline2"), "\"line1\nline2\"");
+    }
+
+    #[test]
+    fn csv_header_row_correct_columns() {
+        let header = "id,type,chain,asset,amount,status,tx_hash,created_at\r\n";
+        let cols: Vec<&str> = header.trim_end().split(',').collect();
+        assert_eq!(cols, ["id", "type", "chain", "asset", "amount", "status", "tx_hash", "created_at"]);
+    }
+
+    #[test]
+    fn csv_row_format_matches_spec() {
+        // Simulate a single row using the same format string as the handler.
+        let id = uuid::Uuid::nil();
+        let tx_type = "deposit";
+        let chain = "ethereum";
+        let asset = "USDT";
+        let amount = dec!(1234.56);
+        let status = "confirmed";
+        let tx_hash = "0xabc";
+        let created_at = "2026-01-01T00:00:00+00:00";
+
+        let row = format!(
+            "{},{},{},{},{},{},{},{}\r\n",
+            id, tx_type, chain, asset, amount,
+            csv_escape(status),
+            csv_escape(tx_hash),
+            created_at,
+        );
+
+        assert!(row.starts_with("00000000-0000-0000-0000-000000000000"));
+        assert!(row.contains("deposit"));
+        assert!(row.contains("ethereum"));
+        assert!(row.contains("USDT"));
+        assert!(row.contains("1234.56"));
+        assert!(row.ends_with("\r\n"));
+    }
+
+    // --- SVG QR placeholder ---
+
+    #[test]
+    fn svg_contains_address_text() {
+        // "bc1qtestaddress" is 15 chars; mid=7 → "bc1qtes" + "taddress"
+        let svg = build_address_svg("bc1qtestaddress", "bitcoin");
+        assert!(svg.contains("bc1qtes"), "first half missing from SVG");
+        assert!(svg.contains("taddress"), "second half missing from SVG");
+        assert!(svg.contains("bitcoin deposit address"));
+    }
+
+    #[test]
+    fn svg_is_valid_xml_skeleton() {
+        let svg = build_address_svg("0xdeadbeef1234567890", "ethereum");
+        assert!(svg.starts_with("<?xml"));
+        assert!(svg.contains("<svg"));
+        assert!(svg.contains("</svg>"));
+        assert!(svg.contains("image/svg+xml") || svg.contains("<rect"));
+    }
+
+    #[test]
+    fn svg_contains_placeholder_notice() {
+        let svg = build_address_svg("GkosV9test", "solana");
+        assert!(svg.contains("placeholder"));
+        assert!(svg.contains("QR code placeholder"));
+    }
+
+    #[test]
+    fn svg_escapes_xml_special_chars() {
+        // chain string with < > & should be escaped
+        let escaped = xml_attr_escape("a&b<c>d\"e'f");
+        assert_eq!(escaped, "a&amp;b&lt;c&gt;d&quot;e&#39;f");
+    }
+
+    #[test]
+    fn svg_address_split_at_midpoint() {
+        let address = "abcdefghijklmnop"; // 16 chars, mid=8
+        let svg = build_address_svg(address, "bitcoin");
+        assert!(svg.contains("abcdefgh"));
+        assert!(svg.contains("ijklmnop"));
+    }
+
+    #[test]
+    fn xml_attr_escape_no_special_chars_unchanged() {
+        assert_eq!(xml_attr_escape("bc1qtest"), "bc1qtest");
     }
 }

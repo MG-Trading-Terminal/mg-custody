@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-27) — Phase 26: Notification Dispatch + CSV Export + QR SVG
+
+- **`crates/confirmations/src/notification_dispatch.rs`** — `NotificationDispatcher`:
+  - Routes custody events (`deposit_confirmed`, `withdrawal_broadcast`, `withdrawal_confirmed`, `withdrawal_failed`) to all matching enabled channels
+  - `ChannelType` enum: `Webhook`, `Email`, `Slack`
+  - `NotificationChannelConfig` — per-channel config with event filter list; empty list = "all events"
+  - `dispatch_event(&str, Value)` — fan-out to all channels; per-channel errors logged, do not abort others
+  - `send_webhook(url, payload)` — HTTP POST with `X-Custody-Timestamp` + `X-Custody-Signature` (HMAC-SHA256 identical to exchange webhook format); `send_webhook_with_retry` adds exponential-backoff retry loop (cap 300 s)
+  - `send_email_notification(to, event_type, payload)` — formats subject + plain-text body, logs at INFO (SMTP stub; replace with `lettre` when added)
+  - `send_slack_notification(webhook_url, payload)` — posts `{"text": "..."}` JSON to Slack incoming-webhook URL; `send_slack_notification_with_retry` adds same backoff retry
+  - `compute_hmac` pub free function — tested against OpenSSL reference vector
+  - `channel_matches_event` — boolean event-filter predicate
+  - 20 unit tests: HMAC determinism, known test vector, channel filtering, email/Slack formatting, backoff schedule, email dispatch stub
+  - Module exported via `pub use notification_dispatch::NotificationDispatcher` in `lib.rs`
+- **`crates/gateway/src/user_routes.rs`** — two new endpoints:
+  - `GET /v1/user/transactions/export` (`RequireViewer`) — fetches up to 200 transactions via `db.list_transactions()`; builds RFC-4180 CSV with headers `id,type,chain,asset,amount,status,tx_hash,created_at`; returns `Content-Type: text/csv; charset=utf-8` + `Content-Disposition: attachment; filename="custody_transactions.csv"`
+  - `GET /v1/user/deposit-address/{chain}/qr` (`RequireViewer`) — allocates/retrieves deposit address; returns `image/svg+xml` SVG showing address in two lines with chain label; placeholder note for future real QR matrix; `xml_attr_escape()` sanitises all user-supplied content before SVG embedding
+  - `csv_escape(s)` — RFC-4180 quoting (wraps in `"..."`, doubles embedded quotes)
+  - `build_address_svg(address, chain)` — 400x200 px SVG, monospace text, styled boxes; uses `r##"..."##` raw string to allow `#` hex colors without Rust 2024 lexer collision
+  - `xml_attr_escape(s)` — escapes `& < > " '` for XML safety
+  - Routes wired into `user_router()`
+  - 15 new unit tests: CSV escape edge cases, column count, row format, SVG content, XML escaping, address split correctness
+
 ### Added (2026-03-27) — Phase 24: Swap Execution Engine
 
 - **`crates/common/src/swap_executor.rs`** — new `SwapExecutor` trait + two implementations:

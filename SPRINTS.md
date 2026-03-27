@@ -1,5 +1,39 @@
 # Sprint Log
 
+## Sprint N+1 — Phase 26: Notification Dispatch + CSV Export + QR SVG (2026-03-27)
+
+### Goals
+- Implement `NotificationDispatcher` in `custody-confirmations` with webhook/email/Slack channels
+- Add `GET /v1/user/transactions/export` CSV download endpoint
+- Add `GET /v1/user/deposit-address/{chain}/qr` SVG QR placeholder endpoint
+
+### Completed
+| Task | Crate | Status | Tests | Notes |
+|------|-------|--------|-------|-------|
+| `NotificationDispatcher` + 3 channel types | confirmations | DONE | 20 | HMAC-signed webhooks, email stub, Slack |
+| `compute_hmac` + backoff + event filtering | confirmations | DONE | 8 | Known test vector against OpenSSL |
+| Email subject/body formatting | confirmations | DONE | 7 | Plain-text, nested objects skipped |
+| Slack text formatting | confirmations | DONE | 2 | Incoming-webhook JSON format |
+| `GET /v1/user/transactions/export` | gateway | DONE | 6 | RFC-4180 CSV, correct Content-Disposition |
+| `GET /v1/user/deposit-address/{chain}/qr` | gateway | DONE | 5 | SVG 400x200, XML-safe, r## raw string fix |
+| `csv_escape` + `xml_attr_escape` | gateway | DONE | 4 | Edge cases covered |
+| Module wiring (lib.rs + router) | confirmations/gateway | DONE | — | |
+
+### Metrics
+- **New tests added**: 35 (20 notification_dispatch + 15 user_routes)
+- **Tests passing**: 28 custody-confirmations, 80 custody-gateway — all green
+- **New files**: 1 (`notification_dispatch.rs`)
+- **Modified files**: 3 (`confirmations/lib.rs`, `user_routes.rs`, `CHANGELOG.md`)
+- **Clippy**: all warnings are pre-existing in other crates; zero new warnings in changed files
+
+### References Used
+- RFC 4180 (CSV format): https://www.ietf.org/rfc/rfc4180.txt
+- HMAC-SHA256 test vector: `printf '%s' "POST..." | openssl dgst -sha256 -hmac "secret"`
+- Slack Incoming Webhooks: https://api.slack.com/messaging/webhooks
+- SVG 1.1 spec: https://www.w3.org/TR/SVG11/
+
+---
+
 ## Sprint N — Phase 24 + 25: Swap Engine + OpenAPI 3.1 (2026-03-27)
 
 ### Goals

@@ -5,8 +5,10 @@
 //!
 //! Also tracks withdrawals in `Confirming` status.
 
+pub mod notification_dispatch;
 pub mod tracker;
 pub mod webhook;
 
+pub use notification_dispatch::NotificationDispatcher;
 pub use tracker::ConfirmationTracker;
 pub use webhook::WebhookSender;
