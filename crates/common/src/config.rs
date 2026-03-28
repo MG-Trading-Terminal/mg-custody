@@ -175,7 +175,7 @@ mod tests {
     fn load_default_config() {
         let config = CustodyConfig::load_from("config/default.toml").unwrap();
         assert_eq!(config.api.bind, "0.0.0.0:8443");
-        assert_eq!(config.database.max_connections, 10);
+        assert_eq!(config.database.max_connections, 20);
 
         let eth = config.chains.ethereum.unwrap();
         assert!(eth.enabled);

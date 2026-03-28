@@ -137,6 +137,8 @@ impl BitcoinScanner {
                             detected_at: Utc::now(),
                             confirmed_at: None,
                             credited_at: None,
+                            memo: None,
+                            source_memo: None,
                         });
                     }
                 }

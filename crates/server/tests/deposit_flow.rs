@@ -57,6 +57,7 @@ async fn full_deposit_lifecycle() {
         detected_at: chrono::Utc::now(),
         confirmed_at: None,
         credited_at: None,
+                memo: None, source_memo: None,
     };
     db.insert_deposit(&deposit).await.unwrap();
 
@@ -112,6 +113,7 @@ async fn erc20_deposit_with_log_index() {
         detected_at: chrono::Utc::now(),
         confirmed_at: None,
         credited_at: None,
+                memo: None, source_memo: None,
     };
 
     let deposit2 = Deposit {
@@ -130,6 +132,7 @@ async fn erc20_deposit_with_log_index() {
         detected_at: chrono::Utc::now(),
         confirmed_at: None,
         credited_at: None,
+                memo: None, source_memo: None,
     };
 
     // Both should insert successfully (same tx_hash, different log_index)
@@ -164,6 +167,7 @@ async fn deposit_dedup_by_tx_hash() {
         detected_at: chrono::Utc::now(),
         confirmed_at: None,
         credited_at: None,
+                memo: None, source_memo: None,
     };
 
     db.insert_deposit(&deposit).await.unwrap();

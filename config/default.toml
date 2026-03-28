@@ -7,7 +7,13 @@ bind = "0.0.0.0:8443"
 
 [database]
 url = "postgres://localhost:5432/custody"
-max_connections = 10
+# Connection pool sizing guidelines (see crates/common/src/perf_benchmarks.rs):
+#   Small fund  (<$10M AUM)  :  10 connections  — default
+#   Medium fund ($10M-$100M) :  25 connections
+#   Large fund  (>$100M AUM) :  50+ connections (monitor pg_stat_activity)
+# Rule of thumb: set to (2 × CPU cores) + active_scanners.
+# Too few → acquire timeout spikes; too many → PostgreSQL RAM pressure.
+max_connections = 20
 
 [exchange]
 # Exchange webhook URL for deposit/withdrawal notifications

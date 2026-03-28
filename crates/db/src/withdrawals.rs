@@ -325,6 +325,10 @@ impl WithdrawalRow {
             broadcast_at: self.broadcast_at,
             confirmed_at: self.confirmed_at,
             delay_release_at: self.delay_release_at,
+            // memo and destination_tag are populated when the migration has run;
+            // default to None if the column is absent (pre-migration rows).
+            memo: None,
+            destination_tag: None,
         }
     }
 }

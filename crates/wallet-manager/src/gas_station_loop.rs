@@ -180,6 +180,8 @@ impl GasStationService {
             broadcast_at: None,
             confirmed_at: None,
             delay_release_at: None,
+            memo: None,
+            destination_tag: None,
         };
 
         // ON CONFLICT DO NOTHING ensures idempotency: if this key already

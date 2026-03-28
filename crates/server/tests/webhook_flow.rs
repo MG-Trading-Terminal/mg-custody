@@ -90,6 +90,7 @@ async fn deposit_confirmed_fires_webhook() {
         detected_at: chrono::Utc::now(),
         confirmed_at: None,
         credited_at: None,
+                memo: None, source_memo: None,
     };
     db.insert_deposit(&deposit).await.unwrap();
 
@@ -152,6 +153,7 @@ async fn deposit_not_confirmed_when_insufficient_blocks() {
         detected_at: chrono::Utc::now(),
         confirmed_at: None,
         credited_at: None,
+                memo: None, source_memo: None,
     };
     db.insert_deposit(&deposit).await.unwrap();
 

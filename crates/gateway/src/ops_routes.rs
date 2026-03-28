@@ -277,6 +277,8 @@ async fn batch_withdraw(
                 broadcast_at: None,
                 confirmed_at: None,
                 delay_release_at: None,
+                memo: None,
+                destination_tag: None,
             };
             total_amount += item.amount;
             new_withdrawals.push(w);

@@ -149,6 +149,10 @@ pub struct Deposit {
     pub detected_at: DateTime<Utc>,
     pub confirmed_at: Option<DateTime<Utc>>,
     pub credited_at: Option<DateTime<Utc>>,
+    /// Memo embedded in the transaction (Cosmos, Stellar, XRP).
+    pub memo: Option<String>,
+    /// Memo text as extracted from the source transaction (may differ from the deposit address memo).
+    pub source_memo: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +208,11 @@ pub struct Withdrawal {
     pub confirmed_at: Option<DateTime<Utc>>,
     /// Time-delay release (large withdrawals must wait).
     pub delay_release_at: Option<DateTime<Utc>>,
+    /// Memo / destination tag for chains that require it (Cosmos, Stellar, XRP).
+    /// Max 256 bytes for Cosmos Hub.
+    pub memo: Option<String>,
+    /// Numeric destination tag (XRP-specific).
+    pub destination_tag: Option<u64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -309,6 +318,13 @@ pub struct SubmitWithdrawalRequest {
     pub address: String,
     /// String-encoded decimal — never float.
     pub amount: Decimal,
+    /// Optional memo for chains that require it (Cosmos, Stellar, XRP).
+    /// Max 256 bytes — validated before insertion.
+    #[serde(default)]
+    pub memo: Option<String>,
+    /// Optional numeric destination tag (XRP-specific).
+    #[serde(default)]
+    pub destination_tag: Option<u64>,
 }
 
 /// Response acknowledging a withdrawal submission.
@@ -369,6 +385,62 @@ mod tests {
     fn withdrawal_status_serialization() {
         let json = serde_json::to_string(&WithdrawalStatus::PendingApproval).unwrap();
         assert_eq!(json, r#""pending_approval""#);
+    }
+
+    #[test]
+    fn withdrawal_memo_field_serialization() {
+        let req = SubmitWithdrawalRequest {
+            withdrawal_id: Uuid::nil(),
+            asset: Asset::new("USDT"),
+            chain: Chain::Ethereum,
+            address: "0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed".to_string(),
+            amount: rust_decimal::Decimal::ONE,
+            memo: Some("cosmos1abc".to_string()),
+            destination_tag: Some(123456),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"memo\":\"cosmos1abc\""));
+        assert!(json.contains("\"destination_tag\":123456"));
+    }
+
+    #[test]
+    fn submit_withdrawal_memo_defaults_to_none() {
+        let json = r#"{
+            "withdrawal_id": "00000000-0000-0000-0000-000000000000",
+            "asset": "ETH",
+            "chain": "ethereum",
+            "address": "0x1234",
+            "amount": "1.0"
+        }"#;
+        let req: SubmitWithdrawalRequest = serde_json::from_str(json).unwrap();
+        assert!(req.memo.is_none());
+        assert!(req.destination_tag.is_none());
+    }
+
+    #[test]
+    fn deposit_has_memo_fields() {
+        use chrono::Utc;
+        let d = Deposit {
+            id: Uuid::nil(),
+            user_id: Uuid::nil(),
+            asset: Asset::new("ATOM"),
+            chain: Chain::Ethereum,
+            address: "cosmos1abc".to_string(),
+            amount: rust_decimal::Decimal::ONE,
+            tx_hash: "deadbeef".to_string(),
+            log_index: None,
+            block_height: 1,
+            confirmations: 0,
+            required_confirmations: 12,
+            status: DepositStatus::Detected,
+            detected_at: Utc::now(),
+            confirmed_at: None,
+            credited_at: None,
+            memo: Some("user123".to_string()),
+            source_memo: None,
+        };
+        assert_eq!(d.memo.as_deref(), Some("user123"));
+        assert!(d.source_memo.is_none());
     }
 
     #[test]

@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-27) — Performance Benchmarks, Address Checksum, Memo/Tag, Audit Integrity, Request Logging
+
+- **Feature 1: Performance Benchmarks + Pool Tuning**
+  - `crates/common/src/perf_benchmarks.rs` — `PerfTimer` (start/elapsed_ms/finish), `BenchmarkResult::from_latencies` (nearest-rank percentiles: p50/p95/p99/min/max/avg), `PoolMetrics`, `PerfReport`; 7 unit tests including known-value percentile assertions
+  - `GET /v1/health/perf` (RequireAdmin) — returns current pool snapshot; wired into `webhook_mgmt_router()`
+  - `config/default.toml` — `[database].max_connections` bumped to 20 with pool-sizing guidelines (small/medium/large fund) as comments
+
+- **Feature 2: Address Checksum Verification**
+  - `crates/common/src/address_checksum.rs` — `validate_address(address, chain) -> Result<ValidatedAddress, AddressError>`; full checksum verification per chain: Bitcoin Bech32/Bech32m polymod (BIP-173/BIP-350), Bitcoin Base58Check double-SHA256, Ethereum EIP-55 Keccak-256 mixed-case, Tron Base58Check 0x41 prefix, Solana 32-byte Ed25519 decode; `eip55_checksum()` public helper; 14 unit tests with known test vectors
+  - `crates/gateway/src/routes.rs` — `submit_withdrawal` now calls `validate_address` before inserting; memo length limit (256 bytes) enforced
+
+- **Feature 3: Transaction Memo / Destination Tag Support**
+  - `crates/common/src/types.rs` — `Withdrawal` gains `memo: Option<String>` and `destination_tag: Option<u64>`; `Deposit` gains `memo` and `source_memo`; `SubmitWithdrawalRequest` gains both fields with `#[serde(default)]`; 3 new unit tests
+  - `crates/db/migrations/024_memo_tag.sql` — `ALTER TABLE withdrawals ADD COLUMN IF NOT EXISTS memo TEXT / destination_tag BIGINT`; `ALTER TABLE deposits ADD COLUMN IF NOT EXISTS memo TEXT / source_memo TEXT`
+  - All `Withdrawal`/`Deposit` struct literals in scanner, wallet-manager, gateway, server, and test files updated with `None` defaults (13 files)
+
+- **Feature 4: Audit Log Integrity Check**
+  - `crates/common/src/audit_integrity.rs` — `AuditIntegrityChecker::verify_chain` and `verify_range` re-derive each entry's SHA-256 hash and compare to `stored_hash`; `IntegrityResult` with `valid`, `entries_checked`, `first_broken_at`, `last_valid_hash`; 6 unit tests (empty, single, multi-entry, tampered, wrong prev hash, incremental)
+  - `GET /v1/admin/audit/integrity` (RequireAdmin) — fetches last 10 000 entries, reverses to ASC order, runs chain verification, logs ERROR on tampering; wired into `webhook_mgmt_router()`
+
+- **Feature 5: API Request Logging + Debug Mode**
+  - `crates/gateway/src/middleware.rs` — `request_logger` middleware: logs method/path/status/elapsed_ms/request_id at INFO after every request; in `CUSTODY_DEBUG=true` mode: logs body SHA-256 (never raw body), adds `X-Debug-RequestId` and `X-Debug-Elapsed-Ms` response headers
+  - `crates/common/src/prometheus_metrics.rs` — `API_REQUEST_LATENCY` histogram (method×path labels, 10 buckets) and `API_REQUEST_COUNT` counter (method×status labels); both updated in `request_logger`
+  - Both `router()` and `router_with_middleware()` in `routes.rs` wired with `request_logger` layer
+  - 4 unit tests: SHA-256 determinism, different-input distinctness, debug-mode default, Prometheus metric names
+
 ### Added (2026-03-27) — Webhook Management, Derivation Explorer, Health Detail, Emergency Freeze
 
 - **Feature 1: Webhook Management + Delivery Metrics**

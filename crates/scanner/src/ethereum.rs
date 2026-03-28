@@ -132,6 +132,8 @@ impl EthereumScanner {
                             detected_at: Utc::now(),
                             confirmed_at: None,
                             credited_at: None,
+                            memo: None,
+                            source_memo: None,
                         };
                         deposits.push(deposit);
                     }
@@ -213,6 +215,8 @@ impl EthereumScanner {
                     detected_at: Utc::now(),
                     confirmed_at: None,
                     credited_at: None,
+                            memo: None,
+                            source_memo: None,
                 };
                 deposits.push(deposit);
             }

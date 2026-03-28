@@ -126,6 +126,7 @@ async fn idempotent_withdrawal_submission() {
         tx_hash: None, block_height: None, confirmations: 0,
         error_message: None, created_at: chrono::Utc::now(),
         signed_at: None, broadcast_at: None, confirmed_at: None, delay_release_at: None,
+                memo: None, destination_tag: None,
     };
 
     // Insert twice with same exchange_id
@@ -158,6 +159,7 @@ async fn deposit_dedup_prevents_double_credit() {
         detected_at: chrono::Utc::now(),
         confirmed_at: None,
         credited_at: None,
+                memo: None, source_memo: None,
     };
 
     db.insert_deposit(&deposit).await.unwrap();

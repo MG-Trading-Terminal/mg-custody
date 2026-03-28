@@ -8,6 +8,7 @@ use axum::{
     response::Response,
 };
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::auth;
 use crate::rate_limit::{RateLimiter, UserRateLimiter, ip_key, user_key};
@@ -253,6 +254,104 @@ pub async fn rate_limit(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Request logger
+// ---------------------------------------------------------------------------
+
+/// Whether debug mode is enabled via `CUSTODY_DEBUG=true`.
+fn debug_mode() -> bool {
+    std::env::var("CUSTODY_DEBUG").as_deref() == Ok("true")
+}
+
+/// SHA-256 of the request body, hex-encoded.  Used in debug mode to
+/// correlate logged hashes with raw payloads without ever logging the body.
+fn sha256_hex(data: &[u8]) -> String {
+    use sha2::Digest;
+    hex::encode(sha2::Sha256::digest(data))
+}
+
+/// Structured request/response logging middleware.
+///
+/// Logs method, path, status code, elapsed time, and request ID at INFO level
+/// after every request.  In debug mode (`CUSTODY_DEBUG=true`) also logs the
+/// body SHA-256 (not the raw body — sensitive data is never logged) and adds
+/// `X-Debug-RequestId` and `X-Debug-Elapsed-Ms` response headers.
+///
+/// Prometheus counters and latency histograms are updated unconditionally.
+pub async fn request_logger(request: Request<Body>, next: Next) -> Response {
+    let method = request.method().as_str().to_string();
+    let path = request.uri().path().to_string();
+    let request_id = request
+        .headers()
+        .get("X-Request-Id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("-")
+        .to_string();
+
+    let debug = debug_mode();
+
+    // In debug mode: extract body bytes, hash them, rebuild the request.
+    // We limit to 1 MB to prevent memory exhaustion on large uploads.
+    let (request, body_hash) = if debug {
+        let (parts, body) = request.into_parts();
+        let bytes = axum::body::to_bytes(body, 1024 * 1024)
+            .await
+            .unwrap_or_default();
+        let hash = sha256_hex(&bytes);
+        let rebuilt = Request::from_parts(parts, Body::from(bytes));
+        (rebuilt, Some(hash))
+    } else {
+        (request, None)
+    };
+
+    let start = Instant::now();
+    let mut response = next.run(request).await;
+    let elapsed = start.elapsed();
+
+    let status = response.status().as_u16();
+    let elapsed_ms = elapsed.as_millis() as u64;
+
+    tracing::info!(
+        method = %method,
+        path = %path,
+        status,
+        request_id = %request_id,
+        elapsed_ms,
+        event = "api_request",
+        "API request completed"
+    );
+
+    if debug {
+        if let Some(hash) = &body_hash {
+            tracing::debug!(
+                method = %method,
+                path = %path,
+                body_sha256 = %hash,
+                response_status = status,
+                "API request debug"
+            );
+        }
+
+        let headers = response.headers_mut();
+        if let Ok(v) = request_id.parse() {
+            headers.insert("X-Debug-RequestId", v);
+        }
+        if let Ok(v) = elapsed_ms.to_string().parse() {
+            headers.insert("X-Debug-Elapsed-Ms", v);
+        }
+    }
+
+    // Update Prometheus metrics.
+    custody_common::prometheus_metrics::API_REQUEST_LATENCY
+        .with_label_values(&[&method, &path])
+        .observe(elapsed.as_secs_f64());
+    custody_common::prometheus_metrics::API_REQUEST_COUNT
+        .with_label_values(&[&method, &status.to_string()])
+        .inc();
+
+    response
+}
+
 /// API versioning headers middleware.
 ///
 /// Adds `X-API-Version` and `X-Powered-By` to every response so that callers
@@ -344,5 +443,52 @@ mod tests {
             versions.iter().any(|v| v.version == "v1"),
             "v1 must be in supported versions"
         );
+    }
+
+    // --- Request logger helpers ---
+
+    #[test]
+    fn sha256_hex_deterministic() {
+        let h1 = super::sha256_hex(b"hello");
+        let h2 = super::sha256_hex(b"hello");
+        assert_eq!(h1, h2);
+        assert_eq!(h1.len(), 64); // 32 bytes → 64 hex chars
+    }
+
+    #[test]
+    fn sha256_hex_different_inputs() {
+        let h1 = super::sha256_hex(b"hello");
+        let h2 = super::sha256_hex(b"world");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn debug_mode_default_false() {
+        // Without CUSTODY_DEBUG=true set, debug_mode() must return false.
+        // (env var might be set in CI — skip if already set.)
+        if std::env::var("CUSTODY_DEBUG").is_err() {
+            assert!(!super::debug_mode());
+        }
+    }
+
+    // --- Prometheus metric names (verify they compile) ---
+
+    #[test]
+    fn api_request_latency_metric_exists() {
+        // Force initialisation of the lazy static.
+        custody_common::prometheus_metrics::API_REQUEST_LATENCY
+            .with_label_values(&["GET", "/health"])
+            .observe(0.001);
+        let output = custody_common::prometheus_metrics::render_metrics();
+        assert!(output.contains("custody_api_request_duration_seconds"));
+    }
+
+    #[test]
+    fn api_request_count_metric_exists() {
+        custody_common::prometheus_metrics::API_REQUEST_COUNT
+            .with_label_values(&["GET", "200"])
+            .inc();
+        let output = custody_common::prometheus_metrics::render_metrics();
+        assert!(output.contains("custody_api_requests_total"));
     }
 }

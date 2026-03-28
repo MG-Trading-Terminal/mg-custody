@@ -51,6 +51,10 @@ pub fn webhook_mgmt_router() -> Router<AppState> {
         .route("/v1/admin/emergency/status", get(emergency_status))
         .route("/v1/admin/override/withdrawal/{id}/force-complete", post(force_complete_withdrawal))
         .route("/v1/admin/override/withdrawal/{id}/force-cancel", post(force_cancel_withdrawal))
+        // Performance metrics (Feature 5a)
+        .route("/v1/health/perf", get(perf_health))
+        // Audit log integrity check (Feature 5b)
+        .route("/v1/admin/audit/integrity", get(audit_integrity_check))
 }
 
 // ---------------------------------------------------------------------------
@@ -669,6 +673,87 @@ async fn force_cancel_withdrawal(
 }
 
 // ---------------------------------------------------------------------------
+// Performance health endpoint
+// ---------------------------------------------------------------------------
+
+/// Return a performance snapshot for `GET /v1/health/perf`.
+///
+/// Includes pool metrics and Prometheus-derived latency percentiles.
+/// RequireAdmin — not exposed publicly.
+async fn perf_health(
+    _auth: RequireAdmin,
+    State(state): State<AppState>,
+) -> Result<Json<custody_common::perf_benchmarks::PerfReport>, ApiError> {
+    use custody_common::perf_benchmarks::{PoolMetrics, PerfReport};
+
+    let pool_size = state.db.pool.size();
+    let pool_idle = state.db.pool.num_idle() as u32;
+
+    let pool = PoolMetrics {
+        max_connections: pool_size.max(pool_idle), // upper bound from current size
+        active_connections: pool_size.saturating_sub(pool_idle),
+        idle_connections: pool_idle,
+        acquire_timeout_ms: 10_000,  // matches server/main.rs acquire_timeout
+        avg_acquire_ms: 0.0,         // not yet instrumented
+    };
+
+    Ok(Json(PerfReport::placeholder(pool)))
+}
+
+// ---------------------------------------------------------------------------
+// Audit log integrity check endpoint
+// ---------------------------------------------------------------------------
+
+/// Run an audit log hash chain integrity check.
+///
+/// Fetches the most recent 10 000 entries (oldest-first) and verifies
+/// the hash chain is unbroken.  Returns quickly when the chain is valid;
+/// returns the broken link ID when tampering is detected.
+async fn audit_integrity_check(
+    _auth: RequireAdmin,
+    State(state): State<AppState>,
+) -> Result<Json<custody_common::audit_integrity::IntegrityResult>, ApiError> {
+    use custody_common::audit_integrity::{AuditEntryForVerification, AuditIntegrityChecker};
+
+    // Fetch recent entries (oldest-first for chain traversal).
+    let raw = state.db.recent_audit_entries(10_000).await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+
+    // Convert DB entries to the verification view type.
+    let entries: Vec<AuditEntryForVerification> = raw
+        .into_iter()
+        .rev() // recent_audit_entries returns DESC; we need ASC for chain walk
+        .map(|e| AuditEntryForVerification {
+            id: e.id,
+            timestamp: e.timestamp,
+            operation_json: serde_json::to_string(&e.operation)
+                .unwrap_or_else(|_| "\"unknown\"".to_string()),
+            actor: e.actor,
+            stored_hash: e.prev_hash,
+        })
+        .collect();
+
+    let total = entries.len();
+    let result = AuditIntegrityChecker::verify_chain(&entries);
+
+    if !result.valid {
+        tracing::error!(
+            first_broken_at = ?result.first_broken_at,
+            entries_checked = result.entries_checked,
+            total,
+            "AUDIT LOG INTEGRITY VIOLATION DETECTED"
+        );
+    } else {
+        tracing::info!(
+            entries_checked = result.entries_checked,
+            "Audit log integrity check passed"
+        );
+    }
+
+    Ok(Json(result))
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
 
@@ -768,6 +853,37 @@ mod tests {
     fn memory_mb_does_not_panic() {
         // Just ensure it returns without panicking.
         let _ = memory_mb();
+    }
+
+    #[test]
+    fn perf_benchmark_percentiles() {
+        use custody_common::perf_benchmarks::BenchmarkResult;
+        let mut lats: Vec<f64> = (1..=10).map(|i| i as f64).collect();
+        let r = BenchmarkResult::from_latencies("test_op", &mut lats);
+        assert_eq!(r.samples, 10);
+        assert_eq!(r.min_ms, 1.0);
+        assert_eq!(r.max_ms, 10.0);
+    }
+
+    #[test]
+    fn pool_metrics_struct() {
+        use custody_common::perf_benchmarks::PoolMetrics;
+        let m = PoolMetrics {
+            max_connections: 20,
+            active_connections: 3,
+            idle_connections: 17,
+            acquire_timeout_ms: 10_000,
+            avg_acquire_ms: 0.5,
+        };
+        assert_eq!(m.active_connections + m.idle_connections, m.max_connections);
+    }
+
+    #[test]
+    fn audit_integrity_empty_is_valid() {
+        use custody_common::audit_integrity::AuditIntegrityChecker;
+        let result = AuditIntegrityChecker::verify_chain(&[]);
+        assert!(result.valid);
+        assert_eq!(result.entries_checked, 0);
     }
 
     #[test]

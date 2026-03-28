@@ -972,6 +972,8 @@ async fn main() -> anyhow::Result<()> {
                         broadcast_at: None,
                         confirmed_at: None,
                         delay_release_at: None,
+                        memo: None,
+                        destination_tag: None,
                     };
 
                     match sched_db.insert_withdrawal(&w).await {

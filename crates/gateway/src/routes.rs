@@ -81,6 +81,7 @@ pub fn router(state: AppState) -> Router {
         // Dashboard static files (SvelteKit build output)
         // Fallback to index.html for client-side routing
         .fallback_service(dashboard_service())
+        .layer(axum_mw::from_fn(crate::middleware::request_logger))
         .layer(axum_mw::from_fn(crate::middleware::api_version_headers))
         .layer(axum_mw::from_fn(crate::middleware::security_headers))
         .layer(axum_mw::from_fn_with_state(rbac_state, rbac_middleware::rbac_auth))
@@ -127,6 +128,7 @@ pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
         .merge(crate::user_routes::user_router())
         .merge(crate::safe_routes::safe_router())
         .merge(crate::password_reset_routes::password_reset_router())
+        .layer(axum_mw::from_fn(crate::middleware::request_logger))
         .layer(axum_mw::from_fn(crate::middleware::api_version_headers))
         .layer(axum_mw::from_fn_with_state(rbac_state, rbac_middleware::rbac_auth))
         .layer(axum_mw::from_fn(crate::request_id::request_id_middleware))
@@ -205,16 +207,32 @@ async fn submit_withdrawal(
         })));
     }
 
+    // Validate and normalise the destination address using the chain-specific checksum.
+    let validated_addr = custody_common::address_checksum::validate_address(&req.address, req.chain)
+        .map_err(|e| ApiError::bad_request(&format!("Invalid destination address: {e}")))?;
+
+    // Validate memo length (Cosmos Hub max 256 bytes).
+    if let Some(ref memo) = req.memo {
+        if memo.len() > 256 {
+            return Err(ApiError::bad_request(&format!(
+                "Memo exceeds maximum length of 256 bytes (got {})",
+                memo.len()
+            )));
+        }
+    }
+
     let withdrawal = Withdrawal {
         id: Uuid::new_v4(),
         exchange_withdrawal_id: req.withdrawal_id,
         asset: req.asset.clone(), chain: req.chain,
-        destination_address: req.address, amount: req.amount,
+        destination_address: validated_addr.normalized, amount: req.amount,
         fee: None, status: WithdrawalStatus::Received,
         wallet_tier: WalletTier::Hot,
         tx_hash: None, block_height: None, confirmations: 0,
         error_message: None, created_at: Utc::now(),
         signed_at: None, broadcast_at: None, confirmed_at: None, delay_release_at: None,
+        memo: req.memo.clone(),
+        destination_tag: req.destination_tag,
     };
 
     state.db.insert_withdrawal(&withdrawal).await

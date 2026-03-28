@@ -145,6 +145,8 @@ impl CustodyDb {
                 detected_at: r.detected_at,
                 confirmed_at: r.confirmed_at,
                 credited_at: r.credited_at,
+                memo: None,
+                source_memo: None,
             })
             .collect())
     }

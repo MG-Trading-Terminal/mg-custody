@@ -109,6 +109,8 @@ async fn deposit_lifecycle() {
         detected_at: chrono::Utc::now(),
         confirmed_at: None,
         credited_at: None,
+        memo: None,
+        source_memo: None,
     };
 
     // Insert
@@ -160,6 +162,8 @@ async fn withdrawal_lifecycle() {
         broadcast_at: None,
         confirmed_at: None,
         delay_release_at: None,
+        memo: None,
+        destination_tag: None,
     };
 
     // Insert
@@ -256,6 +260,7 @@ async fn outflow_tracking() {
         error_message: None,
         created_at: chrono::Utc::now(),
         signed_at: None, broadcast_at: None, confirmed_at: None, delay_release_at: None,
+        memo: None, destination_tag: None,
     };
     db.insert_withdrawal(&w).await.unwrap();
 

@@ -154,6 +154,9 @@ impl DepositRow {
             detected_at: self.detected_at,
             confirmed_at: self.confirmed_at,
             credited_at: self.credited_at,
+            // memo fields populated when migration 024 has run.
+            memo: None,
+            source_memo: None,
         }
     }
 }

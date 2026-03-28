@@ -132,6 +132,27 @@ pub static WALLET_BALANCE: Lazy<GaugeVec> = Lazy::new(|| {
     ).unwrap()
 });
 
+// ── API request metrics ───────────────────────────────────────────
+
+/// Histogram of HTTP API request durations, labelled by method and path.
+pub static API_REQUEST_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
+    register_histogram_vec!(
+        "custody_api_request_duration_seconds",
+        "API request latency by HTTP method and path",
+        &["method", "path"],
+        vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+    ).unwrap()
+});
+
+/// Counter of total API requests, labelled by method and HTTP status code.
+pub static API_REQUEST_COUNT: Lazy<CounterVec> = Lazy::new(|| {
+    register_counter_vec!(
+        "custody_api_requests_total",
+        "Total API requests by HTTP method and status code",
+        &["method", "status"]
+    ).unwrap()
+});
+
 // ── Export ────────────────────────────────────────────────────────
 
 /// Render all Prometheus metrics as text for the /metrics endpoint.

@@ -24,6 +24,7 @@ mod tests {
             block_height: None, confirmations: 0, error_message: None,
             created_at: chrono::Utc::now(), signed_at: None,
             broadcast_at: None, confirmed_at: None, delay_release_at: None,
+            memo: None, destination_tag: None,
         };
         let json = serde_json::to_string(&w).unwrap();
         // Must NOT contain anything that looks like a private key
@@ -43,6 +44,7 @@ mod tests {
             confirmations: 3, required_confirmations: 3,
             status: DepositStatus::Confirmed,
             detected_at: chrono::Utc::now(), confirmed_at: None, credited_at: None,
+            memo: None, source_memo: None,
         };
         let json = serde_json::to_string(&d).unwrap();
         assert!(!json.contains("seed"));

@@ -1,5 +1,52 @@
 # Sprint Log
 
+## Sprint N+10 — Performance Benchmarks, Address Checksum, Memo/Tag, Audit Integrity, Request Logging (2026-03-27)
+
+### Goals
+- Performance benchmarking utilities + `GET /v1/health/perf` endpoint
+- Comprehensive address checksum verification for all 4 chains
+- Transaction memo + destination_tag fields on Withdrawal/Deposit
+- Audit log hash chain integrity checker + `GET /v1/admin/audit/integrity`
+- Structured API request logging middleware + debug mode + Prometheus metrics
+
+### Completed
+| Task | File | Status | Tests |
+|------|------|--------|-------|
+| `PerfTimer` / `BenchmarkResult::from_latencies` / `PoolMetrics` / `PerfReport` | common/perf_benchmarks.rs | DONE | 7 |
+| `GET /v1/health/perf` handler (RequireAdmin) | gateway/webhook_mgmt_routes.rs | DONE | 2 |
+| `validate_address(address, chain)` — Bech32, Bech32m, Base58Check, EIP-55, Solana | common/address_checksum.rs | DONE | 14 |
+| `eip55_checksum()` with Keccak-256 (EIP-55 test vectors) | common/address_checksum.rs | DONE | — |
+| Wire `validate_address` into `submit_withdrawal` handler | gateway/routes.rs | DONE | — |
+| Memo length guard (256 bytes) in `submit_withdrawal` | gateway/routes.rs | DONE | — |
+| `memo: Option<String>` + `destination_tag: Option<u64>` on `Withdrawal` | common/types.rs | DONE | 3 |
+| `memo` + `source_memo` on `Deposit` | common/types.rs | DONE | — |
+| `memo` + `destination_tag` on `SubmitWithdrawalRequest` with `#[serde(default)]` | common/types.rs | DONE | — |
+| Migration `024_memo_tag.sql` | db/migrations/ | DONE | — |
+| `None` defaults propagated to 13 files (scanners, wallet-manager, gateway, server, tests) | multiple | DONE | — |
+| `AuditIntegrityChecker::verify_chain` + `verify_range` | common/audit_integrity.rs | DONE | 6 |
+| `AuditEntryForVerification` + `IntegrityResult` types | common/audit_integrity.rs | DONE | — |
+| `GET /v1/admin/audit/integrity` handler (RequireAdmin) | gateway/webhook_mgmt_routes.rs | DONE | 1 |
+| `request_logger` middleware (structured log + debug headers + Prometheus) | gateway/middleware.rs | DONE | 4 |
+| `API_REQUEST_LATENCY` + `API_REQUEST_COUNT` Prometheus metrics | common/prometheus_metrics.rs | DONE | 2 |
+| `request_logger` wired into both `router()` and `router_with_middleware()` | gateway/routes.rs | DONE | — |
+| Pool tuning comments in `config/default.toml` | config/default.toml | DONE | — |
+| `max_connections` default raised 10→20; config test updated | common/config.rs | DONE | — |
+
+### Metrics
+- New tests added: ~39 (perf_benchmarks=7, address_checksum=14, audit_integrity=6, types=3, middleware=4, webhook_mgmt=3, prometheus=2)
+- Previous total: ~1,770+
+- New total: ~1,810+
+- New files: 3 (perf_benchmarks.rs, address_checksum.rs, audit_integrity.rs)
+- Modified files: 16 (types.rs, prometheus_metrics.rs, middleware.rs, routes.rs, webhook_mgmt_routes.rs, config.rs, config/default.toml, deposits.rs, withdrawals.rs, user_portfolio.rs, gas_station_loop.rs, main.rs, ops_routes.rs, integration.rs, security_tests.rs, server test files)
+
+### References
+- EIP-55: Mixed-case checksum address encoding — https://eips.ethereum.org/EIPS/eip-55
+- BIP-173: SegWit Bech32 address format — https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki
+- BIP-350: Taproot Bech32m address format — https://github.com/bitcoin/bips/blob/master/bip-0350.mediawiki
+- Tron address format: https://developers.tron.network/docs/account (Base58Check, 0x41 network byte)
+- Cosmos memo: max 256 bytes — https://docs.cosmos.network/v0.50/core/transactions (TxBody.memo)
+- Nearest-rank percentile method: https://en.wikipedia.org/wiki/Percentile#The_nearest-rank_method
+
 ## Sprint N+9 — Webhook Management, Derivation Explorer, Health Detail, Emergency Freeze (2026-03-27)
 
 ### Goals

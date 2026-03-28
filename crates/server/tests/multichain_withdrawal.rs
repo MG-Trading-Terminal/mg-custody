@@ -40,6 +40,7 @@ fn make_withdrawal(asset: &str, chain: Chain, address: &str, amount: rust_decima
         tx_hash: None, block_height: None, confirmations: 0,
         error_message: None, created_at: chrono::Utc::now(),
         signed_at: None, broadcast_at: None, confirmed_at: None, delay_release_at: None,
+                memo: None, destination_tag: None,
     }
 }
 

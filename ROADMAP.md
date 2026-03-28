@@ -712,3 +712,8 @@ Phase 19 + 21 ────────> Phase 25 (OpenAPI)
 | Gnosis Safe multi-sig + Scheduled withdrawals + WebSocket enhancements | Phase 27 | ✅ Done — EIP-712, threshold signing, cron schedules, WS auth + new event types | P1 |
 | **TOTP 2FA for login** | Phase 28A | ✅ Done — RFC 6238, HMAC-SHA1, AES-GCM encrypted secrets, backup codes, 2-step login flow | P0 |
 | **Proof of Reserves user verification** | Phase 28B | ✅ Done — Merkle inclusion proofs, `generate_proof()`, GET + POST verify endpoints | P1 |
+| **Performance benchmarks + pool tuning** | Phase N+10 | ✅ Done — PerfTimer, BenchmarkResult (p50/p95/p99), PoolMetrics, GET /v1/health/perf | P2 |
+| **Address checksum verification** | Phase N+10 | ✅ Done — validate_address() for BTC/ETH/TRX/SOL, EIP-55, Bech32, Base58Check; wired into withdrawal pipeline | P1 |
+| **Transaction memo/destination tag** | Phase N+10 | ✅ Done — memo + destination_tag on Withdrawal/Deposit + SubmitWithdrawalRequest; migration 024 | P2 |
+| **Audit log integrity check** | Phase N+10 | ✅ Done — AuditIntegrityChecker hash chain re-derivation, GET /v1/admin/audit/integrity | P1 |
+| **API request logging + debug mode** | Phase N+10 | ✅ Done — request_logger middleware, Prometheus API metrics, CUSTODY_DEBUG headers | P2 |

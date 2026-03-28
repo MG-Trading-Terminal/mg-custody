@@ -35,6 +35,7 @@ async fn full_flow_with_signing() {
         tx_hash: None, block_height: None, confirmations: 0,
         error_message: None, created_at: chrono::Utc::now(),
         signed_at: None, broadcast_at: None, confirmed_at: None, delay_release_at: None,
+                memo: None, destination_tag: None,
     };
     db.insert_withdrawal(&w).await.unwrap();
 
@@ -97,6 +98,7 @@ async fn multiple_withdrawals_sequential() {
             tx_hash: None, block_height: None, confirmations: 0,
             error_message: None, created_at: chrono::Utc::now(),
             signed_at: None, broadcast_at: None, confirmed_at: None, delay_release_at: None,
+                memo: None, destination_tag: None,
         };
         db.insert_withdrawal(&w).await.unwrap();
         ids.push(w.id);
@@ -147,6 +149,7 @@ async fn usdt_withdrawal_uses_correct_contract() {
         tx_hash: None, block_height: None, confirmations: 0,
         error_message: None, created_at: chrono::Utc::now(),
         signed_at: None, broadcast_at: None, confirmed_at: None, delay_release_at: None,
+                memo: None, destination_tag: None,
     };
     db.insert_withdrawal(&w).await.unwrap();
 
