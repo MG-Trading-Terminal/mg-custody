@@ -28,7 +28,25 @@ const FIDO2_REQUIRED_THRESHOLD_USD: rust_decimal::Decimal =
 pub fn router(state: AppState) -> Router {
     use axum::middleware as axum_mw;
     use crate::rbac_middleware::{self, RbacState};
+    use crate::middleware::MiddlewareState;
+    use crate::rate_limit::RateLimiter;
     let rbac_state = RbacState::new(state.db.clone());
+    // Build a MiddlewareState with no HMAC secret (dev/dashboard path — auth is Bearer only).
+    let mw_state = MiddlewareState {
+        hmac_secret: vec![],
+        rate_limiter: std::sync::Arc::new(RateLimiter::default_api()),
+        user_rate_limiter: state.user_rate_limiter.clone(),
+        public_paths: vec![
+            "/health".into(),
+            "/health/chains".into(),
+            "/health/deep".into(),
+            "/metrics".into(),
+            "/v1/auth/sessions".into(),
+            "/v1/auth/sessions/verify-2fa".into(),
+            "/v1/auth/password-reset/request".into(),
+            "/v1/auth/password-reset/confirm".into(),
+        ],
+    };
     Router::new()
         .route("/health", get(health))
         .route("/health/chains", get(health_chains))
@@ -56,11 +74,13 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::swap_routes::swap_router())
         .merge(crate::user_routes::user_router())
         .merge(crate::safe_routes::safe_router())
+        .merge(crate::password_reset_routes::password_reset_router())
         // Dashboard static files (SvelteKit build output)
         // Fallback to index.html for client-side routing
         .fallback_service(dashboard_service())
         .layer(axum_mw::from_fn(crate::middleware::security_headers))
         .layer(axum_mw::from_fn_with_state(rbac_state, rbac_middleware::rbac_auth))
+        .layer(axum_mw::from_fn_with_state(mw_state, crate::middleware::rate_limit))
         .layer(axum_mw::from_fn(crate::request_id::request_id_middleware))
         .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(30)))
         .layer(cors_layer())
@@ -102,6 +122,7 @@ pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
         .merge(crate::fido2_routes::fido2_router())
         .merge(crate::user_routes::user_router())
         .merge(crate::safe_routes::safe_router())
+        .merge(crate::password_reset_routes::password_reset_router())
         .layer(axum_mw::from_fn_with_state(rbac_state, rbac_middleware::rbac_auth))
         .layer(axum_mw::from_fn(crate::request_id::request_id_middleware))
         .layer(axum_mw::from_fn_with_state(mw_state.clone(), middleware::rate_limit))

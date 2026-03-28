@@ -100,7 +100,7 @@
 	{:else if entries.length === 0}
 		<p class="muted">No audit entries match the selected filters.</p>
 	{:else}
-		<table>
+		<div class="table-wrap"><table>
 			<thead>
 				<tr><th>Time</th><th>Actor</th><th>Action</th><th>Resource</th><th>Result</th></tr>
 			</thead>
@@ -115,7 +115,7 @@
 					</tr>
 				{/each}
 			</tbody>
-		</table>
+		</table></div>
 	{/if}
 </div>
 
@@ -195,6 +195,7 @@
 		margin-bottom: 1rem;
 	}
 
+	.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 	table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 	th { text-align: left; padding: 0.5rem 0.75rem; color: var(--fg-muted, #8b949e); border-bottom: 1px solid var(--border, #30363d); }
 	td { padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border, #30363d); }

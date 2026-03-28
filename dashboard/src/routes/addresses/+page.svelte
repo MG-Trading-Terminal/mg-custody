@@ -63,7 +63,7 @@
 	{:else if addresses.length === 0}
 		<p class="muted">No addresses on {chain}.</p>
 	{:else}
-		<table>
+		<div class="table-wrap"><table>
 			<thead>
 				<tr><th>Address</th><th>User ID</th><th>Whitelist</th><th>Created</th><th></th></tr>
 			</thead>
@@ -88,7 +88,7 @@
 					</tr>
 				{/each}
 			</tbody>
-		</table>
+		</table></div>
 	{/if}
 </div>
 
@@ -143,6 +143,7 @@
 	.badge { border-radius: 4px; padding: 0.15rem 0.5rem; font-size: 0.75rem; font-weight: 600; }
 	.green { background: rgba(63,185,80,.12); color: var(--green, #3fb950); }
 
+	.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 	table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 	th { text-align: left; padding: 0.5rem 0.75rem; color: var(--fg-muted, #8b949e); border-bottom: 1px solid var(--border, #30363d); }
 	td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border, #30363d); }

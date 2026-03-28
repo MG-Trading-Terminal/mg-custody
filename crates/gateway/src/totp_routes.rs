@@ -97,8 +97,12 @@ pub struct DisableTotpRequest {
 pub struct Verify2faRequest {
     /// Short-lived pending token issued by the login endpoint.
     pub pending_token: String,
-    /// 6-digit TOTP code, or 8-character backup code.
+    /// 6-digit TOTP code, 8-character backup code, or 6-digit email OTP code.
     pub code: String,
+    /// Optional hint for the code type: `"totp"`, `"backup_code"`, `"email_otp"`.
+    /// When absent, the handler infers the type from the code format.
+    #[serde(default)]
+    pub code_type: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -299,16 +303,18 @@ async fn disable_totp(
 
 /// POST /v1/auth/sessions/verify-2fa
 ///
-/// Completes a 2-step login for accounts with TOTP enabled.
+/// Completes a 2-step login.  Accepted code types:
+/// - 6-digit TOTP code (when TOTP is enrolled)
+/// - 8-character backup code (when TOTP is enrolled)
+/// - 6-digit email OTP code (when `code_type = "email_otp"` or TOTP is not enrolled)
 ///
 /// After `POST /v1/auth/sessions` returns `{requires_2fa: true, pending_token}`,
-/// the client submits that token here along with their TOTP code (6 digits)
-/// or a backup code (8 alphanumeric characters).
+/// the client submits that token here along with their code.
 pub async fn verify_2fa_login(
     State(state): State<AppState>,
     Json(req): Json<Verify2faRequest>,
 ) -> Result<(StatusCode, Json<Verify2faResponse>), ApiError> {
-    // Consume the pending token — single-use, 5-minute TTL
+    // Consume the pending token — single-use, 5-minute TTL.
     let user_id = state
         .db
         .consume_pending_2fa_token(&req.pending_token)
@@ -318,57 +324,81 @@ pub async fn verify_2fa_login(
             ApiError::unauthorized("Invalid, expired, or already-used 2FA pending token.")
         })?;
 
-    // Load TOTP record
-    let record = state
+    // Check whether the caller is explicitly requesting email OTP verification.
+    let wants_email_otp = req.code_type.as_deref() == Some("email_otp");
+
+    // Load TOTP record (may be absent when only email OTP is configured).
+    let totp_record = state
         .db
         .load_totp(user_id)
         .await
-        .map_err(|e| ApiError::internal(&e.to_string()))?
-        .ok_or_else(|| ApiError::internal("TOTP record missing for user with pending 2FA"))?;
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
 
-    if !record.enabled {
-        return Err(ApiError::internal(
-            "TOTP not enabled but 2FA login was issued — contact support",
-        ));
-    }
+    let totp_enabled = totp_record.as_ref().map(|r| r.enabled).unwrap_or(false);
 
-    let code_accepted = if req.code.len() == 6 && req.code.chars().all(|c| c.is_ascii_digit()) {
-        // Regular 6-digit TOTP code
-        let key = totp_encryption_key(&state);
-        let secret_base32 = decrypt_secret(&key, &record.secret_encrypted)
-            .map_err(|e| ApiError::internal(&format!("Decryption failed: {e}")))?;
-        let secret = TotpSecret::from_base32(&secret_base32)
-            .ok_or_else(|| ApiError::internal("Stored TOTP secret is corrupt"))?;
-        let now_ts = Utc::now().timestamp() as u64;
-        secret.verify(&req.code, now_ts)
-    } else if req.code.len() == 8 && req.code.chars().all(|c| c.is_alphanumeric()) {
-        // 8-character backup code
-        let code_hash = hash_backup_code(&req.code);
-        state
-            .db
-            .consume_backup_code(user_id, &code_hash)
-            .await
-            .map_err(|e| ApiError::internal(&e.to_string()))?
+    // Determine which factor type to verify.
+    let code_accepted = if wants_email_otp || !totp_enabled {
+        // Email OTP path: 6-digit numeric code verified against email_otp table.
+        if req.code.len() != 6 || !req.code.chars().all(|c| c.is_ascii_digit()) {
+            false
+        } else {
+            state
+                .db
+                .verify_email_otp(user_id, &req.code, "login")
+                .await
+                .map_err(|e| ApiError::internal(&e.to_string()))?
+        }
     } else {
-        // Invalid format — reject without hitting crypto
-        false
+        // TOTP path.
+        let record = totp_record.ok_or_else(|| {
+            ApiError::internal("TOTP record missing for user with pending 2FA")
+        })?;
+
+        if !record.enabled {
+            return Err(ApiError::internal(
+                "TOTP not enabled but 2FA login was issued — contact support",
+            ));
+        }
+
+        if req.code.len() == 6 && req.code.chars().all(|c| c.is_ascii_digit()) {
+            // Regular 6-digit TOTP code.
+            let key = totp_encryption_key(&state);
+            let secret_base32 = decrypt_secret(&key, &record.secret_encrypted)
+                .map_err(|e| ApiError::internal(&format!("Decryption failed: {e}")))?;
+            let secret = TotpSecret::from_base32(&secret_base32)
+                .ok_or_else(|| ApiError::internal("Stored TOTP secret is corrupt"))?;
+            let now_ts = Utc::now().timestamp() as u64;
+            secret.verify(&req.code, now_ts)
+        } else if req.code.len() == 8 && req.code.chars().all(|c| c.is_alphanumeric()) {
+            // 8-character backup code.
+            let code_hash = hash_backup_code(&req.code);
+            state
+                .db
+                .consume_backup_code(user_id, &code_hash)
+                .await
+                .map_err(|e| ApiError::internal(&e.to_string()))?
+        } else {
+            // Invalid format — reject without hitting crypto.
+            false
+        }
     };
 
     if !code_accepted {
-        tracing::warn!(user_id = %user_id, "2FA login rejected — invalid code");
+        tracing::warn!(user_id = %user_id, code_type = ?req.code_type, "2FA login rejected — invalid code");
         return Err(ApiError::unauthorized("Invalid 2FA code."));
     }
 
-    let _ = state.db.touch_totp_used(user_id).await;
+    if totp_enabled {
+        let _ = state.db.touch_totp_used(user_id).await;
+    }
 
-    // Create full authenticated session
+    // Create full authenticated session.
     let token = state
         .db
         .create_session(user_id, "unknown", "api")
         .await
         .map_err(|e| ApiError::internal(&e.to_string()))?;
 
-    // Fetch role for response
     let role_str = state
         .db
         .get_user_role(user_id)

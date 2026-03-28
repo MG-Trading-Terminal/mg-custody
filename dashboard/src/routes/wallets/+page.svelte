@@ -81,7 +81,7 @@
 	{:else if vaults.length === 0}
 		<p class="muted">No vaults found.</p>
 	{:else}
-		<table>
+		<div class="table-wrap"><table>
 			<thead>
 				<tr><th>Name</th><th>Accounts</th><th>Auto-fuel</th><th>Created</th></tr>
 			</thead>
@@ -95,7 +95,7 @@
 					</tr>
 				{/each}
 			</tbody>
-		</table>
+		</table></div>
 	{/if}
 </div>
 
@@ -110,7 +110,7 @@
 		{:else if accounts.length === 0}
 			<p class="muted">No accounts in this vault.</p>
 		{:else}
-			<table>
+			<div class="table-wrap"><table>
 				<thead><tr><th>Chain</th><th>Address</th><th>Balance</th></tr></thead>
 				<tbody>
 					{#each accounts as a}
@@ -121,7 +121,7 @@
 						</tr>
 					{/each}
 				</tbody>
-			</table>
+			</table></div>
 		{/if}
 	</div>
 {/if}
@@ -192,6 +192,7 @@
 	.clickable { cursor: pointer; }
 	.clickable:hover td { background: var(--hover-bg, #1c2128); }
 
+	.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 	table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 	th { text-align: left; padding: 0.5rem 0.75rem; color: var(--fg-muted, #8b949e); border-bottom: 1px solid var(--border, #30363d); }
 	td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border, #30363d); }

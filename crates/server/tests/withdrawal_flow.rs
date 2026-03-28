@@ -52,6 +52,7 @@ async fn setup() -> Option<(axum::Router, CustodyDb, Arc<WithdrawalPipeline>)> {
         seed,
         withdrawal_pipeline: pipeline.clone(),
         event_broadcaster: Arc::new(custody_common::events::EventBroadcaster::with_default_capacity()),
+        user_rate_limiter: Arc::new(custody_gateway::rate_limit::UserRateLimiter::default_user()),
     };
 
     Some((custody_gateway::routes::router(state), db, pipeline))

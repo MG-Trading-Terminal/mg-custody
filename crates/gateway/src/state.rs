@@ -10,6 +10,8 @@ use custody_common::events::EventBroadcaster;
 use custody_db::CustodyDb;
 use custody_withdrawal_pipeline::WithdrawalPipeline;
 
+use crate::rate_limit::UserRateLimiter;
+
 /// Shared application state passed to all route handlers via axum's State.
 #[derive(Clone)]
 pub struct AppState {
@@ -18,4 +20,6 @@ pub struct AppState {
     pub seed: Arc<SeedBytes>,
     pub withdrawal_pipeline: Arc<WithdrawalPipeline>,
     pub event_broadcaster: Arc<EventBroadcaster>,
+    /// Per-user sliding window rate limiter (shared across all request handlers).
+    pub user_rate_limiter: Arc<UserRateLimiter>,
 }

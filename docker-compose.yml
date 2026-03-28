@@ -1,45 +1,89 @@
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+    internal: true
+
+volumes:
+  pgdata:
+  custody-config:
+
 services:
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: custody
-      POSTGRES_PASSWORD: custody_dev_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-custody_dev_password}
       POSTGRES_DB: custody
-    ports:
-      - "5432:5432"
+    networks:
+      - backend
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./crates/db/migrations:/docker-entrypoint-initdb.d
+      - ./crates/db/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U custody"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
 
   custody:
     build:
       context: .
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: postgres://custody:custody_dev_password@postgres:5432/custody
-      CUSTODY_DATABASE__URL: postgres://custody:custody_dev_password@postgres:5432/custody
+      DATABASE_URL: postgres://custody:${POSTGRES_PASSWORD:-custody_dev_password}@postgres:5432/custody
+      CUSTODY_DATABASE__URL: postgres://custody:${POSTGRES_PASSWORD:-custody_dev_password}@postgres:5432/custody
       CUSTODY_API__BIND: "0.0.0.0:8443"
+      CUSTODY_DASHBOARD_DIR: /opt/custody/dashboard
       CUSTODY_CHAINS__ETHEREUM__RPC_URL: ${ETH_RPC_URL:-https://rpc.sepolia.org}
+      CUSTODY_CHAINS__BITCOIN__RPC_URL: ${BTC_RPC_URL:-}
+      CUSTODY_CHAINS__TRON__RPC_URL: ${TRON_RPC_URL:-}
+      CUSTODY_CHAINS__SOLANA__RPC_URL: ${SOLANA_RPC_URL:-}
       CUSTODY_HMAC_SECRET: ${CUSTODY_HMAC_SECRET:-}
       CUSTODY_SEED_FILE: ${CUSTODY_SEED_FILE:-}
       CUSTODY_SEED_PASSWORD: ${CUSTODY_SEED_PASSWORD:-}
+      CUSTODY_FIDO2__RP_ID: ${FIDO2_RP_ID:-localhost}
+      CUSTODY_FIDO2__RP_ORIGIN: ${FIDO2_RP_ORIGIN:-http://localhost:8443}
       RUST_LOG: info,custody=debug
     ports:
       - "8443:8443"
+    networks:
+      - frontend
+      - backend
+    volumes:
+      - ./config:/opt/custody/config:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8443/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
 
-volumes:
-  pgdata:
+  signer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["custody-signer"]
+    environment:
+      DATABASE_URL: postgres://custody:${POSTGRES_PASSWORD:-custody_dev_password}@postgres:5432/custody
+      CUSTODY_DATABASE__URL: postgres://custody:${POSTGRES_PASSWORD:-custody_dev_password}@postgres:5432/custody
+      CUSTODY_HMAC_SECRET: ${CUSTODY_HMAC_SECRET:-}
+      CUSTODY_SEED_FILE: ${CUSTODY_SEED_FILE:-}
+      CUSTODY_SEED_PASSWORD: ${CUSTODY_SEED_PASSWORD:-}
+      RUST_LOG: info,custody=debug
+    # Signer has NO frontend network access — internal only
+    networks:
+      - backend
+    volumes:
+      - ./config:/opt/custody/config:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped

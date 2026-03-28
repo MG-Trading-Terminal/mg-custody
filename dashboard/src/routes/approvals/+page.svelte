@@ -95,7 +95,7 @@
 			<p class="muted">Tier 2+ withdrawals requiring human sign-off will appear here.</p>
 		</div>
 	{:else}
-		<table>
+		<div class="table-wrap"><table>
 			<thead>
 				<tr><th>Withdrawal</th><th>Asset</th><th>Amount</th><th>Destination</th><th>Tier</th><th>Progress</th><th>Expires</th><th></th></tr>
 			</thead>
@@ -120,7 +120,7 @@
 					</tr>
 				{/each}
 			</tbody>
-		</table>
+		</table></div>
 	{/if}
 </div>
 
@@ -178,6 +178,7 @@
 		color: var(--accent, #58a6ff);
 	}
 
+	.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 	table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 	th { text-align: left; padding: 0.5rem 0.75rem; color: var(--fg-muted, #8b949e); border-bottom: 1px solid var(--border, #30363d); }
 	td { padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--border, #30363d); vertical-align: middle; }

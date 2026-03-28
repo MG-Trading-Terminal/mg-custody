@@ -116,6 +116,7 @@ pub mod walletconnect;
 pub mod walletconnect_v2;
 pub mod yield_strategies;
 pub mod zk_proofs;
+pub mod qr_svg;
 
 pub use types::*;
 pub use error::*;

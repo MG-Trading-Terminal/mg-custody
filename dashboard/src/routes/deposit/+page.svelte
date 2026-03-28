@@ -146,7 +146,7 @@
 	{:else if history.length === 0}
 		<p class="muted">No deposits yet.</p>
 	{:else}
-		<table>
+		<div class="table-wrap"><table>
 			<thead>
 				<tr><th>Asset</th><th>Amount</th><th>Tx Hash</th><th>Confirmations</th><th>Status</th><th>Date</th></tr>
 			</thead>
@@ -162,7 +162,7 @@
 					</tr>
 				{/each}
 			</tbody>
-		</table>
+		</table></div>
 	{/if}
 </div>
 
@@ -241,6 +241,7 @@
 		border-radius: 6px; padding: 0.6rem 0.8rem; margin: 0;
 	}
 
+	.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 	table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
 	th { text-align: left; padding: 0.5rem 0.75rem; color: var(--fg-muted, #8b949e); border-bottom: 1px solid var(--border, #30363d); }
 	td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border, #30363d); }

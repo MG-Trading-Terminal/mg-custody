@@ -108,7 +108,7 @@
 	{:else if txs.length === 0}
 		<p class="muted">No transactions match the selected filters.</p>
 	{:else}
-		<table>
+		<div class="table-wrap"><table>
 			<thead>
 				<tr><th>ID</th><th>Type</th><th>Chain</th><th>Asset</th><th>Amount</th><th>Status</th><th>Date</th></tr>
 			</thead>
@@ -125,7 +125,7 @@
 					</tr>
 				{/each}
 			</tbody>
-		</table>
+		</table></div>
 		{#if hasMore}
 			<div class="load-more">
 				<button class="btn-ghost" onclick={loadMore} disabled={loadingMore}>
@@ -194,6 +194,7 @@
 	}
 	.btn-ghost:disabled { opacity: 0.5; cursor: not-allowed; }
 
+	.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 	table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 	th { text-align: left; padding: 0.5rem 0.75rem; color: var(--fg-muted, #8b949e); border-bottom: 1px solid var(--border, #30363d); }
 	td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border, #30363d); }

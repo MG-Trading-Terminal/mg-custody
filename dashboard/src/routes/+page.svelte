@@ -83,7 +83,7 @@
 		{#if portfolio.balances.length === 0}
 			<p class="muted">No balances yet. Make a deposit to get started.</p>
 		{:else}
-			<table>
+			<div class="table-wrap"><table>
 				<thead>
 					<tr><th>Asset</th><th>Balance</th><th>USD Value</th><th>% of Portfolio</th></tr>
 				</thead>
@@ -104,7 +104,7 @@
 						</tr>
 					{/each}
 				</tbody>
-			</table>
+			</table></div>
 		{/if}
 	</div>
 
@@ -163,6 +163,7 @@
 		font-size: 0.75rem; font-weight: 700;
 	}
 
+	.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 	table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 	th { text-align: left; padding: 0.5rem 0.75rem; color: var(--fg-muted, #8b949e); border-bottom: 1px solid var(--border, #30363d); }
 	td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border, #30363d); }
@@ -192,4 +193,12 @@
 	.muted  { color: var(--fg-muted, #8b949e); }
 	.mono   { font-family: monospace; }
 	.err    { color: var(--red, #f85149); }
+
+	@media (max-width: 768px) {
+		.top-row { flex-direction: column; }
+		.aum-card { min-width: unset; width: 100%; }
+		.actions { flex-wrap: wrap; }
+		.activity-row { flex-wrap: wrap; gap: 0.4rem; }
+		.activity-date { margin-left: 0; width: 100%; }
+	}
 </style>

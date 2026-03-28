@@ -197,7 +197,7 @@
 	{:else if history.length === 0}
 		<p class="muted">No withdrawals yet.</p>
 	{:else}
-		<table>
+		<div class="table-wrap"><table>
 			<thead>
 				<tr><th>Asset</th><th>Chain</th><th>Amount</th><th>Destination</th><th>Tx Hash</th><th>Status</th><th>Date</th></tr>
 			</thead>
@@ -214,7 +214,7 @@
 					</tr>
 				{/each}
 			</tbody>
-		</table>
+		</table></div>
 	{/if}
 </div>
 
@@ -278,6 +278,7 @@
 	.btn-secondary { background: none; color: var(--accent, #58a6ff); border: 1px solid var(--accent, #58a6ff); }
 	.btn-primary:disabled, .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
+	.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 	table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
 	th { text-align: left; padding: 0.5rem 0.75rem; color: var(--fg-muted, #8b949e); border-bottom: 1px solid var(--border, #30363d); }
 	td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border, #30363d); }
@@ -291,4 +292,9 @@
 	.mono   { font-family: monospace; }
 	.err    { color: var(--red, #f85149); }
 	.ok     { color: var(--green, #3fb950); font-size: 0.88rem; }
+
+	@media (max-width: 768px) {
+		.form-grid { grid-template-columns: 1fr; }
+		.span2 { grid-column: span 1; }
+	}
 </style>

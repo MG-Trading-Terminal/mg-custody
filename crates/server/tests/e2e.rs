@@ -41,6 +41,7 @@ async fn test_app() -> Option<axum::Router> {
         seed,
         withdrawal_pipeline: pipeline,
         event_broadcaster: std::sync::Arc::new(custody_common::events::EventBroadcaster::with_default_capacity()),
+        user_rate_limiter: std::sync::Arc::new(custody_gateway::rate_limit::UserRateLimiter::default_user()),
     };
 
     Some(custody_gateway::routes::router(state))

@@ -1,5 +1,39 @@
 # Sprint Log
 
+## Sprint N+4 — Phase 29: Mobile Dashboard + Docker Production + QR Code (2026-03-27)
+
+### Goals
+- Mobile-responsive dashboard (hamburger, sidebar, table scroll wrappers)
+- Production-ready multi-stage Dockerfile with dashboard build stage
+- Real QR Code Model 2 SVG generator (ISO/IEC 18004:2015)
+
+### Completed
+| Task | Crate/File | Status | Tests | Notes |
+|------|-----------|--------|-------|-------|
+| Hamburger menu + collapsible sidebar | dashboard/+layout.svelte | DONE | — | CSS slide-in, overlay backdrop |
+| table-wrap on all pages with `<table>` | dashboard/routes/* (11 pages) | DONE | — | overflow-x: auto |
+| withdraw form-grid single column on mobile | dashboard/withdraw | DONE | — | grid-template-columns: 1fr |
+| Multi-stage Dockerfile (node + rust + runtime) | Dockerfile | DONE | — | dashboard build in stage 1 |
+| Network-isolated docker-compose | docker-compose.yml | DONE | — | frontend/backend networks, signer isolated |
+| QR Code Model 2 ISO 18004:2015 SVG generator | crates/common/src/qr_svg.rs | DONE | 10 | GF(256) RS, 8 masks, BCH format info |
+| Wire QR generator into deposit_address_qr handler | crates/gateway/src/user_routes.rs | DONE | — | fallback to text SVG on error |
+
+### Metrics
+- **New tests added**: 10 (all in `custody-common::qr_svg`)
+- **Tests passing**: 1070 (custody-common: 952, custody-gateway: 118)
+- **New files**: 1 (`qr_svg.rs`)
+- **Modified files**: 14 (11 dashboard pages + layout, Dockerfile, docker-compose.yml, user_routes.rs, lib.rs)
+- **Dashboard build**: passes (`npm run build` succeeds)
+- **Clippy**: zero new warnings in all added/modified files
+
+### References Used
+| Reference | URL | Used For |
+|-----------|-----|----------|
+| ISO/IEC 18004:2015 | standard | QR Code module placement, masking, format info |
+| thonky.com QR tutorial | https://www.thonky.com/qr-code-tutorial/ | Capacity tables, RS encoding, BCH format |
+| BIP-21 URI scheme | https://github.com/bitcoin/bips/blob/master/bip-0021.mediawiki | Bitcoin QR URI prefix |
+| EIP-681 URI scheme | https://eips.ethereum.org/EIPS/eip-681 | Ethereum QR URI prefix |
+
 ## Sprint N+3 — Phase 28: TOTP 2FA + Proof of Reserves User Verification (2026-03-28)
 
 ### Goals

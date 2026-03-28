@@ -10,13 +10,15 @@ use axum::{
 use std::sync::Arc;
 
 use crate::auth;
-use crate::rate_limit::RateLimiter;
+use crate::rate_limit::{RateLimiter, UserRateLimiter, ip_key, user_key};
+use crate::rbac_middleware::AuthContext;
 
 /// Shared middleware state.
 #[derive(Clone)]
 pub struct MiddlewareState {
     pub hmac_secret: Vec<u8>,
     pub rate_limiter: Arc<RateLimiter>,
+    pub user_rate_limiter: Arc<UserRateLimiter>,
     /// Skip auth for these paths (health, metrics).
     pub public_paths: Vec<String>,
 }
@@ -26,6 +28,7 @@ impl MiddlewareState {
         Self {
             hmac_secret: hmac_secret.to_vec(),
             rate_limiter: Arc::new(RateLimiter::default_api()),
+            user_rate_limiter: Arc::new(UserRateLimiter::default_user()),
             public_paths: vec![
                 "/health".into(),
                 "/health/chains".into(),
@@ -148,29 +151,104 @@ pub async fn security_headers(
 }
 
 /// Rate limiting middleware.
+///
+/// For authenticated requests (Bearer token already resolved into `AuthContext`
+/// by `rbac_auth`), applies per-user sliding window limits keyed on user_id with
+/// per-role caps.  For unauthenticated requests, falls back to the IP-based token
+/// bucket.
+///
+/// Adds `X-RateLimit-Limit` and `X-RateLimit-Reset` headers to every response.
+/// Returns 429 with `Retry-After` header when the limit is exceeded.
 pub async fn rate_limit(
     State(mw): State<MiddlewareState>,
     request: Request<Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let key = request.headers()
-        .get("X-Forwarded-For")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown")
-        .to_string();
+    use crate::rate_limit::RoleLimit;
 
-    match mw.rate_limiter.check(&key) {
-        Ok(remaining) => {
-            let mut response = next.run(request).await;
-            response.headers_mut().insert(
-                "X-RateLimit-Remaining",
-                remaining.to_string().parse().unwrap(),
-            );
-            Ok(response)
+    // Attempt to read the AuthContext injected by rbac_auth (runs before us in the stack).
+    let auth_ctx = request.extensions().get::<AuthContext>().cloned();
+
+    if let Some(ctx) = auth_ctx {
+        // Authenticated — use per-user sliding window.
+        let role_ordinal = ctx.role as u8;
+        let limit = RoleLimit::for_role_ordinal(role_ordinal).max_per_minute;
+        let key = user_key(&ctx.user_id.to_string());
+
+        // Reset epoch: seconds until the start of the next window (up to 60).
+        match mw.user_rate_limiter.check(&key, limit) {
+            Ok((remaining, cap)) => {
+                let mut response = next.run(request).await;
+                let headers = response.headers_mut();
+                if let (Ok(rem_hv), Ok(cap_hv), Ok(reset_hv)) = (
+                    remaining.to_string().parse(),
+                    cap.to_string().parse(),
+                    "60".parse(),
+                ) {
+                    headers.insert("X-RateLimit-Remaining", rem_hv);
+                    headers.insert("X-RateLimit-Limit", cap_hv);
+                    headers.insert("X-RateLimit-Reset", reset_hv);
+                }
+                Ok(response)
+            }
+            Err(retry_secs) => {
+                tracing::warn!(
+                    user = %ctx.email,
+                    role = ?ctx.role,
+                    retry_secs,
+                    "Per-user rate limit exceeded"
+                );
+                let mut response = Response::builder()
+                    .status(StatusCode::TOO_MANY_REQUESTS)
+                    .body(Body::empty())
+                    .unwrap();
+                if let Ok(hv) = retry_secs.to_string().parse() {
+                    response.headers_mut().insert("Retry-After", hv);
+                }
+                if let (Ok(lim_hv), Ok(reset_hv)) =
+                    (limit.to_string().parse(), retry_secs.to_string().parse())
+                {
+                    response.headers_mut().insert("X-RateLimit-Limit", lim_hv);
+                    response.headers_mut().insert("X-RateLimit-Reset", reset_hv);
+                }
+                Ok(response)
+            }
         }
-        Err(retry_after) => {
-            tracing::warn!(key = %key, retry_secs = retry_after.as_secs(), "Rate limited");
-            Err(StatusCode::TOO_MANY_REQUESTS)
+    } else {
+        // Unauthenticated — fall back to IP-based token bucket.
+        let key = request
+            .headers()
+            .get("X-Forwarded-For")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| ip_key(s.split(',').next().unwrap_or("unknown").trim()))
+            .unwrap_or_else(|| ip_key("unknown"));
+
+        match mw.rate_limiter.check(&key) {
+            Ok(remaining) => {
+                let mut response = next.run(request).await;
+                let headers = response.headers_mut();
+                if let (Ok(rem_hv), Ok(cap_hv), Ok(reset_hv)) = (
+                    remaining.to_string().parse(),
+                    "100".parse(),
+                    "60".parse(),
+                ) {
+                    headers.insert("X-RateLimit-Remaining", rem_hv);
+                    headers.insert("X-RateLimit-Limit", cap_hv);
+                    headers.insert("X-RateLimit-Reset", reset_hv);
+                }
+                Ok(response)
+            }
+            Err(retry_after) => {
+                tracing::warn!(key = %key, retry_secs = retry_after.as_secs(), "IP rate limit exceeded");
+                let mut response = Response::builder()
+                    .status(StatusCode::TOO_MANY_REQUESTS)
+                    .body(Body::empty())
+                    .unwrap();
+                if let Ok(hv) = retry_after.as_secs().to_string().parse() {
+                    response.headers_mut().insert("Retry-After", hv);
+                }
+                Ok(response)
+            }
         }
     }
 }
@@ -184,6 +262,9 @@ mod tests {
         let mw = MiddlewareState::new(b"test-secret");
         assert_eq!(mw.hmac_secret, b"test-secret");
         assert!(mw.public_paths.contains(&"/health".to_string()));
+        // Both rate limiters are present
+        drop(mw.rate_limiter);
+        drop(mw.user_rate_limiter);
     }
 
     #[test]

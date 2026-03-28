@@ -64,7 +64,7 @@
 		{#if loading}
 			<p class="muted">Loading…</p>
 		{:else if chains.length === 0}
-			<table>
+			<div class="table-wrap"><table>
 				<thead><tr><th>Chain</th><th>RPC</th><th>Confirmations</th><th>Status</th></tr></thead>
 				<tbody>
 					{#each [
@@ -81,9 +81,9 @@
 						</tr>
 					{/each}
 				</tbody>
-			</table>
+			</table></div>
 		{:else}
-			<table>
+			<div class="table-wrap"><table>
 				<thead><tr><th>Chain</th><th>RPC</th><th>Conf.</th><th>Block</th><th>Latency</th><th>Status</th></tr></thead>
 				<tbody>
 					{#each chains as c}
@@ -97,7 +97,7 @@
 						</tr>
 					{/each}
 				</tbody>
-			</table>
+			</table></div>
 		{/if}
 		<p class="note muted">Override via <code>CUSTODY_CHAINS__*</code> environment variables.</p>
 	</div>
@@ -136,7 +136,7 @@
 		{:else if fido.length === 0}
 			<p class="muted">No FIDO2 credentials registered, or endpoint unavailable.</p>
 		{:else}
-			<table>
+			<div class="table-wrap"><table>
 				<thead><tr><th>User</th><th>Credentials</th></tr></thead>
 				<tbody>
 					{#each fido as f}
@@ -146,7 +146,7 @@
 						</tr>
 					{/each}
 				</tbody>
-			</table>
+			</table></div>
 		{/if}
 	</div>
 </section>
@@ -174,6 +174,7 @@
 
 	.empty { color: var(--fg-muted, #8b949e); }
 
+	.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 	table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 	th { text-align: left; padding: 0.5rem 0.75rem; color: var(--fg-muted, #8b949e); border-bottom: 1px solid var(--border, #30363d); }
 	td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border, #30363d); }

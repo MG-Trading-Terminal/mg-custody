@@ -19,7 +19,7 @@
 
 <div class="card">
 	<h3>Role Legend</h3>
-	<table>
+	<div class="table-wrap"><table>
 		<thead>
 			<tr><th>Role</th><th>Permissions</th></tr>
 		</thead>
@@ -31,7 +31,7 @@
 				</tr>
 			{/each}
 		</tbody>
-	</table>
+	</table></div>
 </div>
 
 <style>
@@ -56,6 +56,7 @@
 
 	h3 { margin: 0 0 0.9rem; font-size: 0.95rem; color: var(--fg-muted, #8b949e); }
 
+	.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 	table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 	th { text-align: left; padding: 0.5rem 0.75rem; color: var(--fg-muted, #8b949e); border-bottom: 1px solid var(--border, #30363d); }
 	td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border, #30363d); vertical-align: top; }

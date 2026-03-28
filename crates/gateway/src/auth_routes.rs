@@ -4,13 +4,18 @@
 //! - POST /v1/auth/sessions — login (email + password → token)
 //! - DELETE /v1/auth/sessions/{token_prefix} — revoke session
 //! - GET /v1/auth/sessions — list active sessions (admin or own)
+//!
+//! # Brute-force protection
+//! After 5 failed attempts within 15 minutes, the account enters a 5-minute
+//! cooldown.  Every attempt (success or failure) is recorded in `login_history`.
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{delete, get, post},
     Json, Router,
 };
+use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -18,6 +23,13 @@ use crate::errors::ApiError;
 use crate::rbac_middleware::AuthUser;
 use crate::state::AppState;
 use custody_db::sessions;
+
+/// Number of failures within the lockout window before a cooldown is applied.
+const LOCKOUT_THRESHOLD: i64 = 5;
+/// Duration of the sliding failure window.
+const LOCKOUT_WINDOW_MINUTES: i64 = 15;
+/// Duration of the temporary cooldown once the threshold is reached.
+const LOCKOUT_COOLDOWN_MINUTES: i64 = 5;
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
@@ -55,6 +67,7 @@ pub fn auth_router() -> Router<AppState> {
         .route("/v1/auth/sessions", post(login))
         .route("/v1/auth/sessions", get(list_sessions))
         .route("/v1/auth/sessions/{token_prefix}", delete(revoke_session))
+        .route("/v1/user/login-history", get(list_login_history))
 }
 
 /// POST /v1/auth/sessions — create session (login).
@@ -66,28 +79,93 @@ pub fn auth_router() -> Router<AppState> {
 /// `POST /v1/auth/sessions/verify-2fa` with the pending token and their TOTP code.
 ///
 /// If TOTP is not enabled, returns a full session token immediately.
+///
+/// After 5 failed attempts within 15 minutes, the account is temporarily locked
+/// for 5 minutes.  All attempts — successful or not — are recorded in login_history.
 async fn login(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<LoginRequest>,
 ) -> Result<(StatusCode, Json<LoginResponse>), ApiError> {
-    // Find user by email
-    let (user_id, role_str, password_hash) = state
+    // Extract request metadata for audit recording.
+    let ip = headers
+        .get("X-Forwarded-For")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or("unknown").trim().to_string())
+        .unwrap_or_else(|| "unknown".into());
+    let user_agent = headers
+        .get("User-Agent")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown")
+        .to_string();
+
+    // Find user by email — use a generic error to avoid email enumeration.
+    let (user_id, role_str, password_hash) = match state
         .db
         .find_user_by_email(&req.email)
         .await
         .map_err(|e| ApiError::internal(&e.to_string()))?
-        .ok_or_else(|| ApiError::unauthorized("Invalid email or password"))?;
+    {
+        Some(row) => row,
+        None => {
+            tracing::warn!(email = %req.email, "Login attempt for unknown email");
+            return Err(ApiError::unauthorized("Invalid email or password"));
+        }
+    };
 
-    // Verify password
-    let stored_hash = password_hash
-        .ok_or_else(|| ApiError::unauthorized("Password not set — contact admin"))?;
+    // ── Brute-force check ────────────────────────────────────────────────────
+    // Count recent failures; reject immediately if the lockout threshold is met.
+    let since = Utc::now() - Duration::minutes(LOCKOUT_WINDOW_MINUTES);
+    let failure_count = state
+        .db
+        .count_failed_logins(user_id, since)
+        .await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+
+    if failure_count >= LOCKOUT_THRESHOLD {
+        tracing::warn!(
+            email = %req.email,
+            failures = failure_count,
+            "Account temporarily locked — too many failed attempts"
+        );
+        // Record this blocked attempt.
+        let _ = state
+            .db
+            .record_login(user_id, &ip, &user_agent, "password", false, Some("account_locked"))
+            .await;
+        return Err(ApiError {
+            error: "account_locked".into(),
+            message: format!(
+                "Too many failed attempts. Please try again in {} minutes.",
+                LOCKOUT_COOLDOWN_MINUTES
+            ),
+            request_id: Uuid::new_v4().to_string(),
+            status: StatusCode::TOO_MANY_REQUESTS,
+        });
+    }
+
+    // ── Password verification ─────────────────────────────────────────────────
+    let stored_hash = match password_hash {
+        Some(h) => h,
+        None => {
+            let _ = state
+                .db
+                .record_login(user_id, &ip, &user_agent, "password", false, Some("password_not_set"))
+                .await;
+            return Err(ApiError::unauthorized("Password not set — contact admin"));
+        }
+    };
 
     if !verify_password(&req.password, &stored_hash) {
-        tracing::warn!(email = %req.email, "Failed login attempt");
+        tracing::warn!(email = %req.email, "Failed login attempt — wrong password");
+        let _ = state
+            .db
+            .record_login(user_id, &ip, &user_agent, "password", false, Some("invalid_password"))
+            .await;
         return Err(ApiError::unauthorized("Invalid email or password"));
     }
 
-    // Check if TOTP is enabled for this user
+    // ── TOTP check ────────────────────────────────────────────────────────────
     let totp_enabled = state
         .db
         .load_totp(user_id)
@@ -97,7 +175,7 @@ async fn login(
         .unwrap_or(false);
 
     if totp_enabled {
-        // Issue a pending 2FA token — full session is created only after TOTP passes
+        // Issue a pending 2FA token — full session is created only after TOTP passes.
         let pending_token = state
             .db
             .create_pending_2fa_token(user_id)
@@ -105,6 +183,11 @@ async fn login(
             .map_err(|e| ApiError::internal(&e.to_string()))?;
 
         tracing::info!(email = %req.email, "Password OK — 2FA required");
+        // Record password step as success; the TOTP step will be recorded separately.
+        let _ = state
+            .db
+            .record_login(user_id, &ip, &user_agent, "password", true, None)
+            .await;
 
         return Ok((
             StatusCode::OK,
@@ -119,10 +202,7 @@ async fn login(
         ));
     }
 
-    // No TOTP — create session directly
-    let ip = "unknown".to_string();
-    let user_agent = "api".to_string();
-
+    // ── Session creation ──────────────────────────────────────────────────────
     let token = state
         .db
         .create_session(user_id, &ip, &user_agent)
@@ -130,6 +210,10 @@ async fn login(
         .map_err(|e| ApiError::internal(&e.to_string()))?;
 
     let _ = state.db.update_last_login(user_id).await;
+    let _ = state
+        .db
+        .record_login(user_id, &ip, &user_agent, "password", true, None)
+        .await;
 
     tracing::info!(email = %req.email, role = %role_str, "User logged in");
 
@@ -144,6 +228,19 @@ async fn login(
             pending_token: None,
         }),
     ))
+}
+
+/// GET /v1/user/login-history — list recent login events for the authenticated user.
+async fn list_login_history(
+    State(state): State<AppState>,
+    auth: crate::rbac_middleware::RequireViewer,
+) -> Result<Json<Vec<custody_db::login_history::LoginHistoryEntry>>, ApiError> {
+    let entries = state
+        .db
+        .list_login_history(auth.0.user_id, 50)
+        .await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+    Ok(Json(entries))
 }
 
 /// GET /v1/auth/sessions — list sessions.

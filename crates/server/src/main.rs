@@ -390,6 +390,9 @@ async fn main() -> anyhow::Result<()> {
         seed,
         withdrawal_pipeline: withdrawal_pipeline.clone(),
         event_broadcaster: event_broadcaster.clone(),
+        user_rate_limiter: std::sync::Arc::new(
+            custody_gateway::rate_limit::UserRateLimiter::default_user(),
+        ),
     };
 
     // Use middleware if HMAC secret is configured

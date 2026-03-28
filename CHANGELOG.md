@@ -5,6 +5,119 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-27) — Mobile-Responsive Dashboard, Production Docker, Real QR Code SVG
+
+- **`dashboard/src/routes/+layout.svelte`** — mobile-responsive sidebar:
+  - Hamburger button (three-bar icon, visible only on `<768px`)
+  - Sidebar slides in from left on hamburger click; closes on nav link click or overlay tap
+  - Dark overlay backdrop when sidebar is open on mobile
+  - `@media (max-width: 768px)` CSS: sidebar `position:fixed; left:-220px; transition:left 0.2s`, `.sidebar.open { left:0 }`, `content { padding:1rem }`
+  - Sticky mobile header bar with title when sidebar is collapsed
+
+- **Dashboard pages** — horizontal scroll for all tables on mobile:
+  - Added `.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch }` wrapper to all `<table>` elements in: `+page.svelte`, `addresses`, `approvals`, `audit`, `deposit`, `transactions`, `users`, `wallets`, `withdraw`, `policies`, `settings`
+  - Withdrawal form grid collapses to single column on mobile (`grid-template-columns: 1fr`)
+  - Portfolio top-row cards stack vertically on mobile
+
+- **`Dockerfile`** — three-stage multi-stage build:
+  - Stage 1 (`node:22-alpine`): builds SvelteKit dashboard (`npm ci && npm run build`)
+  - Stage 2 (`rust:1.85-bookworm`): copies dashboard build, compiles all Rust binaries
+  - Stage 3 (`debian:bookworm-slim`): copies binaries + dashboard build + config, sets `CUSTODY_DASHBOARD_DIR`
+
+- **`docker-compose.yml`** — production-ready compose:
+  - Network isolation: `frontend` (custody ↔ host) and `backend` (internal only, postgres + signer)
+  - `signer` service has no `frontend` network — isolated to backend
+  - All secrets via env vars (`${POSTGRES_PASSWORD}`, `${CUSTODY_HMAC_SECRET}`, etc.)
+  - FIDO2 RP_ID and RP_ORIGIN configurable
+  - `restart: unless-stopped` on all services
+  - Postgres `start_period: 10s`, `retries: 10`
+
+- **`crates/common/src/qr_svg.rs`** — ISO/IEC 18004:2015 QR Code Model 2 generator:
+  - Alphanumeric mode encoding (0–9, A–Z, space, $ % * + - . / :)
+  - Versions 1–10 (21×21 to 57×57 modules), EC level L
+  - Reed-Solomon GF(256) error correction with generator polynomial 285
+  - Module placement: finder patterns, alignment patterns, timing patterns, dark module, format info areas
+  - All 8 mask patterns evaluated; best chosen by ISO penalty scoring (rules 1–4)
+  - BCH(15,5) format information with XOR mask 101010000010010
+  - SVG output: pure `<rect>` elements, white background, 4px module size, 4-module quiet zone
+  - 10 unit tests: character set correctness, encoding arithmetic, RS length, mask pattern inversion, module matrix size, SVG dimensions, full round-trips for HELLO, ETH address, BTC address
+
+- **`crates/gateway/src/user_routes.rs`** — `deposit_address_qr` handler:
+  - Replaced placeholder text-SVG with `custody_common::qr_svg::generate_qr_svg`
+  - QR data uses uppercased `format_qr_data` output (BIP-21 / EIP-681 URI prefix preserved)
+  - Graceful fallback to plain-text SVG if address contains non-alphanumeric characters
+
+### Added (2026-03-28) — Per-User Rate Limiting, Login History, Email OTP + Password Reset
+
+- **`crates/gateway/src/rate_limit.rs`** — per-user sliding window rate limiter:
+  - `UserRateLimiter` — sliding window counter keyed on `"user:{uuid}"` or `"ip:{ip}"`
+  - `RoleLimit::for_role_ordinal` — per-role caps: Viewer=30, Editor=60, Signer=100, Admin=200, Owner=500 req/min
+  - `user_key` / `ip_key` — key builders for user and IP buckets
+  - Falls back to IP-based `RateLimiter` (token bucket) for unauthenticated requests
+  - `UserRateLimiter::cleanup()` — evicts windows idle for 2× window duration
+  - 13 new unit tests: per-role values, ordinal mapping, sliding window expiry, different-user independence, retry_after ≥ 1s
+
+- **`crates/gateway/src/middleware.rs`** — updated `rate_limit` middleware:
+  - Reads `AuthContext` from request extensions (injected by `rbac_auth`)
+  - Authenticated requests: per-user sliding window with role-based cap
+  - Unauthenticated: IP token bucket fallback
+  - Adds `X-RateLimit-Limit`, `X-RateLimit-Reset`, `X-RateLimit-Remaining` headers to every response
+  - Returns 429 with `Retry-After` header on limit exceeded
+  - `MiddlewareState` gains `user_rate_limiter: Arc<UserRateLimiter>` field
+
+- **`crates/gateway/src/state.rs`** — `AppState` gains `user_rate_limiter: Arc<UserRateLimiter>`
+
+- **`crates/db/migrations/016_login_history.sql`** — login history table:
+  - `login_history(id, user_id, ip_address, user_agent, method, success, failure_reason, created_at)`
+  - `method` values: `password`, `totp`, `fido2`, `backup_code`, `email_otp`
+  - Index `idx_login_history_user` on `(user_id, created_at DESC)` for fast per-user queries
+
+- **`crates/db/src/login_history.rs`** — login history DB operations:
+  - `record_login(user_id, ip, ua, method, success, failure_reason)` — insert one row
+  - `list_login_history(user_id, limit)` — newest-first, limit clamped to 1–200
+  - `count_failed_logins(user_id, since)` — count failures since a timestamp (brute-force detection)
+  - `cleanup_old_logins(days)` — purge rows older than N days
+  - 6 unit tests: serialization, brute-force threshold logic, limit clamping
+
+- **`crates/gateway/src/auth_routes.rs`** — updated `login` handler:
+  - Records every login attempt (success and failure) in `login_history`
+  - Extracts real IP from `X-Forwarded-For`, user agent from `User-Agent`
+  - Brute-force lockout: 5 failures in 15 minutes → 429 with 5-minute cooldown message
+  - Locked attempts recorded with `failure_reason = 'account_locked'`
+  - New `GET /v1/user/login-history` endpoint (RequireViewer) — lists recent entries
+
+- **`dashboard/src/routes/login-history/+page.svelte`** — login history dashboard page:
+  - Table: Time, IP Address, Method, Success/Fail badge, Failure Reason, User Agent
+  - Success rows neutral, failure rows highlighted with danger background
+
+- **`crates/db/migrations/017_email_otp.sql`** — email OTP table:
+  - `email_otp(id, user_id, code_hash, purpose, created_at, expires_at, consumed_at)`
+  - Only SHA-256 hash of 6-digit code stored — raw code never persisted
+  - Purpose values: `login`, `password_reset`, `email_verify`
+  - Codes expire after 10 minutes; single-use via `consumed_at` atomic UPDATE RETURNING
+
+- **`crates/db/src/email_otp.rs`** — email OTP DB operations:
+  - `generate_otp_code()` — 6-digit decimal, zero-padded, OsRng CSPRNG
+  - `hash_otp_code(raw)` — SHA-256 hex
+  - `create_email_otp(user_id, purpose)` — inserts hash, returns raw code
+  - `verify_email_otp(user_id, code, purpose)` — atomic verify-and-consume, constant-time
+  - `cleanup_expired_otps()` — delete expired or consumed rows
+  - `find_user_id_by_email_for_reset(email)` — for password reset (includes disabled accounts)
+  - 8 unit tests: code length, leading zeros, hash determinism/uniqueness, expiry constant bounds
+
+- **`crates/gateway/src/password_reset_routes.rs`** — password reset endpoints:
+  - `POST /v1/auth/password-reset/request` — generates OTP, logs dispatch (SMTP stub)
+  - `POST /v1/auth/password-reset/confirm` — verifies OTP, updates password hash, revokes all sessions
+  - Minimum password length: 12 characters
+  - Generic error responses prevent email enumeration
+  - 7 unit tests: input validation, body deserialization, response serialization
+
+- **`crates/gateway/src/totp_routes.rs`** — extended `verify_2fa_login`:
+  - Accepts `code_type: "email_otp"` to route 6-digit codes to `email_otp` table instead of TOTP
+  - Falls through to email OTP path when TOTP is not enrolled for the user
+
+- Public paths updated in `rbac_middleware::RbacState` and rate-limit `MiddlewareState` to include password-reset endpoints
+
 ### Added (2026-03-28) — Phase 28: TOTP 2FA + Proof of Reserves User Verification
 
 - **`crates/common/src/totp.rs`** — RFC 6238 TOTP implementation:

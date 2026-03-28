@@ -1,6 +1,8 @@
 <script lang="ts">
 	let { children } = $props();
 
+	let sidebarOpen = $state(false);
+
 	const userItems = [
 		{ href: '/',            label: 'Portfolio',     icon: '$' },
 		{ href: '/deposit',     label: 'Deposit',       icon: '+' },
@@ -18,21 +20,33 @@
 		{ href: '/audit',      label: 'Audit Log',  icon: 'L' },
 		{ href: '/settings',   label: 'Settings',   icon: 'S' },
 	];
+
+	function closeSidebar() { sidebarOpen = false; }
 </script>
 
 <svelte:head>
 	<title>MG Custody</title>
 </svelte:head>
 
+<!-- Mobile overlay backdrop -->
+{#if sidebarOpen}
+	<div
+		class="mobile-backdrop"
+		role="presentation"
+		onclick={closeSidebar}
+		onkeydown={(e) => e.key === 'Escape' && closeSidebar()}
+	></div>
+{/if}
+
 <div class="app">
-	<nav class="sidebar">
+	<nav class="sidebar" class:open={sidebarOpen}>
 		<div class="logo">
 			<h2>MG Custody</h2>
 		</div>
 		<ul>
 			{#each userItems as item}
 				<li>
-					<a href={item.href}>
+					<a href={item.href} onclick={closeSidebar}>
 						<span class="icon">{item.icon}</span>
 						{item.label}
 					</a>
@@ -47,7 +61,7 @@
 		<ul>
 			{#each adminItems as item}
 				<li>
-					<a href={item.href}>
+					<a href={item.href} onclick={closeSidebar}>
 						<span class="icon">{item.icon}</span>
 						{item.label}
 					</a>
@@ -55,9 +69,24 @@
 			{/each}
 		</ul>
 	</nav>
-	<main class="content">
-		{@render children()}
-	</main>
+	<div class="content-wrap">
+		<header class="mobile-header">
+			<button
+				class="hamburger"
+				aria-label="Toggle navigation"
+				aria-expanded={sidebarOpen}
+				onclick={() => { sidebarOpen = !sidebarOpen; }}
+			>
+				<span></span>
+				<span></span>
+				<span></span>
+			</button>
+			<span class="mobile-title">MG Custody</span>
+		</header>
+		<main class="content">
+			{@render children()}
+		</main>
+	</div>
 </div>
 
 <style>
@@ -139,9 +168,96 @@
 		margin-top: 0.5rem;
 	}
 
+	.content-wrap {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+
+	.mobile-header {
+		display: none;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.75rem 1rem;
+		background: var(--sidebar-bg, #161b22);
+		border-bottom: 1px solid var(--border, #30363d);
+		position: sticky;
+		top: 0;
+		z-index: 50;
+	}
+
+	.mobile-title {
+		font-size: 1rem;
+		font-weight: 600;
+		color: var(--accent, #58a6ff);
+	}
+
+	.hamburger {
+		display: none;
+		flex-direction: column;
+		gap: 5px;
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 4px;
+	}
+
+	.hamburger span {
+		display: block;
+		width: 22px;
+		height: 2px;
+		background: var(--fg, #e1e4e8);
+		border-radius: 2px;
+		transition: opacity 0.15s;
+	}
+
 	.content {
 		flex: 1;
 		padding: 1.5rem 2rem;
 		overflow-y: auto;
+	}
+
+	.mobile-backdrop {
+		display: none;
+	}
+
+	/* -----------------------------------------------------------------------
+	   Mobile breakpoint
+	----------------------------------------------------------------------- */
+	@media (max-width: 768px) {
+		.sidebar {
+			position: fixed;
+			left: -220px;
+			top: 0;
+			z-index: 100;
+			height: 100vh;
+			transition: left 0.2s ease;
+			overflow-y: auto;
+		}
+
+		.sidebar.open {
+			left: 0;
+		}
+
+		.mobile-header {
+			display: flex;
+		}
+
+		.hamburger {
+			display: flex;
+		}
+
+		.content {
+			padding: 1rem;
+		}
+
+		.mobile-backdrop {
+			display: block;
+			position: fixed;
+			inset: 0;
+			background: rgba(0, 0, 0, 0.5);
+			z-index: 99;
+		}
 	}
 </style>

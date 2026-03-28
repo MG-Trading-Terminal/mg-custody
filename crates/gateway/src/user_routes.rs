@@ -654,7 +654,20 @@ async fn deposit_address_qr(
         .await
         .map_err(|e| ApiError::internal(&format!("address allocation failed: {e}")))?;
 
-    let svg = build_address_svg(&addr.address, &chain_str);
+    // Build the QR data string.  For chain-specific URI schemes we uppercase the
+    // address and use the standard BIP-21 / EIP-681 prefix so wallet apps can
+    // parse the QR code directly.
+    let qr_data = format_qr_data(chain, &addr.address).to_uppercase();
+
+    let svg = match custody_common::qr_svg::generate_qr_svg(&qr_data) {
+        Ok(s) => s,
+        Err(_) => {
+            // Fallback to plain-text SVG if address contains characters outside
+            // the alphanumeric QR set (should not happen for supported chains,
+            // but we degrade gracefully rather than returning an error).
+            build_address_svg(&addr.address, &chain_str)
+        }
+    };
 
     let response = Response::builder()
         .status(StatusCode::OK)
