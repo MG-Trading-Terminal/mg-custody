@@ -17,12 +17,15 @@
 	];
 
 	const adminItemDefs = [
-		{ href: '/wallets',    key: 'nav.wallets',   icon: 'W' },
-		{ href: '/policies',   key: 'nav.policies',  icon: 'P' },
-		{ href: '/users',      key: 'nav.users',     icon: 'U' },
-		{ href: '/addresses',  key: 'nav.addresses', icon: '@' },
-		{ href: '/audit',      key: 'nav.audit',     icon: 'L' },
-		{ href: '/settings',   key: 'nav.settings',  icon: 'S' },
+		{ href: '/wallets',    key: 'nav.wallets',    icon: 'W' },
+		{ href: '/policies',   key: 'nav.policies',   icon: 'P' },
+		{ href: '/users',      key: 'nav.users',       icon: 'U' },
+		{ href: '/addresses',  key: 'nav.addresses',  icon: '@' },
+		{ href: '/audit',      key: 'nav.audit',       icon: 'L' },
+		{ href: '/webhooks',   key: 'nav.webhooks',   icon: 'W' },
+		{ href: '/derivation', key: 'nav.derivation', icon: 'D' },
+		{ href: '/emergency',  key: 'nav.emergency',  icon: '!' },
+		{ href: '/settings',   key: 'nav.settings',   icon: 'S' },
 	];
 
 	function closeSidebar() { sidebarOpen = false; }

@@ -70,6 +70,19 @@ impl CustodyDb {
         Ok(rows.into_iter().map(|r| r.into_deposit()).collect())
     }
 
+    /// Count deposits detected for a given chain on the current calendar day (UTC).
+    pub async fn deposits_count_today(&self, chain: Chain) -> anyhow::Result<u64> {
+        let (count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM deposits
+             WHERE chain = $1
+               AND detected_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')"
+        )
+        .bind(chain.as_str())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count as u64)
+    }
+
     /// Update deposit status and confirmations.
     pub async fn update_deposit_status(
         &self,

@@ -74,6 +74,19 @@ impl CustodyDb {
         Ok(rows)
     }
 
+    /// Check whether an address string already exists in the `addresses` table.
+    ///
+    /// Used by the derivation explorer to mark addresses as "used".
+    pub async fn address_exists(&self, address: &str) -> anyhow::Result<bool> {
+        let (count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM addresses WHERE address = $1"
+        )
+        .bind(address)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count > 0)
+    }
+
     /// Atomically allocate the next address index for a chain.
     pub async fn next_address_index(&self, chain: Chain) -> anyhow::Result<u32> {
         let (index,): (i32,) = sqlx::query_as(

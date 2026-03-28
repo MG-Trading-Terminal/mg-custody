@@ -13,6 +13,7 @@ use custody_broadcaster::ethereum::EthereumBroadcaster;
 use custody_broadcaster::solana::SolanaBroadcaster;
 use custody_broadcaster::tron::TronBroadcaster;
 use custody_common::{Chain, CustodyEvent, Withdrawal, WithdrawalStatus};
+use custody_common::emergency::FreezeFlag;
 use custody_compliance::ofac::SanctionsChecker;
 use custody_confirmations::WebhookSender;
 use custody_db::CustodyDb;
@@ -56,6 +57,8 @@ pub struct WithdrawalPipeline {
     nonce_manager: Option<Arc<NonceManager>>,
     webhook_sender: Option<Arc<WebhookSender>>,
     event_broadcaster: Option<Arc<custody_common::events::EventBroadcaster>>,
+    /// Emergency freeze flag.  When set, `tick` returns early without processing.
+    frozen: Option<FreezeFlag>,
     /// Tron API URL for fetching latest block (ref_block_bytes/hash).
     trx_api_url: Option<String>,
     /// Solana RPC URL for fetching recent blockhash.
@@ -80,9 +83,17 @@ impl WithdrawalPipeline {
             trx_fee_estimator: None, sol_fee_estimator: None,
             screening_provider: None, nonce_manager: None,
             webhook_sender: None, event_broadcaster: None,
+            frozen: None,
             trx_api_url: None, sol_rpc_url: None,
             eth_chain_id: 1,
         }
+    }
+
+    /// Wire in the emergency freeze flag.  When the flag is set to true
+    /// `tick` will return immediately without processing any withdrawals.
+    pub fn with_freeze_flag(mut self, flag: FreezeFlag) -> Self {
+        self.frozen = Some(flag);
+        self
     }
 
     pub fn with_policy_engine(mut self, e: Arc<PolicyEngine>) -> Self { self.policy_engine = Some(e); self }
@@ -110,6 +121,11 @@ impl WithdrawalPipeline {
     pub fn with_eth_chain_id(mut self, id: u64) -> Self { self.eth_chain_id = id; self }
 
     pub async fn tick(&self) -> Result<()> {
+        // Check emergency freeze before processing any withdrawals.
+        if self.frozen.as_ref().map(|f| f.is_frozen()).unwrap_or(false) {
+            tracing::warn!("Pipeline tick skipped — system is frozen");
+            return Ok(());
+        }
         self.process_received().await?;
         self.process_validated().await?;
         self.process_signed().await?;

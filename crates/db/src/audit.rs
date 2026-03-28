@@ -33,6 +33,12 @@ pub enum AuditOperation {
     SigningCompleted,
     /// Signing request rejected (validation failure).
     SigningRejected,
+    /// Emergency freeze activated by operator.
+    EmergencyFreeze,
+    /// Emergency freeze lifted by operator.
+    EmergencyUnfreeze,
+    /// Withdrawal state overridden by operator (force-complete or force-cancel).
+    WithdrawalOverride,
 }
 
 /// A single audit log entry.

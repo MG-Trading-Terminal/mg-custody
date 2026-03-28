@@ -1,6 +1,6 @@
 //! Withdrawal repository.
 
-use custody_common::{Asset, WalletTier, Withdrawal, WithdrawalStatus};
+use custody_common::{Asset, Chain, WalletTier, Withdrawal, WithdrawalStatus};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
@@ -249,6 +249,20 @@ impl CustodyDb {
     /// Get daily outflow (last 24 hours).
     pub async fn daily_outflow(&self) -> anyhow::Result<Decimal> {
         self.outflow_since(24).await
+    }
+
+    /// Count withdrawals confirmed on the current calendar day (UTC) for a given chain.
+    pub async fn withdrawals_confirmed_today(&self, chain: Chain) -> anyhow::Result<u64> {
+        let (count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM withdrawals
+             WHERE chain = $1
+               AND status IN ('finalized', 'confirmed')
+               AND confirmed_at >= date_trunc('day', NOW() AT TIME ZONE 'UTC')"
+        )
+        .bind(chain.as_str())
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count as u64)
     }
 }
 

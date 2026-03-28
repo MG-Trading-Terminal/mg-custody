@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use custody_address_factory::{AddressAllocator, SeedBytes};
+use custody_common::emergency::FreezeFlag;
 use custody_common::events::EventBroadcaster;
 use custody_db::CustodyDb;
 use custody_withdrawal_pipeline::WithdrawalPipeline;
@@ -22,4 +23,6 @@ pub struct AppState {
     pub event_broadcaster: Arc<EventBroadcaster>,
     /// Per-user sliding window rate limiter (shared across all request handlers).
     pub user_rate_limiter: Arc<UserRateLimiter>,
+    /// Emergency freeze flag — when true all outbound operations are halted.
+    pub frozen: FreezeFlag,
 }

@@ -116,6 +116,8 @@ pub mod waas;
 pub mod web3_provider;
 pub mod webhook;
 pub mod webhook_retry;
+pub mod emergency;
+pub mod health_detail;
 pub mod workspace_admin;
 pub mod walletconnect;
 pub mod walletconnect_v2;

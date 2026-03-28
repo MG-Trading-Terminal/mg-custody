@@ -217,6 +217,10 @@ async fn main() -> anyhow::Result<()> {
     let sanctions_checker = Arc::new(custody_compliance::ofac::ofac_checker_with_known_addresses());
     tracing::info!(addresses = sanctions_checker.total_addresses(), "OFAC sanctions checker loaded");
 
+    // ─── Emergency freeze flag (unfrozen on startup) ─────────────────
+    // Shared between AppState (API handlers) and the pipeline (background task).
+    let freeze_flag = custody_common::emergency::FreezeFlag::new();
+
     // ─── Withdrawal Pipeline with all deps ───────────────────────────
     let limits = &config.limits;
     let mut pipeline_builder = WithdrawalPipeline::new(
@@ -314,6 +318,8 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("No CUSTODY_CHAINALYSIS_API_KEY — AML screening disabled");
     }
 
+    // Wire freeze flag into pipeline so background task respects emergency freeze.
+    pipeline_builder = pipeline_builder.with_freeze_flag(freeze_flag.clone());
     let withdrawal_pipeline = Arc::new(pipeline_builder);
 
     // ─── Ethereum Scanner ────────────────────────────────────────────
@@ -395,6 +401,7 @@ async fn main() -> anyhow::Result<()> {
         user_rate_limiter: std::sync::Arc::new(
             custody_gateway::rate_limit::UserRateLimiter::default_user(),
         ),
+        frozen: freeze_flag,
     };
 
     // Use middleware if HMAC secret is configured

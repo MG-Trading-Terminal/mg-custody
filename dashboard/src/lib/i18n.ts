@@ -32,6 +32,9 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.users':        'Users',
     'nav.addresses':    'Addresses',
     'nav.audit':        'Audit Log',
+    'nav.webhooks':     'Webhooks',
+    'nav.derivation':   'Derivation',
+    'nav.emergency':    'Emergency',
     'nav.settings':     'Settings',
     'nav.admin':        'Admin',
 
@@ -177,6 +180,9 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.users':        'Пользователи',
     'nav.addresses':    'Адреса',
     'nav.audit':        'Журнал аудита',
+    'nav.webhooks':     'Вебхуки',
+    'nav.derivation':   'Деривация',
+    'nav.emergency':    'Экстренное',
     'nav.settings':     'Настройки',
     'nav.admin':        'Администрирование',
 
@@ -322,6 +328,9 @@ const translations: Record<Locale, Record<string, string>> = {
     'nav.users':        '用户',
     'nav.addresses':    '地址',
     'nav.audit':        '审计日志',
+    'nav.webhooks':     'Webhooks',
+    'nav.derivation':   '派生路径',
+    'nav.emergency':    '紧急控制',
     'nav.settings':     '设置',
     'nav.admin':        '管理',
 

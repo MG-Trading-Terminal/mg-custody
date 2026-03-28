@@ -5,6 +5,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-27) — Webhook Management, Derivation Explorer, Health Detail, Emergency Freeze
+
+- **Feature 1: Webhook Management + Delivery Metrics**
+  - `crates/db/src/webhook_deliveries.rs` — new `webhook_delivery_metrics()` returns aggregate success/failure/latency per endpoint; `recent_webhook_deliveries(limit)` for UI log view; `WebhookDeliveryMetrics` type with `success_rate_pct()` helper
+  - `crates/gateway/src/webhook_mgmt_routes.rs` — `webhook_mgmt_router()` with 10 new admin endpoints: list/create/update/delete endpoints, per-endpoint delivery log, test endpoint, aggregate metrics
+  - `dashboard/src/routes/webhooks/+page.svelte` — webhook list table (URL, status, success rate, avg latency, last delivery), create/edit modal, per-endpoint delivery log table, live test button with result display
+  - 4 unit tests: `success_rate_zero_when_no_deliveries`, `success_rate_all_success`, `success_rate_mixed`, `metrics_serialization`
+
+- **Feature 2: Address Derivation Path Explorer**
+  - `GET /v1/admin/derivation-tree/{chain}?depth=N` — derives HD addresses 0..depth, marks each as used/unused via DB lookup; uses existing `derive_address()` + new `address_exists()` DB method
+  - `crates/db/src/addresses.rs` — `address_exists(address)` — single COUNT query against `addresses` table
+  - `dashboard/src/routes/derivation/+page.svelte` — chain selector, depth input, table (index, path, address, used/unused badge), copy-to-clipboard, per-row verify button that re-derives and confirms match
+
+- **Feature 3: Health Dashboard with RPC Metrics**
+  - `crates/common/src/health_detail.rs` — `DetailedHealth`, `ChainHealth`, `SystemHealth` types; `ChainHealth::classify_status(lag)` with thresholds (<50=healthy, <200=lagging, ≥200=stalled); 8 unit tests
+  - `GET /v1/health/detailed` — per-chain scanner lag + RPC latency + deposits/withdrawals today + system runtime (uptime, DB pool, memory, pending webhooks, circuit breaker state)
+  - `crates/db/src/deposits.rs` — `deposits_count_today(chain)` — counts deposits since UTC midnight
+  - `crates/db/src/withdrawals.rs` — `withdrawals_confirmed_today(chain)` — counts finalized withdrawals since UTC midnight
+  - `dashboard/src/routes/settings/+page.svelte` — updated with per-chain health cards (status badge, scanner block, lag indicator coloured by threshold, latency, daily counts) and system runtime section; replaces webhook "coming soon" placeholder with link to dedicated page
+
+- **Feature 4: Emergency Freeze + Admin Override**
+  - `crates/common/src/emergency.rs` — `FreezeFlag` wrapping `Arc<AtomicBool>`; `freeze()`/`unfreeze()` return whether a transition occurred; `FreezeStatus`, `FreezeRequest`, `FreezeResponse`, `OverrideRequest`, `OverrideResponse` types; 8 unit tests including clone-shares-state, freeze transition idempotency
+  - `crates/gateway/src/state.rs` — `frozen: FreezeFlag` field added to `AppState`
+  - `crates/withdrawal-pipeline/src/pipeline.rs` — `with_freeze_flag(flag)` builder; `tick()` returns early with warning log when frozen
+  - `crates/server/src/main.rs` — `FreezeFlag::new()` wired into both `AppState` and `pipeline_builder.with_freeze_flag()`
+  - `POST /v1/admin/emergency/freeze` — RequireOwner; sets flag, writes `EmergencyFreeze` audit entry
+  - `POST /v1/admin/emergency/unfreeze` — RequireOwner; clears flag, writes `EmergencyUnfreeze` audit entry
+  - `GET /v1/admin/emergency/status` — RequireAdmin; returns current frozen state
+  - `POST /v1/admin/override/withdrawal/{id}/force-complete` — RequireOwner; sets status→Finalized, writes `WithdrawalOverride` audit entry; rejects Finalized/Failed states
+  - `POST /v1/admin/override/withdrawal/{id}/force-cancel` — RequireOwner; sets status→Failed; rejects Finalized/Failed states
+  - `crates/db/src/audit.rs` — new `AuditOperation` variants: `EmergencyFreeze`, `EmergencyUnfreeze`, `WithdrawalOverride`
+  - Updated `AppState` constructors in all 4 integration test files
+  - `dashboard/src/routes/emergency/+page.svelte` — freeze/unfreeze panel with required reason field, live state indicator, withdrawal override form (force-complete / force-cancel) with result display
+
 ### Added (2026-03-27) — Substrate Scanner+Signer, Transaction Analytics, Custody Statements, Device Trust, API Key Usage
 
 - **Feature 1: Polkadot/Substrate chain support** (`crates/common/src/polkadot_chain.rs`)

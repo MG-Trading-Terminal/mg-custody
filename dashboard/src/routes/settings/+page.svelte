@@ -11,6 +11,34 @@
 		latency_ms: number | null;
 	}
 
+	interface DetailedChainHealth {
+		status: string;
+		rpc_url: string;
+		latest_block: number | null;
+		scanner_block: number | null;
+		scanner_lag: number | null;
+		last_scan_at: string | null;
+		avg_rpc_latency_ms: number | null;
+		error_rate_pct: number;
+		deposits_today: number;
+		withdrawals_today: number;
+	}
+
+	interface SystemHealth {
+		uptime_seconds: number;
+		db_pool_size: number;
+		db_pool_active: number;
+		memory_mb: number;
+		pending_webhooks: number;
+		circuit_breaker: string;
+	}
+
+	interface DetailedHealth {
+		chains: Record<string, DetailedChainHealth>;
+		system: SystemHealth;
+		generated_at: string;
+	}
+
 	interface CircuitBreaker {
 		label: string;
 		limit: string;
@@ -23,10 +51,11 @@
 		credential_count: number;
 	}
 
-	let chains    = $state<ChainHealth[]>([]);
-	let circuit   = $state<CircuitBreaker[]>([]);
-	let fido      = $state<FidoInfo[]>([]);
-	let loading   = $state(true);
+	let chains         = $state<ChainHealth[]>([]);
+	let detailedHealth = $state<DetailedHealth | null>(null);
+	let circuit        = $state<CircuitBreaker[]>([]);
+	let fido           = $state<FidoInfo[]>([]);
+	let loading        = $state(true);
 
 	const STATIC_CIRCUIT = [
 		{ label: 'Per-transaction cap',  limit: '$500,000' },
@@ -36,23 +65,41 @@
 
 	async function load() {
 		loading = true;
-		const [chainsRes, circuitRes, fidoRes] = await Promise.allSettled([
+		const [chainsRes, circuitRes, fidoRes, detailedRes] = await Promise.allSettled([
 			api.getJson<{ chains: ChainHealth[] }>('/health/chains'),
 			api.getJson<{ limits: CircuitBreaker[] }>('/v1/circuit-breaker/status'),
 			api.getJson<{ credentials: FidoInfo[] }>('/v1/fido/credentials'),
+			api.getJson<DetailedHealth>('/v1/health/detailed'),
 		]);
-		chains  = chainsRes.status  === 'fulfilled' ? (chainsRes.value.chains   ?? []) : [];
-		circuit = circuitRes.status === 'fulfilled' ? (circuitRes.value.limits  ?? []) : [];
-		fido    = fidoRes.status    === 'fulfilled' ? (fidoRes.value.credentials ?? []) : [];
+		chains         = chainsRes.status  === 'fulfilled' ? (chainsRes.value.chains   ?? []) : [];
+		circuit        = circuitRes.status === 'fulfilled' ? (circuitRes.value.limits  ?? []) : [];
+		fido           = fidoRes.status    === 'fulfilled' ? (fidoRes.value.credentials ?? []) : [];
+		detailedHealth = detailedRes.status === 'fulfilled' ? detailedRes.value : null;
 		loading = false;
 	}
 
 	onMount(load);
 
 	function statusClass(s: string) {
-		if (s === 'ok')       return 'green';
-		if (s === 'degraded') return 'yellow';
+		if (s === 'ok' || s === 'healthy') return 'green';
+		if (s === 'degraded' || s === 'lagging') return 'yellow';
 		return 'red';
+	}
+
+	function lagClass(lag: number | null) {
+		if (lag === null) return 'muted';
+		if (lag < 50)  return 'green';
+		if (lag < 200) return 'yellow';
+		return 'red';
+	}
+
+	function fmtUptime(secs: number): string {
+		const d = Math.floor(secs / 86400);
+		const h = Math.floor((secs % 86400) / 3600);
+		const m = Math.floor((secs % 3600) / 60);
+		if (d > 0)  return `${d}d ${h}h`;
+		if (h > 0)  return `${h}h ${m}m`;
+		return `${m}m`;
 	}
 </script>
 
@@ -153,11 +200,80 @@
 
 <section>
 	<h2>Webhooks</h2>
-	<div class="card empty">
-		<p class="muted">Webhook endpoint configuration coming soon.</p>
+	<div class="card">
+		<p class="muted">
+			Manage webhook endpoints and view delivery metrics in the
+			<a href="/webhooks">Webhook Management</a> page.
+		</p>
 		<p class="muted">Events: <code>deposit_confirmed</code>, <code>withdrawal_broadcast</code>, <code>withdrawal_confirmed</code>, <code>withdrawal_failed</code>.</p>
 	</div>
 </section>
+
+{#if detailedHealth}
+<section>
+	<h2>Detailed Chain Health</h2>
+	<div class="chain-cards">
+		{#each Object.entries(detailedHealth.chains) as [name, ch]}
+			<div class="chain-card card">
+				<div class="chain-header">
+					<strong>{name.charAt(0).toUpperCase() + name.slice(1)}</strong>
+					<span class="badge {statusClass(ch.status)}">{ch.status}</span>
+				</div>
+				<div class="kv">
+					<span>Scanner block</span>
+					<span class="mono muted">{ch.scanner_block ?? '—'}</span>
+				</div>
+				<div class="kv">
+					<span>Lag</span>
+					<span class="{lagClass(ch.scanner_lag)} mono">
+						{ch.scanner_lag != null ? `${ch.scanner_lag} blocks` : '—'}
+					</span>
+				</div>
+				<div class="kv">
+					<span>Avg latency</span>
+					<span class="mono muted">{ch.avg_rpc_latency_ms != null ? `${Math.round(ch.avg_rpc_latency_ms)}ms` : '—'}</span>
+				</div>
+				<div class="kv">
+					<span>Deposits today</span>
+					<span class="mono">{ch.deposits_today}</span>
+				</div>
+				<div class="kv">
+					<span>Withdrawals today</span>
+					<span class="mono">{ch.withdrawals_today}</span>
+				</div>
+			</div>
+		{/each}
+	</div>
+</section>
+
+<section>
+	<h2>System Runtime</h2>
+	<div class="card">
+		{@const sys = detailedHealth.system}
+		<div class="kv">
+			<span>Uptime</span>
+			<span class="val">{fmtUptime(sys.uptime_seconds)}</span>
+		</div>
+		<div class="kv">
+			<span>DB pool</span>
+			<span class="val">{sys.db_pool_active} / {sys.db_pool_size} active</span>
+		</div>
+		<div class="kv">
+			<span>Memory</span>
+			<span class="val">{sys.memory_mb > 0 ? `${sys.memory_mb} MB` : '—'}</span>
+		</div>
+		<div class="kv">
+			<span>Pending webhooks</span>
+			<span class="{sys.pending_webhooks > 0 ? 'val yellow' : 'val'}">{sys.pending_webhooks}</span>
+		</div>
+		<div class="kv">
+			<span>Circuit breaker</span>
+			<span class="badge {sys.circuit_breaker === 'normal' ? 'green' : 'red'}">{sys.circuit_breaker}</span>
+		</div>
+		<p class="note muted">Generated: {new Date(detailedHealth.generated_at).toLocaleString()}</p>
+	</div>
+</section>
+{/if}
 
 <style>
 	h1 { margin-top: 0; font-size: 1.5rem; }
@@ -209,4 +325,31 @@
 	}
 
 	p { margin: 0.3rem 0; font-size: 0.9rem; }
+
+	a { color: var(--accent, #1f6feb); text-decoration: none; }
+	a:hover { text-decoration: underline; }
+
+	.chain-cards {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+		gap: 0.75rem;
+	}
+
+	.chain-card {
+		padding: 0.9rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+	}
+
+	.chain-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.3rem;
+	}
+
+	.green  { color: var(--green, #3fb950); }
+	.yellow { color: var(--yellow, #d29922); }
+	.red    { color: var(--red, #f85149); }
 </style>

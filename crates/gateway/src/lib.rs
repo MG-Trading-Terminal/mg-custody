@@ -4,6 +4,7 @@
 //! All requests authenticated via HMAC-SHA256.
 
 pub mod admin_routes;
+pub mod webhook_mgmt_routes;
 pub mod compliance_routes;
 pub mod auth;
 pub mod push_routes;

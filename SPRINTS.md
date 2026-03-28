@@ -1,5 +1,51 @@
 # Sprint Log
 
+## Sprint N+9 — Webhook Management, Derivation Explorer, Health Detail, Emergency Freeze (2026-03-27)
+
+### Goals
+- Webhook management API + delivery metrics + dashboard page
+- HD derivation path explorer API + dashboard page
+- Detailed per-chain health endpoint with lag/latency metrics
+- Emergency freeze flag + force-complete/cancel withdrawal overrides
+
+### Completed
+| Task | File | Status | Tests |
+|------|------|--------|-------|
+| `webhook_delivery_metrics()` DB method | db/webhook_deliveries.rs | DONE | 4 |
+| `recent_webhook_deliveries()` DB method | db/webhook_deliveries.rs | DONE | — |
+| `WebhookDeliveryMetrics` type + `success_rate_pct()` | db/webhook_deliveries.rs | DONE | 4 |
+| `webhook_mgmt_router()` — 10 admin endpoints | gateway/webhook_mgmt_routes.rs | DONE | 9 |
+| `address_exists()` DB method | db/addresses.rs | DONE | — |
+| `deposits_count_today()` DB method | db/deposits.rs | DONE | — |
+| `withdrawals_confirmed_today()` DB method | db/withdrawals.rs | DONE | — |
+| `GET /v1/admin/derivation-tree/{chain}` | gateway/webhook_mgmt_routes.rs | DONE | 3 |
+| `DetailedHealth` / `ChainHealth` / `SystemHealth` types | common/health_detail.rs | DONE | 8 |
+| `GET /v1/health/detailed` | gateway/webhook_mgmt_routes.rs | DONE | — |
+| `FreezeFlag` + freeze types | common/emergency.rs | DONE | 8 |
+| `frozen` field in `AppState` | gateway/state.rs | DONE | — |
+| `with_freeze_flag()` + tick guard | withdrawal-pipeline/pipeline.rs | DONE | — |
+| Freeze + unfreeze API endpoints | gateway/webhook_mgmt_routes.rs | DONE | 3 |
+| Force-complete + force-cancel endpoints | gateway/webhook_mgmt_routes.rs | DONE | 4 |
+| `EmergencyFreeze/Unfreeze/WithdrawalOverride` audit ops | db/audit.rs | DONE | — |
+| Updated 4 integration test AppState constructors | server/tests/* | DONE | — |
+| `dashboard/src/routes/webhooks/+page.svelte` | dashboard | DONE | — |
+| `dashboard/src/routes/derivation/+page.svelte` | dashboard | DONE | — |
+| `dashboard/src/routes/emergency/+page.svelte` | dashboard | DONE | — |
+| Settings page: detailed health cards + system runtime | dashboard/settings/+page.svelte | DONE | — |
+| Navigation links + i18n keys for 3 new pages | dashboard | DONE | — |
+
+### Metrics
+- New tests added: ~40 (across common, db, gateway)
+- Previous total: ~1,730 (estimate from last sprint)
+- New total: ~1,770+
+- New files: 5 (emergency.rs, health_detail.rs, webhook_mgmt_routes.rs, 3 Svelte pages)
+- Modified files: 12 (state.rs, pipeline.rs, main.rs, 4 test files, webhook_deliveries.rs, addresses.rs, deposits.rs, withdrawals.rs, audit.rs)
+
+### References
+- `FreezeFlag` atomic semantics: `std::sync::atomic::AtomicBool` — sequential consistency ordering (SeqCst)
+- Scanner lag thresholds: custom, based on typical ETH block time (12s) — 50 blocks ≈ 10 min, 200 blocks ≈ 40 min
+- Webhook delivery metrics: aggregate SQL using `FILTER (WHERE status = 'delivered')` and `EXTRACT(EPOCH ...)`
+
 ## Sprint N+8 — Substrate Scanner, Analytics, Custody Statements, Device Trust, API Key Usage (2026-03-27)
 
 ### Goals

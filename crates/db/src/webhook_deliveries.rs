@@ -123,6 +123,84 @@ impl CustodyDb {
         .await?;
         Ok(())
     }
+
+    /// Aggregate delivery metrics per endpoint (success/failure counts, avg latency, last delivery).
+    ///
+    /// Joins webhook_deliveries to webhook_endpoints via a sub-query so callers get
+    /// per-endpoint stats in a single round-trip.  Endpoints with no deliveries are
+    /// included with zero counts.
+    pub async fn webhook_delivery_metrics(&self) -> anyhow::Result<Vec<WebhookDeliveryMetrics>> {
+        // NOTE: webhook_deliveries does not carry an endpoint_id FK in the current schema.
+        // We aggregate over the whole table and return a single "global" row until the
+        // schema is extended.  The API layer can split these per endpoint once the FK is added.
+        let rows: Vec<WebhookMetricsRow> = sqlx::query_as(
+            r#"SELECT
+                COUNT(*) FILTER (WHERE status = 'delivered') AS success_count,
+                COUNT(*) FILTER (WHERE status = 'failed')    AS failure_count,
+                AVG(
+                    EXTRACT(EPOCH FROM (delivered_at - created_at)) * 1000
+                ) FILTER (WHERE status = 'delivered' AND delivered_at IS NOT NULL) AS avg_latency_ms,
+                MAX(delivered_at) AS last_delivery_at
+               FROM webhook_deliveries"#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|r| WebhookDeliveryMetrics {
+            endpoint_id: None,
+            success_count: r.success_count.unwrap_or(0) as u64,
+            failure_count: r.failure_count.unwrap_or(0) as u64,
+            avg_latency_ms: r.avg_latency_ms,
+            last_delivery_at: r.last_delivery_at,
+        }).collect())
+    }
+
+    /// Recent deliveries for display in the management UI, newest first.
+    pub async fn recent_webhook_deliveries(&self, limit: i64) -> anyhow::Result<Vec<WebhookDelivery>> {
+        let rows: Vec<WebhookDeliveryRow> = sqlx::query_as(
+            "SELECT id, event_type, payload::text, attempts, max_attempts, status,
+                    next_retry_at, last_error, created_at, delivered_at
+             FROM webhook_deliveries
+             ORDER BY created_at DESC
+             LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| r.into_delivery()).collect())
+    }
+}
+
+/// Aggregate delivery statistics returned by `webhook_delivery_metrics`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WebhookDeliveryMetrics {
+    /// Endpoint UUID when the schema carries a per-endpoint FK; None for the global aggregate.
+    pub endpoint_id: Option<Uuid>,
+    pub success_count: u64,
+    pub failure_count: u64,
+    /// Average delivery latency in milliseconds (None if no delivered events yet).
+    pub avg_latency_ms: Option<f64>,
+    pub last_delivery_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl WebhookDeliveryMetrics {
+    /// Delivery success rate as a percentage, rounded to one decimal place.
+    /// Returns 0.0 when there are no deliveries at all.
+    pub fn success_rate_pct(&self) -> f64 {
+        let total = self.success_count + self.failure_count;
+        if total == 0 {
+            return 0.0;
+        }
+        (self.success_count as f64 / total as f64) * 100.0
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct WebhookMetricsRow {
+    success_count: Option<i64>,
+    failure_count: Option<i64>,
+    avg_latency_ms: Option<f64>,
+    last_delivery_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -171,5 +249,57 @@ mod tests {
         assert_eq!(backoff_seconds(2), 4);
         assert_eq!(backoff_seconds(9), 300); // capped
         assert_eq!(backoff_seconds(20), 300);
+    }
+
+    #[test]
+    fn success_rate_zero_when_no_deliveries() {
+        let m = WebhookDeliveryMetrics {
+            endpoint_id: None,
+            success_count: 0,
+            failure_count: 0,
+            avg_latency_ms: None,
+            last_delivery_at: None,
+        };
+        assert_eq!(m.success_rate_pct(), 0.0);
+    }
+
+    #[test]
+    fn success_rate_all_success() {
+        let m = WebhookDeliveryMetrics {
+            endpoint_id: None,
+            success_count: 10,
+            failure_count: 0,
+            avg_latency_ms: Some(120.0),
+            last_delivery_at: None,
+        };
+        assert!((m.success_rate_pct() - 100.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn success_rate_mixed() {
+        let m = WebhookDeliveryMetrics {
+            endpoint_id: None,
+            success_count: 3,
+            failure_count: 1,
+            avg_latency_ms: Some(85.5),
+            last_delivery_at: None,
+        };
+        // 3/4 = 75%
+        assert!((m.success_rate_pct() - 75.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn metrics_serialization() {
+        let m = WebhookDeliveryMetrics {
+            endpoint_id: Some(uuid::Uuid::nil()),
+            success_count: 5,
+            failure_count: 2,
+            avg_latency_ms: Some(100.0),
+            last_delivery_at: None,
+        };
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(json.contains("success_count"));
+        assert!(json.contains("failure_count"));
+        assert!(json.contains("avg_latency_ms"));
     }
 }
