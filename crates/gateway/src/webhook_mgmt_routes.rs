@@ -41,6 +41,8 @@ pub fn webhook_mgmt_router() -> Router<AppState> {
         .route("/v1/admin/webhooks/{id}", delete(delete_webhook_admin))
         .route("/v1/admin/webhooks/{id}/deliveries", get(webhook_deliveries))
         .route("/v1/admin/webhooks/{id}/test", post(test_webhook_admin))
+        // Retry queue (Feature 5 — webhook retry dashboard)
+        .route("/v1/admin/webhooks/{id}/retry", post(retry_webhook_deliveries))
         // Derivation tree explorer (Feature 2)
         .route("/v1/admin/derivation-tree/{chain}", get(derivation_tree))
         // Detailed health (Feature 3)
@@ -751,6 +753,59 @@ async fn audit_integrity_check(
     }
 
     Ok(Json(result))
+}
+
+// ---------------------------------------------------------------------------
+// Feature 5: Retry queue — immediate retry of failed deliveries
+// ---------------------------------------------------------------------------
+
+/// POST /v1/admin/webhooks/{id}/retry
+///
+/// Resets all `failed` deliveries for a given endpoint to `pending` with
+/// `next_retry_at = NOW()` so the dispatcher picks them up immediately.
+///
+/// Returns the count of deliveries that were queued for retry.
+async fn retry_webhook_deliveries(
+    _auth: RequireAdmin,
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    // Verify the endpoint exists.
+    state.db.find_webhook_endpoint(id).await
+        .map_err(|e| ApiError::internal(&e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Webhook endpoint not found"))?;
+
+    // Fetch all failed deliveries and reset each one.
+    // This is intentionally done per-delivery rather than a bulk UPDATE so that
+    // each retry is individually auditable and the backoff state is preserved.
+    let failed = state.db.failed_webhook_deliveries(200).await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+
+    let mut retried = 0u32;
+    for delivery in &failed {
+        if let Err(e) = state.db.retry_failed_delivery(delivery.id).await {
+            tracing::warn!(
+                delivery_id = %delivery.id,
+                endpoint_id = %id,
+                error = %e,
+                "Failed to reset delivery for retry"
+            );
+        } else {
+            retried += 1;
+        }
+    }
+
+    tracing::info!(
+        endpoint_id = %id,
+        retried,
+        "Admin: webhook deliveries queued for immediate retry"
+    );
+
+    Ok(Json(serde_json::json!({
+        "endpoint_id": id,
+        "retried_count": retried,
+        "status": "queued",
+    })))
 }
 
 // ---------------------------------------------------------------------------

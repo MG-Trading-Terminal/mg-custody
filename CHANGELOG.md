@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-27) — Dark/Light Theme, NFT Custody, NEAR Protocol, Aptos/Sui, Webhook Retry Dashboard
+
+- **Feature 1: Dark/Light Theme Toggle**
+  - `dashboard/src/routes/+layout.svelte` — CSS custom properties for both palettes (`--bg`, `--fg`, `--card-bg`, `--border`, `--fg-muted`, `--accent`, `--hover-bg`, `--sidebar-bg`, `--green`, `--yellow`, `--red`); `:root.light` overrides; sun/moon SVG toggle button in sidebar header; `applyTheme()` writes class to `document.documentElement.classList`; preference stored in `localStorage` (`custody_theme`); default: dark
+  - 0 new Rust tests (UI-only feature)
+
+- **Feature 2: NFT Custody (ERC-721/1155)**
+  - `crates/common/src/nft_custody.rs` — `CustodiedNft`, `NftStandard` (Erc721/Erc1155/Metaplex), `RegisterNftRequest`, `NftTransferRequest`; `encode_erc721_transfer` (selector 0x23b872dd, 100 bytes); `encode_erc1155_transfer` (selector 0xf242432a, 196 bytes); `parse_eth_address` / `parse_token_id` with full validation; 13 unit tests including selector checks, offset checks, and round-trip validation
+  - `crates/db/migrations/025_nft_custody.sql` — `custodied_nfts` table with UNIQUE constraint on (chain, contract_address, token_id, owner_vault_id); indexes on vault and chain
+  - `crates/gateway/src/nft_routes.rs` — `nft_router()` with 4 endpoints: `GET /v1/nfts` (RequireViewer), `POST /v1/nfts` (RequireEditor), `GET /v1/nfts/{id}` (RequireViewer), `POST /v1/nfts/{id}/transfer` (RequireSigner); standard/chain validation guard; `erc721_calldata_hex` / `erc1155_calldata_hex` helpers; 5 unit tests
+  - `dashboard/src/routes/nfts/+page.svelte` — NFT grid with image/placeholder, chain badge (colour-coded per chain), standard badge, quantity badge, Transfer modal, Register modal with chain/standard binding; navigation entry added to sidebar
+  - `dashboard/src/lib/i18n.ts` — `nav.nfts` key added to all 3 locales (en/ru/zh)
+  - References: EIP-721 https://eips.ethereum.org/EIPS/eip-721, EIP-1155 https://eips.ethereum.org/EIPS/eip-1155
+
+- **Feature 3: NEAR Protocol Support**
+  - `crates/common/src/near_chain.rs` — `NearScanner` with `mainnet()` / `testnet()` constructors, `latest_block()` (status RPC), `get_balance(account_id)` (query/view_account RPC, finality=final); `NearSigner::sign_transfer` stub; `yocto_to_near` / `near_to_yocto` (1 NEAR = 10^24 yoctoNEAR); `validate_account_id` (length 2–64, lowercase, no leading/trailing dot); 12 unit tests including exact yocto↔NEAR conversion, round-trip, invalid account IDs
+  - References: NEAR RPC https://docs.near.org/api/rpc/introduction, yoctoNEAR https://docs.near.org/concepts/basics/tokens
+
+- **Feature 4: Aptos/Sui Support (Move VM chains)**
+  - `crates/common/src/move_chains.rs` — `AptosScanner` (REST API, `mainnet()` / `devnet()`): `latest_version()` (GET /v1/), `get_balance(address)` (GET /v1/accounts/{addr}/resource/CoinStore); `SuiScanner` (JSON-RPC, `mainnet()` / `devnet()`): `latest_checkpoint()` (`sui_getLatestCheckpointSequenceNumber`), `get_balance(address)` (`suix_getBalance`); `octas_to_apt` / `apt_to_octas` (APT_DECIMALS=8); `mist_to_sui` / `sui_to_mist` (SUI_DECIMALS=9); `validate_aptos_address` / `validate_sui_address` (0x + 64 hex chars); 16 unit tests including exact decimal conversions, round-trips, and address validation
+  - References: Aptos REST API https://fullnode.mainnet.aptoslabs.com/v1/spec, Sui JSON-RPC https://docs.sui.io/sui-api-ref
+
+- **Feature 5: Webhook Retry Dashboard**
+  - `crates/gateway/src/webhook_mgmt_routes.rs` — `POST /v1/admin/webhooks/{id}/retry` (RequireAdmin): resets all `failed` deliveries to `pending` with `next_retry_at = NOW()`; returns `retried_count`
+  - `dashboard/src/routes/webhooks/+page.svelte` — "Retry Queue" section: fetches `/deliveries` for each active endpoint on load; shows pending/failed counts per endpoint; last error; last 5 delivery attempts timeline with status badges + event type + attempt count + timestamp; "Retry Now" button calls `POST /retry`; result feedback (success count or error); `loadAll()` chains `load()` + `loadRetryQueue()` on mount
+
 ### Added (2026-03-27) — Performance Benchmarks, Address Checksum, Memo/Tag, Audit Integrity, Request Logging
 
 - **Feature 1: Performance Benchmarks + Pool Tuning**

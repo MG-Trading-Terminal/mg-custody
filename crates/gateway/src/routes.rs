@@ -77,6 +77,7 @@ pub fn router(state: AppState) -> Router {
         .merge(crate::user_routes::user_router())
         .merge(crate::safe_routes::safe_router())
         .merge(crate::password_reset_routes::password_reset_router())
+        .merge(crate::nft_routes::nft_router())
         .merge(crate::webhook_mgmt_routes::webhook_mgmt_router())
         // Dashboard static files (SvelteKit build output)
         // Fallback to index.html for client-side routing

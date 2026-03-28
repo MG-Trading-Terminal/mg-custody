@@ -1,10 +1,39 @@
 <script lang="ts">
 	import { locale, setLocale, LOCALES } from '$lib/i18n';
 	import type { Locale } from '$lib/i18n';
+	import { onMount } from 'svelte';
 
 	let { children } = $props();
 
 	let sidebarOpen = $state(false);
+
+	// ---------------------------------------------------------------------------
+	// Theme management (dark / light)
+	// ---------------------------------------------------------------------------
+
+	const THEME_KEY = 'custody_theme';
+
+	// 'dark' is the default — matches the existing CSS variable defaults.
+	let theme = $state<'dark' | 'light'>('dark');
+
+	function applyTheme(t: 'dark' | 'light') {
+		if (t === 'light') {
+			document.documentElement.classList.add('light');
+		} else {
+			document.documentElement.classList.remove('light');
+		}
+		localStorage.setItem(THEME_KEY, t);
+		theme = t;
+	}
+
+	function toggleTheme() {
+		applyTheme(theme === 'dark' ? 'light' : 'dark');
+	}
+
+	onMount(() => {
+		const stored = localStorage.getItem(THEME_KEY) as 'dark' | 'light' | null;
+		applyTheme(stored ?? 'dark');
+	});
 
 	// Nav items use translation keys — labels are re-derived whenever $locale changes.
 	const userItemDefs = [
@@ -21,6 +50,7 @@
 		{ href: '/policies',   key: 'nav.policies',   icon: 'P' },
 		{ href: '/users',      key: 'nav.users',       icon: 'U' },
 		{ href: '/addresses',  key: 'nav.addresses',  icon: '@' },
+		{ href: '/nfts',       key: 'nav.nfts',       icon: 'N' },
 		{ href: '/audit',      key: 'nav.audit',       icon: 'L' },
 		{ href: '/webhooks',   key: 'nav.webhooks',   icon: 'W' },
 		{ href: '/derivation', key: 'nav.derivation', icon: 'D' },
@@ -57,6 +87,32 @@
 	<nav class="sidebar" class:open={sidebarOpen}>
 		<div class="logo">
 			<h2>MG Custody</h2>
+			<button
+				class="theme-toggle"
+				aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+				onclick={toggleTheme}
+				title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+			>
+				{#if theme === 'dark'}
+					<!-- Sun icon -->
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<circle cx="12" cy="12" r="5"/>
+						<line x1="12" y1="1" x2="12" y2="3"/>
+						<line x1="12" y1="21" x2="12" y2="23"/>
+						<line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+						<line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+						<line x1="1" y1="12" x2="3" y2="12"/>
+						<line x1="21" y1="12" x2="23" y2="12"/>
+						<line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+						<line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+					</svg>
+				{:else}
+					<!-- Moon icon -->
+					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+					</svg>
+				{/if}
+			</button>
 		</div>
 		<ul>
 			{#each userItemDefs as item}
@@ -124,6 +180,38 @@
 </div>
 
 <style>
+	/* ---------------------------------------------------------------------------
+	   CSS custom properties — dark (default) and light palettes.
+	   Applied via class on <html>: dark = no class, light = class="light".
+	---------------------------------------------------------------------------- */
+	:global(:root) {
+		--bg:         #0f1117;
+		--fg:         #e1e4e8;
+		--card-bg:    #161b22;
+		--border:     #30363d;
+		--fg-muted:   #8b949e;
+		--accent:     #58a6ff;
+		--hover-bg:   #1c2128;
+		--sidebar-bg: #161b22;
+		--green:      #3fb950;
+		--yellow:     #d29922;
+		--red:        #f85149;
+	}
+
+	:global(:root.light) {
+		--bg:         #ffffff;
+		--fg:         #1f2328;
+		--card-bg:    #f6f8fa;
+		--border:     #d0d7de;
+		--fg-muted:   #656d76;
+		--accent:     #0969da;
+		--hover-bg:   #f3f4f6;
+		--sidebar-bg: #f6f8fa;
+		--green:      #1a7f37;
+		--yellow:     #9a6700;
+		--red:        #cf222e;
+	}
+
 	:global(body) {
 		margin: 0;
 		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -150,12 +238,35 @@
 		padding: 0 1rem 1rem;
 		border-bottom: 1px solid var(--border, #30363d);
 		margin-bottom: 0.5rem;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
 	}
 
 	.logo h2 {
 		margin: 0;
 		font-size: 1.1rem;
 		color: var(--accent, #58a6ff);
+	}
+
+	.theme-toggle {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: none;
+		border: 1px solid var(--border, #30363d);
+		border-radius: 6px;
+		padding: 4px 6px;
+		cursor: pointer;
+		color: var(--fg-muted, #8b949e);
+		transition: background 0.15s, color 0.15s, border-color 0.15s;
+		flex-shrink: 0;
+	}
+
+	.theme-toggle:hover {
+		background: var(--hover-bg, #1c2128);
+		color: var(--fg, #e1e4e8);
+		border-color: var(--accent, #58a6ff);
 	}
 
 	ul {

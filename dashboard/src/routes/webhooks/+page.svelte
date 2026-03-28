@@ -34,6 +34,20 @@
 		overall_success_rate_pct: number;
 	}
 
+	// ---------------------------------------------------------------------------
+	// Retry queue types
+	// ---------------------------------------------------------------------------
+
+	interface RetryQueueEntry {
+		endpoint_id: string;
+		endpoint_url: string;
+		pending_count: number;
+		failed_count: number;
+		last_error: string | null;
+		next_retry_at: string | null;
+		deliveries: Delivery[];
+	}
+
 	let endpoints    = $state<WebhookEndpoint[]>([]);
 	let metrics      = $state<Metrics | null>(null);
 	let deliveries   = $state<Delivery[]>([]);
@@ -42,6 +56,12 @@
 	let showModal    = $state(false);
 	let testResult   = $state<{ success: boolean; status_code?: number; error?: string } | null>(null);
 	let testingId    = $state<string | null>(null);
+
+	// Retry queue state
+	let retryQueue         = $state<RetryQueueEntry[]>([]);
+	let retryQueueLoading  = $state(false);
+	let retryingId         = $state<string | null>(null);
+	let retryResult        = $state<Record<string, { count: number; error?: string }>>({});
 
 	// Form state
 	let formUrl         = $state('');
@@ -69,6 +89,49 @@
 			deliveries = res.deliveries ?? [];
 		} catch {
 			deliveries = [];
+		}
+	}
+
+	async function loadRetryQueue() {
+		retryQueueLoading = true;
+		const activeEndpoints = endpoints.filter(ep => ep.enabled);
+		const results = await Promise.allSettled(
+			activeEndpoints.map(async ep => {
+				const res = await api.getJson<{ deliveries: Delivery[] }>(`/v1/admin/webhooks/${ep.id}/deliveries`);
+				const all = res.deliveries ?? [];
+				const failed  = all.filter(d => d.status === 'failed');
+				const pending = all.filter(d => d.status === 'pending');
+				const lastFailed = failed[0] ?? null;
+				// next_retry_at isn't exposed in the delivery type; use created_at as fallback
+				return {
+					endpoint_id:   ep.id,
+					endpoint_url:  ep.url,
+					pending_count: pending.length,
+					failed_count:  failed.length,
+					last_error:    lastFailed?.last_error ?? null,
+					next_retry_at: null,
+					deliveries:    all.slice(0, 5),
+				} satisfies RetryQueueEntry;
+			})
+		);
+		retryQueue = results
+			.map(r => r.status === 'fulfilled' ? r.value : null)
+			.filter((r): r is RetryQueueEntry => r !== null)
+			.filter(r => r.failed_count > 0 || r.pending_count > 0);
+		retryQueueLoading = false;
+	}
+
+	async function retryNow(endpointId: string) {
+		retryingId = endpointId;
+		try {
+			const res = await api.post<{ retried_count: number }>(`/v1/admin/webhooks/${endpointId}/retry`, {});
+			retryResult = { ...retryResult, [endpointId]: { count: res.retried_count } };
+			// Refresh queue after retry
+			await loadRetryQueue();
+		} catch (e: unknown) {
+			retryResult = { ...retryResult, [endpointId]: { count: 0, error: String(e) } };
+		} finally {
+			retryingId = null;
 		}
 	}
 
@@ -156,7 +219,12 @@
 		return new Date(ts).toLocaleString();
 	}
 
-	onMount(load);
+	async function loadAll() {
+		await load();
+		await loadRetryQueue();
+	}
+
+	onMount(loadAll);
 </script>
 
 <h1>Webhook Management</h1>
@@ -289,6 +357,80 @@
 	<div class="card"><p class="muted">No deliveries found for this endpoint.</p></div>
 </section>
 {/if}
+
+<!-- Retry Queue section -->
+<section class="retry-section">
+	<div class="section-header">
+		<h2>Retry Queue</h2>
+		<button class="btn-sm" onclick={loadRetryQueue} disabled={retryQueueLoading}>
+			{retryQueueLoading ? 'Refreshing…' : 'Refresh'}
+		</button>
+	</div>
+
+	{#if retryQueueLoading}
+		<div class="card"><p class="muted">Loading retry queue…</p></div>
+	{:else if retryQueue.length === 0}
+		<div class="card"><p class="muted">No pending or failed deliveries. All webhooks are healthy.</p></div>
+	{:else}
+		{#each retryQueue as entry}
+			<div class="card retry-card">
+				<div class="retry-header">
+					<div class="retry-url mono">{entry.endpoint_url}</div>
+					<div class="retry-badges">
+						{#if entry.pending_count > 0}
+							<span class="badge yellow">{entry.pending_count} pending</span>
+						{/if}
+						{#if entry.failed_count > 0}
+							<span class="badge red">{entry.failed_count} failed</span>
+						{/if}
+					</div>
+					<button
+						class="btn-sm btn-retry"
+						onclick={() => retryNow(entry.endpoint_id)}
+						disabled={retryingId === entry.endpoint_id}
+					>
+						{retryingId === entry.endpoint_id ? 'Retrying…' : 'Retry Now'}
+					</button>
+				</div>
+
+				{#if entry.last_error}
+					<div class="retry-last-error">
+						<span class="muted small">Last error:</span>
+						<span class="mono small red">{entry.last_error}</span>
+					</div>
+				{/if}
+
+				{#if retryResult[entry.endpoint_id]}
+					{#if retryResult[entry.endpoint_id].error}
+						<p class="retry-feedback error">Retry failed: {retryResult[entry.endpoint_id].error}</p>
+					{:else}
+						<p class="retry-feedback green">{retryResult[entry.endpoint_id].count} deliveries queued for retry.</p>
+					{/if}
+				{/if}
+
+				<!-- Last 5 delivery attempts timeline -->
+				{#if entry.deliveries.length > 0}
+					<div class="delivery-timeline">
+						<div class="timeline-label muted small">Last {Math.min(entry.deliveries.length, 5)} attempts</div>
+						<div class="timeline-entries">
+							{#each entry.deliveries.slice(0, 5) as d}
+								<div class="timeline-entry">
+									<span class="badge {statusBadge(d.status)} badge-sm">{d.status}</span>
+									<span class="mono small">{d.event_type}</span>
+									<span class="muted small">×{d.attempts} attempts</span>
+									<span class="muted small">{fmt(d.created_at)}</span>
+									{#if d.last_error}
+										<span class="mono small red ellipsis" title={d.last_error}>{d.last_error.slice(0, 40)}{d.last_error.length > 40 ? '…' : ''}</span>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
+			</div>
+		{/each}
+	{/if}
+</section>
 
 {#if showModal}
 <div class="modal-backdrop" role="dialog" aria-modal="true">
@@ -472,4 +614,89 @@
 	.muted { color: var(--fg-muted, #8b949e); }
 	.mono  { font-family: monospace; font-size: 0.84rem; }
 	.small { font-size: 0.78rem; }
+
+	/* ---------------------------------------------------------------------------
+	   Retry queue styles
+	---------------------------------------------------------------------------- */
+	.retry-section { margin-top: 1.5rem; margin-bottom: 1rem; }
+
+	.retry-card {
+		margin-bottom: 0.75rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.retry-header {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		flex-wrap: wrap;
+	}
+
+	.retry-url {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 0.84rem;
+	}
+
+	.retry-badges {
+		display: flex;
+		gap: 0.3rem;
+	}
+
+	.btn-retry {
+		white-space: nowrap;
+		border-color: var(--accent, #1f6feb);
+		color: var(--accent, #58a6ff);
+	}
+	.btn-retry:hover { background: rgba(88,166,255,.1); }
+
+	.retry-last-error {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.retry-feedback { margin: 0; font-size: 0.82rem; }
+
+	/* Delivery timeline */
+	.delivery-timeline {
+		border-top: 1px solid var(--border, #30363d);
+		padding-top: 0.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.3rem;
+	}
+
+	.timeline-label { margin-bottom: 0.15rem; }
+
+	.timeline-entries {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.timeline-entry {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		padding: 0.2rem 0.4rem;
+		border-radius: 4px;
+		background: var(--hover-bg, #1c2128);
+	}
+
+	.badge-sm { font-size: 0.66rem; padding: 0.08rem 0.35rem; }
+
+	.ellipsis {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		max-width: 300px;
+	}
 </style>

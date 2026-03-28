@@ -1,5 +1,57 @@
 # Sprint Log
 
+## Sprint N+11 — Dark/Light Theme, NFT Custody, NEAR, Aptos/Sui, Webhook Retry Dashboard (2026-03-27)
+
+### Goals
+- Dark/light theme toggle with CSS custom properties + localStorage persistence
+- NFT custody: ERC-721/1155/Metaplex tracking, calldata encoding, CRUD API + grid dashboard
+- NEAR Protocol scanner: yoctoNEAR conversion, account ID validation, block queries
+- Aptos/Sui scanners: REST and JSON-RPC balance/version queries, decimal conversions
+- Webhook retry queue: POST /retry endpoint + dashboard section with timeline
+
+### Completed
+| Task | File | Status | Tests |
+|------|------|--------|-------|
+| CSS var palettes (dark/light) on `:root` / `:root.light` | layout.svelte | DONE | — |
+| Sun/moon toggle button with localStorage (`custody_theme`) | layout.svelte | DONE | — |
+| `CustodiedNft`, `NftStandard`, `RegisterNftRequest`, `NftTransferRequest` | common/nft_custody.rs | DONE | 13 |
+| `encode_erc721_transfer` (0x23b872dd, 100B) | common/nft_custody.rs | DONE | 5 |
+| `encode_erc1155_transfer` (0xf242432a, 196B) | common/nft_custody.rs | DONE | 4 |
+| `parse_eth_address` / `parse_token_id` | common/nft_custody.rs | DONE | 3 |
+| Migration `025_nft_custody.sql` | db/migrations/ | DONE | — |
+| `nft_router()` — GET/POST /v1/nfts, GET /v1/nfts/{id}, POST /v1/nfts/{id}/transfer | gateway/nft_routes.rs | DONE | 5 |
+| NFT grid dashboard with Transfer/Register modals | dashboard/routes/nfts/ | DONE | — |
+| `nav.nfts` i18n key (en/ru/zh) | lib/i18n.ts | DONE | — |
+| `NearScanner::mainnet/testnet`, `latest_block`, `get_balance` | common/near_chain.rs | DONE | 12 |
+| `yocto_to_near` / `near_to_yocto` (24dp) | common/near_chain.rs | DONE | 4 |
+| `validate_account_id` (NEAR rules) | common/near_chain.rs | DONE | 6 |
+| `AptosScanner::mainnet/devnet`, `latest_version`, `get_balance` | common/move_chains.rs | DONE | 10 |
+| `SuiScanner::mainnet/devnet`, `latest_checkpoint`, `get_balance` | common/move_chains.rs | DONE | 8 |
+| `octas_to_apt/apt_to_octas` (APT=8dp) | common/move_chains.rs | DONE | 3 |
+| `mist_to_sui/sui_to_mist` (SUI=9dp) | common/move_chains.rs | DONE | 3 |
+| `validate_aptos_address` / `validate_sui_address` (0x + 64 hex) | common/move_chains.rs | DONE | 6 |
+| `POST /v1/admin/webhooks/{id}/retry` (RequireAdmin) | gateway/webhook_mgmt_routes.rs | DONE | — |
+| Retry Queue section in webhooks dashboard | dashboard/routes/webhooks/ | DONE | — |
+
+### Metrics
+- New tests added: ~41 (nft_custody=13, nft_routes=5, near_chain=12, move_chains=16)
+- Previous total: ~1,921+
+- New total: ~1,961
+- New crate files: 4 (nft_custody.rs, near_chain.rs, move_chains.rs, nft_routes.rs)
+- New dashboard pages: 1 (routes/nfts/+page.svelte)
+- New DB migrations: 1 (025_nft_custody.sql)
+
+### References
+- EIP-721: https://eips.ethereum.org/EIPS/eip-721
+- EIP-1155: https://eips.ethereum.org/EIPS/eip-1155
+- Solidity ABI encoding: https://docs.soliditylang.org/en/latest/abi-spec.html
+- NEAR RPC: https://docs.near.org/api/rpc/introduction
+- yoctoNEAR: https://docs.near.org/concepts/basics/tokens
+- Aptos REST API: https://fullnode.mainnet.aptoslabs.com/v1/spec
+- Aptos base token (APT=8): https://aptos.dev/en/network/blockchain/base-token
+- Sui JSON-RPC: https://docs.sui.io/sui-api-ref
+- Sui tokenomics (SUI=9): https://docs.sui.io/concepts/tokenomics
+
 ## Sprint N+10 — Performance Benchmarks, Address Checksum, Memo/Tag, Audit Integrity, Request Logging (2026-03-27)
 
 ### Goals
