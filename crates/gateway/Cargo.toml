@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 custody-common = { path = "../common" }
+custody-compliance = { path = "../compliance" }
 custody-db = { path = "../db" }
 custody-address-factory = { path = "../address-factory" }
 custody-signing = { path = "../signing" }
@@ -28,3 +29,4 @@ hex = { workspace = true }
 futures = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
+sqlx = { workspace = true }

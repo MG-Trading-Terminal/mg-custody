@@ -11,6 +11,7 @@
 pub mod ofac;
 pub mod ofac_downloader;
 pub mod onchain_analysis;
+pub mod reporting;
 pub mod risk;
 pub mod screening;
 pub mod travel_rule;

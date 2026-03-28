@@ -83,6 +83,7 @@ pub mod scheduler;
 #[cfg(test)]
 mod security_tests;
 pub mod sdk;
+pub mod sdk_generator;
 pub mod settlement;
 pub mod settlement_ops;
 pub mod solana_actions;

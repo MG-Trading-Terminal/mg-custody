@@ -11,9 +11,16 @@
 //! - Signer: 100
 //! - Admin:  200
 //! - Owner:  500
+//!
+//! ## DB persistence
+//!
+//! `UserRateLimiter` optionally persists counters to PostgreSQL (migration 019).
+//! The in-memory `SlidingWindow` is the fast path; the DB is written in batches
+//! by a background task spawned via `start_sync_task`. On startup, call
+//! `load_from_db` to restore counters that survived a restart.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 // ---------------------------------------------------------------------------
@@ -163,9 +170,19 @@ impl SlidingWindow {
 ///
 /// Keys are either `"user:{uuid}"` for authenticated requests or
 /// `"ip:{ip}"` for unauthenticated ones.
+///
+/// The limiter optionally persists counter state to PostgreSQL so that a
+/// service restart does not reset all windows to zero (avoiding a brief
+/// rate-limit bypass window on restart).  Set a `db_pool` via
+/// `with_db_pool` and call `load_from_db` on startup, then spawn the
+/// background sync task with `start_sync_task`.
 pub struct UserRateLimiter {
     windows: Mutex<HashMap<String, SlidingWindow>>,
     window: Duration,
+    /// Set of keys that have been modified since the last DB flush.
+    dirty: Mutex<std::collections::HashSet<String>>,
+    /// Optional DB pool for persistence.
+    db_pool: Option<sqlx::PgPool>,
 }
 
 impl UserRateLimiter {
@@ -173,6 +190,8 @@ impl UserRateLimiter {
         Self {
             windows: Mutex::new(HashMap::new()),
             window,
+            dirty: Mutex::new(std::collections::HashSet::new()),
+            db_pool: None,
         }
     }
 
@@ -181,17 +200,29 @@ impl UserRateLimiter {
         Self::new(Duration::from_secs(60))
     }
 
+    /// Attach a DB pool for persistent counter storage.
+    pub fn with_db_pool(mut self, pool: sqlx::PgPool) -> Self {
+        self.db_pool = Some(pool);
+        self
+    }
+
     /// Check whether `key` is within `limit`.
     ///
     /// Returns `Ok((remaining, limit))` if allowed, or `Err(retry_after_secs)` if blocked.
+    /// Marks the key dirty for the next DB sync cycle.
     pub fn check(&self, key: &str, limit: u32) -> Result<(u32, u32), u64> {
         let window = self.window;
         let mut map = self.windows.lock().unwrap();
         let entry = map.entry(key.to_string()).or_insert_with(SlidingWindow::new);
-        match entry.check(limit, window) {
+        let result = match entry.check(limit, window) {
             Ok(remaining) => Ok((remaining, limit)),
             Err(retry) => Err(retry),
+        };
+        // Mark dirty regardless of allow/deny — the count changed either way.
+        if let Ok(mut dirty) = self.dirty.lock() {
+            dirty.insert(key.to_string());
         }
+        result
     }
 
     /// Evict windows that have been idle longer than 2× window.
@@ -204,6 +235,156 @@ impl UserRateLimiter {
                 .last()
                 .map(|t| now.duration_since(*t) < two_windows)
                 .unwrap_or(false)
+        });
+    }
+
+    /// Load persisted counters from the DB on startup.
+    ///
+    /// Only restores counters whose window is still active (not expired).
+    /// Returns the number of keys restored.
+    pub async fn load_from_db(&self) -> anyhow::Result<usize> {
+        let Some(ref pool) = self.db_pool else {
+            return Ok(0);
+        };
+        let window_secs = self.window.as_secs() as i64;
+
+        // Use the non-macro query API so this compiles without DATABASE_URL.
+        let rows = sqlx::query(
+            r#"
+            SELECT key, count, window_start
+            FROM rate_limit_counters
+            WHERE window_seconds = $1
+              AND window_start > NOW() - ($1 || ' seconds')::INTERVAL
+            "#,
+        )
+        .bind(window_secs as i32)
+        .fetch_all(pool)
+        .await?;
+
+        let count = rows.len();
+        let mut map = self.windows.lock().unwrap();
+        let now = Instant::now();
+        for row in rows {
+            use sqlx::Row;
+            let key: String = row.try_get("key")?;
+            let hit_count: i32 = row.try_get("count")?;
+            let window_start: chrono::DateTime<chrono::Utc> = row.try_get("window_start")?;
+
+            // Compute how long ago the window started.
+            let age_secs = chrono::Utc::now()
+                .signed_duration_since(window_start)
+                .num_seconds()
+                .max(0) as u64;
+
+            let entry = map.entry(key).or_insert_with(SlidingWindow::new);
+            let hits = hit_count.max(0) as usize;
+            // Place synthetic timestamps at window_start offset so they
+            // expire naturally at the correct time.
+            let fake_ts = now.checked_sub(Duration::from_secs(age_secs)).unwrap_or(now);
+            for _ in 0..hits {
+                entry.timestamps.push(fake_ts);
+            }
+        }
+        Ok(count)
+    }
+
+    /// Flush dirty counters to the DB.
+    ///
+    /// Writes counts as of this instant; the window_start is approximated
+    /// as `NOW() - elapsed_since_first_entry`.
+    pub async fn flush_to_db(&self) -> anyhow::Result<usize> {
+        let Some(ref pool) = self.db_pool else {
+            return Ok(0);
+        };
+
+        // Snapshot which keys are dirty then clear the set atomically.
+        let dirty_keys: Vec<String> = {
+            let mut d = self.dirty.lock().unwrap();
+            d.drain().collect()
+        };
+
+        if dirty_keys.is_empty() {
+            return Ok(0);
+        }
+
+        let window_secs = self.window.as_secs() as i32;
+        let now = Instant::now();
+        let mut flushed = 0usize;
+
+        // Snapshot counter values before any awaits (lock must not be held across await).
+        // Each element is either Some((count, offset)) for an upsert or None for a delete.
+        let snapshots: Vec<(String, Option<(i32, u64)>)> = {
+            let map = self.windows.lock().unwrap();
+            dirty_keys.iter().map(|key| {
+                let payload = map.get(key.as_str()).map(|sw| {
+                    let count = sw.timestamps.len() as i32;
+                    let offset = sw.timestamps.first()
+                        .map(|t| now.duration_since(*t).as_secs())
+                        .unwrap_or(0);
+                    (count, offset)
+                });
+                (key.clone(), payload)
+            }).collect()
+        };
+        // Lock is released here — safe to await below.
+
+        for (key, payload) in snapshots {
+            match payload {
+                None => {
+                    // Key was evicted — remove from DB.
+                    let _ = sqlx::query(
+                        "DELETE FROM rate_limit_counters WHERE key = $1",
+                    )
+                    .bind(&key)
+                    .execute(pool)
+                    .await;
+                }
+                Some((count, offset_secs)) => {
+                    let window_start = chrono::Utc::now()
+                        - chrono::Duration::seconds(offset_secs as i64);
+
+                    sqlx::query(
+                        r#"
+                        INSERT INTO rate_limit_counters (key, count, window_start, window_seconds)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (key) DO UPDATE
+                            SET count = EXCLUDED.count,
+                                window_start = EXCLUDED.window_start,
+                                window_seconds = EXCLUDED.window_seconds
+                        "#,
+                    )
+                    .bind(&key)
+                    .bind(count)
+                    .bind(window_start)
+                    .bind(window_secs)
+                    .execute(pool)
+                    .await?;
+
+                    flushed += 1;
+                }
+            }
+        }
+
+        Ok(flushed)
+    }
+
+    /// Spawn a background task that syncs dirty counters to the DB every
+    /// `interval` seconds.  Call this once after constructing the limiter.
+    pub fn start_sync_task(self: Arc<Self>, interval: Duration) {
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(interval).await;
+                match self.flush_to_db().await {
+                    Ok(n) if n > 0 => {
+                        tracing::debug!(keys = n, "Rate limit counters flushed to DB");
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Rate limit DB flush failed");
+                    }
+                }
+                self.cleanup();
+            }
         });
     }
 }

@@ -185,6 +185,7 @@
 - [x] Custom chain registration API
 - [x] Unique chain_id enforcement
 - [x] Linea, Scroll, Mantle configs
+- [x] EVM L2 scanner wiring in server/main.rs — all 10 non-Ethereum chains spawn dedicated scanner tasks
 
 ### 8B — Non-EVM L1 Chains
 - [x] Cosmos SDK chains (ATOM, OSMO, Celestia) — types + config

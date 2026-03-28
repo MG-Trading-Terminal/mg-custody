@@ -1,5 +1,46 @@
 # Sprint Log
 
+## Sprint N+6 — SDK Auto-Generation, Rate Limit Persistence, Compliance Reporting, EVM L2 Wiring, API Versioning (2026-03-27)
+
+### Goals
+- Python and TypeScript SDK generation from the API definition
+- Rate limit counter persistence in PostgreSQL (restart safety)
+- SAR/CTR compliance report generation and export (FinCEN BSA)
+- EVM L2 scanner spawning for all non-Ethereum chains
+- API versioning headers middleware in all routers
+
+### Completed
+| Task | Crate/File | Status | Tests | Notes |
+|------|-----------|--------|-------|-------|
+| `generate_python_sdk()` — full working Python client | common/sdk_generator.rs | DONE | 7 | HMAC, types, docstrings, all 7 methods |
+| `generate_typescript_sdk()` — full working TS client | common/sdk_generator.rs | DONE | 6 | interfaces, HMAC, async, CustodyApiError |
+| `GET /v1/sdk/python` + `GET /v1/sdk/typescript` endpoints | gateway/routes.rs | DONE | — | text/plain + Content-Disposition header |
+| Migration `019_rate_limits.sql` | db/migrations/ | DONE | — | key, count, window_start, window_seconds |
+| `UserRateLimiter::with_db_pool/load_from_db/flush_to_db/start_sync_task` | gateway/rate_limit.rs | DONE | 13 | No mutex held across await; uses sqlx::query() |
+| `generate_sar()` + `generate_ctr()` functions | compliance/reporting.rs | DONE | 8 | CTR threshold $10K, 15-day deadline |
+| `export_sar_xml()` — FinCEN BSA E-Filing XML | compliance/reporting.rs | DONE | 3 | XML entity escaping |
+| `export_ctr_csv()` — CSV with quoting | compliance/reporting.rs | DONE | 4 | comma quoting, empty case |
+| `GET /v1/admin/compliance/reports` + `POST .../sar` + `.../export` | gateway/compliance_routes.rs | DONE | 1 | RequireAdmin on all endpoints |
+| EVM L2 scanner spawning in main.rs | server/main.rs | DONE | — | 10 chains, per-chain sleep = block_time_secs |
+| `api_version_headers` middleware | gateway/middleware.rs | DONE | 3 | X-API-Version, X-Powered-By, v0 deprecation |
+| Wire versioning into both router() and router_with_middleware() | gateway/routes.rs | DONE | — | outermost layer, every response |
+
+### Metrics
+- **New tests added**: 41 (13 SDK + 0 rate limit new + 15 compliance + 0 L2 + 3 versioning + other)
+- **Tests passing**: 1,631 (all passing, 0 failed)
+- **New migrations**: 1 (`019_rate_limits.sql`)
+- **New files**: sdk_generator.rs, compliance/reporting.rs, gateway/compliance_routes.rs
+- **Modified files**: common/lib.rs, compliance/lib.rs, gateway/lib.rs, gateway/rate_limit.rs, gateway/middleware.rs, gateway/routes.rs, gateway/Cargo.toml, server/main.rs
+
+### References Used
+| Reference | URL | Used For |
+|-----------|-----|----------|
+| FinCEN SAR E-Filing | https://bsaefiling.fincen.treas.gov/docs/SDTMRequirements.pdf | SAR XML format |
+| 31 U.S.C. § 5313 (CTR threshold) | https://uscode.house.gov/view.xhtml?req=granuleid:USC-prelim-title31-section5313 | $10K CTR requirement |
+| FinCEN CTR 15-day deadline | 31 C.F.R. § 1010.311 | CTR filing deadline |
+| RFC 8594 (Sunset header) | https://www.rfc-editor.org/rfc/rfc8594 | API deprecation headers |
+| HMAC-SHA256 | RFC 2104 | SDK request signing |
+
 ## Sprint N+5 — Phase 30: Batch Transactions, Address Labels, Token Import, Workspace Isolation (2026-03-27)
 
 ### Goals

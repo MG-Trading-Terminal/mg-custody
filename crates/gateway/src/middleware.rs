@@ -253,6 +253,42 @@ pub async fn rate_limit(
     }
 }
 
+/// API versioning headers middleware.
+///
+/// Adds `X-API-Version` and `X-Powered-By` to every response so that callers
+/// can detect the running version without parsing the OpenAPI spec.
+///
+/// For any path that starts with a deprecated version prefix (currently `"/v0"`),
+/// the `Deprecation` and `Sunset` headers are also added per RFC 8594.
+pub async fn api_version_headers(request: Request<Body>, next: Next) -> Response {
+    let path = request.uri().path().to_string();
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+
+    // Version identity headers — always present.
+    if let Ok(v) = "1.0".parse() {
+        headers.insert("X-API-Version", v);
+    }
+    if let Ok(v) = "MG-Custody/1.0".parse() {
+        headers.insert("X-Powered-By", v);
+    }
+
+    // Deprecation headers for any legacy `/v0` prefixed routes.
+    if path.starts_with("/v0") {
+        if let Ok(v) = "true".parse() {
+            headers.insert("Deprecation", v);
+        }
+        if let Ok(v) = "2026-06-01".parse() {
+            headers.insert("Sunset", v);
+        }
+        if let Ok(v) = "</v1/openapi.json>; rel=\"successor-version\"".parse() {
+            headers.insert("Link", v);
+        }
+    }
+
+    response
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -273,5 +309,40 @@ mod tests {
         assert!(mw.public_paths.iter().any(|p| "/health".starts_with(p)));
         assert!(mw.public_paths.iter().any(|p| "/metrics".starts_with(p)));
         assert!(!mw.public_paths.iter().any(|p| "/v1/addresses".starts_with(p)));
+    }
+
+    // --- API versioning ---
+
+    #[test]
+    fn deprecation_headers_for_v0_path() {
+        let deprecated_headers = custody_common::api_versioning::deprecation_headers("v0");
+        assert!(!deprecated_headers.is_empty(), "v0 must have deprecation headers");
+        assert!(
+            deprecated_headers.iter().any(|(k, _)| k == "Deprecation"),
+            "missing Deprecation header for v0"
+        );
+        assert!(
+            deprecated_headers.iter().any(|(k, _)| k == "Sunset"),
+            "missing Sunset header for v0"
+        );
+    }
+
+    #[test]
+    fn deprecation_headers_absent_for_v1() {
+        let headers = custody_common::api_versioning::deprecation_headers("v1");
+        assert!(
+            headers.is_empty(),
+            "v1 must not have deprecation headers, got: {:?}",
+            headers
+        );
+    }
+
+    #[test]
+    fn api_version_constant_is_1_0() {
+        let versions = custody_common::api_versioning::supported_versions();
+        assert!(
+            versions.iter().any(|v| v.version == "v1"),
+            "v1 must be in supported versions"
+        );
     }
 }

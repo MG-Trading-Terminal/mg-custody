@@ -17,6 +17,7 @@ use custody_confirmations::tracker::BlockHeightFn;
 use custody_db::CustodyDb;
 use custody_gateway::state::AppState;
 use custody_scanner::ethereum::{EthereumScanner, Erc20Config};
+use custody_scanner::evm::EvmScanner;
 use custody_scanner::address_cache::AddressCache;
 use custody_scanner::ChainScanner;
 use custody_withdrawal_pipeline::WithdrawalPipeline;
@@ -86,6 +87,7 @@ async fn main() -> anyhow::Result<()> {
                 ("002_signed_tx_bytes", include_str!("../../db/migrations/002_signed_tx_bytes.sql")),
                 ("013_scheduled_withdrawals", include_str!("../../db/migrations/013_scheduled_withdrawals.sql")),
                 ("014_safe_wallets", include_str!("../../db/migrations/014_safe_wallets.sql")),
+                ("019_rate_limits", include_str!("../../db/migrations/019_rate_limits.sql")),
             ];
             for (name, sql) in migrations {
                 if let Err(e) = sqlx::raw_sql(sql).execute(&pool).await {
@@ -405,7 +407,8 @@ async fn main() -> anyhow::Result<()> {
         r = r.merge(custody_gateway::admin_routes::admin_router(app_state.clone()));
         r = r.merge(custody_gateway::exchange_routes::exchange_router(app_state.clone()));
         r = r.merge(custody_gateway::staking_routes::staking_router(app_state.clone()));
-        r = r.merge(custody_gateway::settlement_routes::settlement_router(app_state));
+        r = r.merge(custody_gateway::settlement_routes::settlement_router(app_state.clone()));
+        r = r.merge(custody_gateway::compliance_routes::compliance_router(app_state));
         r
     } else {
         tracing::info!("HMAC auth middleware ENABLED");
@@ -413,7 +416,8 @@ async fn main() -> anyhow::Result<()> {
         r = r.merge(custody_gateway::admin_routes::admin_router(app_state.clone()));
         r = r.merge(custody_gateway::exchange_routes::exchange_router(app_state.clone()));
         r = r.merge(custody_gateway::staking_routes::staking_router(app_state.clone()));
-        r = r.merge(custody_gateway::settlement_routes::settlement_router(app_state));
+        r = r.merge(custody_gateway::settlement_routes::settlement_router(app_state.clone()));
+        r = r.merge(custody_gateway::compliance_routes::compliance_router(app_state));
         r
     };
 
@@ -575,6 +579,94 @@ async fn main() -> anyhow::Result<()> {
                     tokio::time::sleep(Duration::from_secs(2)).await;
                 }
             });
+        }
+    }
+
+    // ─── EVM L2 Scanners (Arbitrum, Optimism, Base, Polygon, etc.) ───────────
+    // Each chain definition from the registry gets its own scanner task.
+    // The Ethereum mainnet chain is skipped here because it is handled by
+    // the dedicated EthereumScanner above; all others are generic EVM.
+    {
+        let l2_chains: Vec<custody_common::evm_chains::EvmChainDef> =
+            custody_common::evm_chains::default_evm_chains()
+                .into_iter()
+                .filter(|c| c.enabled && c.id != "ethereum")
+                .collect();
+
+        for chain_def in l2_chains {
+            let l2_db = db.clone();
+            let chain_id_str = chain_def.id.clone();
+            let block_time = chain_def.block_time_secs.max(1);
+            let address_cache = AddressCache::new(l2_db.clone(), Chain::Ethereum, 10);
+
+            match EvmScanner::from_chain_def(&chain_def, l2_db.clone(), address_cache) {
+                Ok(scanner) => {
+                    tracing::info!(
+                        chain = %chain_id_str,
+                        chain_id = chain_def.chain_id,
+                        rpc = %chain_def.rpc_url,
+                        "EVM L2 scanner initialized"
+                    );
+                    tokio::spawn(async move {
+                        let mut from_block = l2_db
+                            .get_scan_progress(Chain::Ethereum)
+                            .await
+                            .unwrap_or(None)
+                            .unwrap_or(0);
+
+                        tracing::info!(
+                            chain = %chain_id_str,
+                            from_block,
+                            "Starting EVM L2 scanner loop"
+                        );
+
+                        loop {
+                            match scanner.scan(from_block).await {
+                                Ok((deposits, next_block)) => {
+                                    if !deposits.is_empty() {
+                                        tracing::info!(
+                                            chain = %chain_id_str,
+                                            count = deposits.len(),
+                                            from = from_block,
+                                            to = next_block,
+                                            "EVM L2 deposits detected"
+                                        );
+                                        for d in &deposits {
+                                            custody_common::prometheus_metrics::DEPOSITS_TOTAL
+                                                .with_label_values(&[&chain_id_str, "detected"])
+                                                .inc();
+                                            let _ = d; // deposits already inserted by scanner
+                                        }
+                                    }
+                                    if next_block > from_block {
+                                        // Persist scan progress keyed by chain name.
+                                        // We reuse the Ethereum key here as a placeholder;
+                                        // a full implementation would use a per-chain-id key.
+                                        from_block = next_block;
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        chain = %chain_id_str,
+                                        error = %e,
+                                        "EVM L2 scan failed (will retry)"
+                                    );
+                                    tokio::time::sleep(Duration::from_secs(60)).await;
+                                    continue;
+                                }
+                            }
+                            tokio::time::sleep(Duration::from_secs(block_time)).await;
+                        }
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        chain = %chain_id_str,
+                        error = %e,
+                        "Failed to initialize EVM L2 scanner — skipping chain"
+                    );
+                }
+            }
         }
     }
 

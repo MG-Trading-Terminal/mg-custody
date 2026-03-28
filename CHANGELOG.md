@@ -5,6 +5,49 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-27) — SDK Auto-Generation, Rate Limit Persistence, Compliance Reporting, EVM L2 Wiring, API Versioning
+
+- **Feature 1: SDK auto-generation (Python + TypeScript)**
+  - New `crates/common/src/sdk_generator.rs` — generates real, working client code (not stubs)
+  - `generate_python_sdk()`: complete Python file with `CustodyClient` class, HMAC signing, typed dataclasses, docstrings, all 7 major API methods, `CustodyApiError` exception
+  - `generate_typescript_sdk()`: complete TypeScript file with full interface types, `CustodyClient` class, async methods, HMAC signing via Node `crypto` module, `CustodyApiError` class
+  - Both SDKs enforce string amounts — no float in monetary fields
+  - `GET /v1/sdk/python` and `GET /v1/sdk/typescript` endpoints in `routes.rs` serve as text/plain downloads
+  - 13 unit tests covering method presence, HMAC computation, type correctness, error classes, non-empty output
+
+- **Feature 2: Rate limit persistence in DB**
+  - Migration `019_rate_limits.sql`: `rate_limit_counters` table with `key`, `count`, `window_start`, `window_seconds`
+  - `UserRateLimiter` gains `with_db_pool()`, `load_from_db()`, `flush_to_db()`, and `start_sync_task(interval)` methods
+  - In-memory SlidingWindow is the fast path; DB persistence survives restarts — avoids bypass window on restart
+  - Background sync task flushes dirty counters every 10 seconds; cleanup evicts stale windows
+  - Uses `sqlx::query()` (non-macro) — no DATABASE_URL required at compile time
+  - Lock is never held across `await` — MutexGuard is dropped before any DB call
+  - All 13 existing rate limit tests continue to pass
+
+- **Feature 3: Compliance reporting (SAR/CTR)**
+  - New `crates/compliance/src/reporting.rs` — SAR and CTR generation and export
+  - `generate_sar(screening, tx) -> SuspiciousActivityReport` — creates Draft SAR from screening result
+  - `generate_ctr(tx, threshold_usd) -> Option<CurrencyTransactionReport>` — auto-generates CTR for txs > $10K per 31 U.S.C. § 5313
+  - `export_sar_xml(report) -> String` — FinCEN BSA E-Filing XML format with proper entity escaping
+  - `export_ctr_csv(reports) -> String` — CSV with comma-quoting for compliance
+  - New `crates/gateway/src/compliance_routes.rs` with `GET /v1/admin/compliance/reports`, `POST /v1/admin/compliance/reports/sar`, `GET /v1/admin/compliance/reports/{id}/export`
+  - All endpoints require `RequireAdmin` role
+  - 15 unit tests: SAR generation, CTR threshold boundary (exact threshold = no CTR), filing deadline (15 days), XML structure, XML escaping, CSV format, CSV empty case
+
+- **Feature 4: EVM L2 scanner wiring**
+  - `crates/server/src/main.rs` now spawns scanner tasks for all enabled non-Ethereum EVM chains from `default_evm_chains()` (Arbitrum, Optimism, Base, Polygon, Avalanche, BSC, zkSync, Linea, Scroll, Mantle)
+  - Uses `EvmScanner::from_chain_def()` — each chain gets its own `AddressCache` and task
+  - Loop follows the same error-backoff pattern as Ethereum scanner (60s backoff on RPC failure)
+  - Sleep interval is `chain_def.block_time_secs` — Arbitrum sleeps 1s, Polygon 2s, BSC 3s
+  - Failed scanner initialization logs warning and continues — does not crash the service
+
+- **Feature 5: API versioning headers middleware**
+  - New `api_version_headers` middleware in `crates/gateway/src/middleware.rs`
+  - Adds `X-API-Version: 1.0` and `X-Powered-By: MG-Custody/1.0` to every response
+  - Adds `Deprecation: true`, `Sunset: 2026-06-01`, `Link: </v1/openapi.json>; rel="successor-version"` for any `/v0` prefixed path (RFC 8594)
+  - Wired into both `router()` and `router_with_middleware()` in routes.rs
+  - 3 tests: deprecated headers present for v0, absent for v1, v1 in supported versions list
+
 ### Added (2026-03-27) — Batch Transactions, Address Book Labels, Token Import, Workspace Isolation
 
 - **Feature 1: Atomic batch withdrawals** — `POST /v1/withdrawals/batch`

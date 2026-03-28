@@ -61,6 +61,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/openapi.json", get(openapi_spec))
         .route("/v1/sdk/methods", get(sdk_methods))
         .route("/v1/sdk/endpoints", get(endpoint_catalog))
+        .route("/v1/sdk/python", get(sdk_python))
+        .route("/v1/sdk/typescript", get(sdk_typescript))
         .merge(crate::auth_routes::auth_router())
         .merge(crate::totp_routes::totp_router())
         .merge(crate::fido2_routes::fido2_router())
@@ -78,6 +80,7 @@ pub fn router(state: AppState) -> Router {
         // Dashboard static files (SvelteKit build output)
         // Fallback to index.html for client-side routing
         .fallback_service(dashboard_service())
+        .layer(axum_mw::from_fn(crate::middleware::api_version_headers))
         .layer(axum_mw::from_fn(crate::middleware::security_headers))
         .layer(axum_mw::from_fn_with_state(rbac_state, rbac_middleware::rbac_auth))
         .layer(axum_mw::from_fn_with_state(mw_state, crate::middleware::rate_limit))
@@ -123,6 +126,7 @@ pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
         .merge(crate::user_routes::user_router())
         .merge(crate::safe_routes::safe_router())
         .merge(crate::password_reset_routes::password_reset_router())
+        .layer(axum_mw::from_fn(crate::middleware::api_version_headers))
         .layer(axum_mw::from_fn_with_state(rbac_state, rbac_middleware::rbac_auth))
         .layer(axum_mw::from_fn(crate::request_id::request_id_middleware))
         .layer(axum_mw::from_fn_with_state(mw_state.clone(), middleware::rate_limit))
@@ -368,4 +372,34 @@ async fn sdk_methods() -> Json<Vec<custody_common::developer::SdkMethod>> {
 
 async fn endpoint_catalog() -> Json<Vec<custody_common::developer::ApiEndpoint>> {
     Json(custody_common::developer::all_endpoints())
+}
+
+/// Return the auto-generated Python SDK as plain text.
+async fn sdk_python() -> axum::response::Response {
+    use axum::http::header;
+    let code = custody_common::sdk_generator::generate_python_sdk();
+    axum::response::Response::builder()
+        .status(axum::http::StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header(
+            header::CONTENT_DISPOSITION,
+            "attachment; filename=\"custody_client.py\"",
+        )
+        .body(axum::body::Body::from(code))
+        .unwrap()
+}
+
+/// Return the auto-generated TypeScript SDK as plain text.
+async fn sdk_typescript() -> axum::response::Response {
+    use axum::http::header;
+    let code = custody_common::sdk_generator::generate_typescript_sdk();
+    axum::response::Response::builder()
+        .status(axum::http::StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header(
+            header::CONTENT_DISPOSITION,
+            "attachment; filename=\"custody_client.ts\"",
+        )
+        .body(axum::body::Body::from(code))
+        .unwrap()
 }
