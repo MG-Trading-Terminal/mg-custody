@@ -5,7 +5,11 @@
 
 pub mod address_book;
 pub mod addresses;
+pub mod analytics;
+pub mod api_key_usage;
+pub mod device_trust;
 pub mod login_history;
+pub mod statements;
 pub mod email_otp;
 pub mod safe_wallets;
 pub mod scheduled_withdrawals;

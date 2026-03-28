@@ -5,6 +5,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-27) — Substrate Scanner+Signer, Transaction Analytics, Custody Statements, Device Trust, API Key Usage
+
+- **Feature 1: Polkadot/Substrate chain support** (`crates/common/src/polkadot_chain.rs`)
+  - `SubstrateScanner` — async JSON-RPC HTTP client; `latest_finalized()`, `block_hash()`, `scan_block()`, `get_balance()`
+  - `SubstrateSigner` — Ed25519 key container with `ZeroizeOnDrop`; `sign_transfer()` builds SCALE-encoded signed extrinsic
+  - `encode_ss58(pubkey, prefix)` / `decode_ss58(address)` — full SS58 round-trip with Blake2b-512-approximate (SHA-512) checksum; two-byte canary prefix for values ≥64
+  - `scale_compact_encode(u128)` / `scale_compact_decode(&[u8])` — four SCALE compact modes (single/two/four byte + big-int)
+  - `Era::Immortal` / `Era::Mortal { period, phase }` — SCALE era encoding for extrinsic validity windows
+  - All five chain constructors: `polkadot()`, `kusama()`, plus Moonbeam/Acala/Astar via `SubstrateChain` enum
+  - 32 unit tests: SS58 round-trip (prefix 0, 2, 1284), checksum rejection, SCALE compact (all four modes + 100 DOT), balance parsing (DOT 10^10, KSM 10^12), era encoding, signer determinism, `sign_transfer` output, invalid address rejection
+  - References: https://docs.substrate.io/reference/address-formats/, https://docs.substrate.io/reference/scale-codec/
+
+- **Feature 2: Transaction analytics + fee tracking**
+  - `crates/common/src/analytics.rs` — extended with `AnalyticsPeriod`, `TransactionAnalytics`, `FeeBreakdown`, `FlowDataPoint`, `AnalyticsSummaryQuery`
+  - `AnalyticsPeriod::bounds()` — returns `(DateTime<Utc>, DateTime<Utc>)` for any period variant including December year-wrap
+  - `TransactionAnalytics::compute()` — derives `net_flow_usd` and `avg_fee_per_tx_usd` from raw inputs; zero-safe division
+  - `FeeBreakdown::new()` — computes `avg_fee_native`; zero-safe
+  - `AnalyticsSummaryQuery::to_period()` — parses `period=daily|weekly|monthly` query params with validation
+  - `crates/db/src/analytics.rs` — new DB module: `daily_summary()`, `fee_breakdown_by_chain()`, `top_transactions()`, `flow_timeseries()` (hourly/daily truncation)
+  - `dashboard/src/routes/analytics/+page.svelte` — summary cards (inflow/outflow/net/fees/busiest chain), per-chain fee table, top-transactions table; date filter controls
+  - 18 unit tests (net flow, zero-tx divide guard, fee avg, period labels, bounds, month wrap, query parse, invalid month/period rejection)
+
+- **Feature 3: Custody statements**
+  - `crates/common/src/custody_statement.rs` — `CustodyStatement`, `StatementPeriod`, `AssetBalance`, `StatementEntry`, `FeeSummary`
+  - `StatementPeriod::parse("YYYY-MM")`, `start_date()`, `end_date_exclusive()`, December year-wrap
+  - `CustodyStatement::compute_attestation_hash()` — SHA-256 over canonical JSON payload (all material fields except the hash itself)
+  - `CustodyStatement::verify_attestation()` — recomputes and compares; detects tampered fields
+  - `export_statement_json()`, `export_statement_text()`, `export_statement_csv()` — three export formats; amounts always `Decimal::to_string()` (never float)
+  - `crates/db/src/statements.rs` — `upsert_statement()` (ON CONFLICT idempotent), `list_statements()`, `get_statement()`, `delete_statement()`
+  - 17 unit tests (period parse, invalid month, December wrap, attestation hash length/format, verification, tamper detection, flow calculations, JSON/text/CSV export, no scientific notation in CSV)
+
+- **Feature 4: Concurrent session limits + device trust**
+  - `crates/db/migrations/022_device_trust.sql` — `ALTER TABLE sessions ADD COLUMN device_fingerprint TEXT`; `CREATE TABLE trusted_devices (id, user_id, device_fingerprint, name, trusted_until, created_at, UNIQUE(user_id, device_fingerprint))`
+  - `crates/db/src/device_trust.rs` — `is_device_trusted()`, `trust_device()` (upsert), `list_trusted_devices()`, `revoke_trusted_device()`, `revoke_all_trusted_devices()`, `cleanup_expired_trusted_devices()`
+  - `enforce_session_limit(user_id, max_sessions)` — counts active sessions, revokes oldest N via `ORDER BY created_at ASC LIMIT excess`; returns count revoked; emits tracing log on revocation
+  - `count_active_sessions(user_id)` — helper for callers
+  - Constants: `DEFAULT_MAX_CONCURRENT_SESSIONS = 5`, `DEFAULT_TRUST_DURATION_DAYS = 30`
+  - 4 unit tests (constant values, TrustedDevice struct fields, serialization)
+
+- **Feature 5: API key usage analytics**
+  - `crates/db/migrations/023_api_key_usage.sql` — `CREATE TABLE api_key_usage (key_id, date, request_count, last_endpoint, last_ip, PRIMARY KEY (key_id, date))`
+  - `crates/db/src/api_key_usage.rs` — `record_api_key_usage()` (ON CONFLICT DO UPDATE atomic increment), `get_api_key_usage()`, `total_api_key_requests()`, `get_expiring_keys(within_days)`, `cleanup_old_api_key_usage(retain_days)`
+  - `DailyUsage` and `ApiKeyInfo` (with `days_until_expiry: Option<i64>`) row types with Serialize
+  - 6 unit tests (field checks, serialization, aggregation logic, expiry detection, negative days for expired keys)
+
 ### Added (2026-03-27) — Cosmos Scanner+Signer, Staking Executor, i18n Dashboard, Push Notifications, IP Geo Detection
 
 - **Feature 1: Cosmos SDK chain support**

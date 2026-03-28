@@ -68,6 +68,7 @@ pub mod operational_tools;
 pub mod operations;
 pub mod payment_flows;
 pub mod platform;
+pub mod custody_statement;
 pub mod polkadot;
 pub mod polkadot_chain;
 pub mod price_engine;

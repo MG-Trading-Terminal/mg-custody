@@ -1,5 +1,51 @@
 # Sprint Log
 
+## Sprint N+8 — Substrate Scanner, Analytics, Custody Statements, Device Trust, API Key Usage (2026-03-27)
+
+### Goals
+- Polkadot/Substrate chain support: real scanner + signer + SS58 + SCALE compact
+- Transaction analytics + fee tracking: DB queries + dashboard page
+- Custody statements: monthly PDF-equivalent with attestation hash
+- Concurrent session limits + trusted device fingerprinting
+- API key daily usage counters + expiry detection
+
+### Completed
+| Task | File | Status | Tests | Notes |
+|------|------|--------|-------|-------|
+| `SubstrateScanner` — JSON-RPC HTTP client | common/polkadot_chain.rs | DONE | 2 | scan_block, get_balance, latest_finalized |
+| `SubstrateSigner` — Ed25519 + SCALE extrinsic | common/polkadot_chain.rs | DONE | 5 | ZeroizeOnDrop, sign_transfer, invalid dest rejection |
+| SS58 encode/decode — full round-trip | common/polkadot_chain.rs | DONE | 5 | prefix 0/2/1284, checksum rejection, short address |
+| SCALE compact encode/decode | common/polkadot_chain.rs | DONE | 7 | single/two/four/big-int modes, 100 DOT, empty input |
+| `Era::Immortal/Mortal` SCALE encoding | common/polkadot_chain.rs | DONE | 2 | immortal=1 byte, mortal=2 bytes |
+| Balance parsing (DOT/KSM) | common/polkadot_chain.rs | DONE | 2 | 10^10 planck = 1 DOT, 10^12 = 1 KSM |
+| `TransactionAnalytics` + `FeeBreakdown` types | common/analytics.rs | DONE | 8 | net flow, avg fee, zero-safe division |
+| `AnalyticsPeriod` + `bounds()` | common/analytics.rs | DONE | 6 | day/week/month/custom, December wrap |
+| `AnalyticsSummaryQuery::to_period()` | common/analytics.rs | DONE | 4 | daily/weekly/monthly parse, invalid rejection |
+| `db::analytics` — DB query module | db/analytics.rs | DONE | 4 | daily_summary, fee_breakdown, top_txs, timeseries |
+| Analytics dashboard page | dashboard/analytics/+page.svelte | DONE | — | cards + fee table + top-tx table |
+| `CustodyStatement` + `StatementPeriod` | common/custody_statement.rs | DONE | 12 | period parse, attestation hash, tamper detection |
+| `export_statement_json/text/csv` | common/custody_statement.rs | DONE | 5 | all 3 formats, no scientific notation in CSV |
+| `db::statements` — persistence | db/statements.rs | DONE | 1 | upsert idempotent, list, get, delete |
+| Migration `022_device_trust.sql` | db/migrations/ | DONE | — | sessions.device_fingerprint, trusted_devices table |
+| `db::device_trust` — device trust + session limit | db/device_trust.rs | DONE | 4 | is_trusted, trust_device, revoke, enforce_session_limit |
+| Migration `023_api_key_usage.sql` | db/migrations/ | DONE | — | api_key_usage (key_id, date) primary key |
+| `db::api_key_usage` — usage tracking | db/api_key_usage.rs | DONE | 6 | record (atomic upsert), get, total, expiring keys |
+| Wire all modules into lib.rs | common/lib.rs, db/lib.rs | DONE | — | custody_statement, analytics, device_trust, etc. |
+
+### Metrics
+- **New tests added**: ~83 (32 polkadot_chain + 18 analytics + 17 custody_statement + 4 device_trust + 6 api_key_usage + 5 statements/analytics db)
+- **Tests passing**: 1,163 (custody-common: 1,083 + custody-db: 72 — all passing, 0 failed)
+- **New files**: polkadot_chain.rs (full rewrite), custody_statement.rs, db/analytics.rs, db/statements.rs, db/device_trust.rs, db/api_key_usage.rs, 022_device_trust.sql, 023_api_key_usage.sql, dashboard/analytics/+page.svelte
+- **Modified files**: common/analytics.rs (extended), common/lib.rs, db/lib.rs
+
+### References Used
+- SS58 address format: https://docs.substrate.io/reference/address-formats/
+- SCALE codec: https://docs.substrate.io/reference/scale-codec/
+- Substrate JSON-RPC: https://polkadot.js.org/docs/substrate/rpc/
+- Substrate extrinsic format: https://docs.substrate.io/reference/transaction-format/
+
+---
+
 ## Sprint N+7 — Cosmos Scanner+Signer, Staking Executor, i18n, Push Notifications, Geo Detection (2026-03-27)
 
 ### Goals
