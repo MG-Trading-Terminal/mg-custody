@@ -51,6 +51,7 @@ impl RbacState {
                 "/health/deep".into(),
                 "/metrics".into(),
                 "/v1/auth/sessions".into(), // login endpoint is pre-auth
+                "/v1/auth/sessions/verify-2fa".into(), // 2FA completion is pre-auth (uses pending token)
             ],
         }
     }

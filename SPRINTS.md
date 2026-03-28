@@ -1,5 +1,41 @@
 # Sprint Log
 
+## Sprint N+3 — Phase 28: TOTP 2FA + Proof of Reserves User Verification (2026-03-28)
+
+### Goals
+- Implement RFC 6238 TOTP 2FA with a two-step login flow (password → pending token → TOTP → session)
+- Add user-facing Proof of Reserves inclusion proof endpoint
+
+### Completed
+| Task | Crate | Status | Tests | Notes |
+|------|-------|--------|-------|-------|
+| `TotpSecret` (RFC 6238, HMAC-SHA1, Zeroize) | common | DONE | 13 | RFC 6238 Appendix B vectors pass |
+| DB migration 015 (`user_totp`, `pending_2fa_tokens`) | db | DONE | — | AES-GCM encrypted secret, single-use pending tokens |
+| TOTP DB layer (encrypt/decrypt, backup codes, lifecycle) | db | DONE | 11 | Wrong-key fails, tamper fails, unique codes |
+| TOTP routes (setup/verify/disable/verify-2fa) | gateway | DONE | 2 | Key derivation SHA-256("totp-v1:"\|\|seed) |
+| Login handler 2FA branching | gateway | DONE | 2 | `requires_2fa + pending_token` response shape |
+| RBAC public path: `/v1/auth/sessions/verify-2fa` | gateway | DONE | — | Pre-auth endpoint |
+| `generate_proof(leaves, idx)` in reconciliation | reconciliation | DONE | 5 | Single-leaf, odd-tree, all configs |
+| `GET /v1/user/proof-of-reserves` | gateway | DONE | 4 | Per-leaf proofs with `0x` prefixed hashes |
+| `POST /v1/user/proof-of-reserves/verify` | gateway | DONE | 3 | Strips `0x`, validates 64-char hex hashes |
+
+### Metrics
+- **New tests added**: 40 (13 totp common + 11 totp db + 2 totp routes + 2 auth_routes + 5 reconciliation + 7 gateway por_tests)
+- **Tests passing**: 1531 (up from 509 at last session record — large jump includes all crates)
+- **New files**: 5 (`totp.rs` common, `totp.rs` db, `totp_routes.rs` gateway, `015_totp.sql`, TOTP module wiring)
+- **Modified files**: 6 (`lib.rs` ×3, `routes.rs`, `auth_routes.rs`, `user_routes.rs`, `rbac_middleware.rs`, `proof_of_reserves.rs`)
+- **Clippy**: zero warnings in all new/modified files
+- **Bug found + fixed**: `generate_proof` for single-leaf trees was computing root inconsistently with `merkle_root` (pre-padded to 2 vs `while len > 1`); fixed to mirror `merkle_root` exactly
+
+### References Used
+- RFC 6238 TOTP: https://www.rfc-editor.org/rfc/rfc6238
+- RFC 4226 HOTP: https://www.rfc-editor.org/rfc/rfc4226
+- RFC 4648 Base32: https://www.rfc-editor.org/rfc/rfc4648
+- Google Authenticator Key Uri Format: https://github.com/google/google-authenticator/wiki/Key-Uri-Format
+- Vitalik PoR blog post: https://vitalik.eth.limo/general/2022/11/19/proof_of_solvency.html
+
+---
+
 ## Sprint N+2 — Phase 27: Gnosis Safe + Scheduled Withdrawals + WebSocket Enhancements (2026-03-27)
 
 ### Goals

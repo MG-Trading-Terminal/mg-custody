@@ -628,6 +628,28 @@ Phase 19 + 21 ────────> Phase 25 (OpenAPI)
 
 ---
 
+## Phase 28 — TOTP 2FA + Proof of Reserves User Verification ✅ DONE (2026-03-28)
+
+### 28A — TOTP 2FA ✅ DONE
+- [x] `TotpSecret` in `crates/common/src/totp.rs` — RFC 6238, HMAC-SHA1, `Zeroize + ZeroizeOnDrop`
+- [x] 13 unit tests including RFC 6238 Appendix B test vectors
+- [x] DB migration 015: `user_totp` + `pending_2fa_tokens` tables
+- [x] DB layer (`crates/db/src/totp.rs`): AES-GCM encryption, backup codes, pending tokens
+- [x] `POST /v1/auth/totp/setup` — generate secret + provisioning URI + 8 backup codes (shown once)
+- [x] `POST /v1/auth/totp/verify` — enable TOTP on first successful code
+- [x] `POST /v1/auth/totp/disable` — requires valid code (Admin override)
+- [x] Updated login: `POST /v1/auth/sessions` returns `{requires_2fa, pending_token}` when TOTP enabled
+- [x] `POST /v1/auth/sessions/verify-2fa` — consume pending token + TOTP/backup code → full session
+
+### 28B — Proof of Reserves User Verification ✅ DONE
+- [x] `generate_proof(leaves, idx)` in `crates/reconciliation/src/proof_of_reserves.rs`
+- [x] 5 new tests for `generate_proof`: single-leaf, 2-leaf, 4-leaf, 3-leaf (odd), out-of-bounds
+- [x] `GET /v1/user/proof-of-reserves` — user's balance leaves + Merkle proofs + root
+- [x] `POST /v1/user/proof-of-reserves/verify` — verify any proof against a root hash
+- [x] 7 gateway tests: tampered leaf fails, tampered sibling fails, empty, odd tree
+
+---
+
 ## Summary: Honest Status Tracker
 
 ### Core Infrastructure (operational)
@@ -686,3 +708,6 @@ Phase 19 + 21 ────────> Phase 25 (OpenAPI)
 | UTXO consolidation execution | Phase 23 | ✅ Done — ConsolidationPolicy, plan_consolidation, fee-gated scheduler | P1 |
 | Swap execution engine | Phase 24 | ✅ Core done — SwapExecutor trait, Uniswap V3 + Jupiter, 3 API endpoints, 42 tests | P2 |
 | OpenAPI auto-generation | Phase 25 | ✅ Done — OpenAPI 3.1, full schemas, dual auth schemes, 22 tests | P2 |
+| Gnosis Safe multi-sig + Scheduled withdrawals + WebSocket enhancements | Phase 27 | ✅ Done — EIP-712, threshold signing, cron schedules, WS auth + new event types | P1 |
+| **TOTP 2FA for login** | Phase 28A | ✅ Done — RFC 6238, HMAC-SHA1, AES-GCM encrypted secrets, backup codes, 2-step login flow | P0 |
+| **Proof of Reserves user verification** | Phase 28B | ✅ Done — Merkle inclusion proofs, `generate_proof()`, GET + POST verify endpoints | P1 |

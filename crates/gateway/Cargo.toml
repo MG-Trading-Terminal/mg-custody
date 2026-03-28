@@ -10,6 +10,7 @@ custody-address-factory = { path = "../address-factory" }
 custody-signing = { path = "../signing" }
 custody-withdrawal-pipeline = { path = "../withdrawal-pipeline" }
 custody-wallet-manager = { path = "../wallet-manager" }
+custody-reconciliation = { path = "../reconciliation" }
 axum = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }

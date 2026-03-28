@@ -1887,6 +1887,7 @@ dependencies = [
  "rust_decimal_macros",
  "serde",
  "serde_json",
+ "sha1",
  "sha2",
  "sha3",
  "thiserror 2.0.18",
@@ -1894,6 +1895,7 @@ dependencies = [
  "toml",
  "tracing",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -1935,6 +1937,7 @@ dependencies = [
 name = "custody-db"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "chrono",
  "custody-common",
@@ -1980,6 +1983,7 @@ dependencies = [
  "custody-address-factory",
  "custody-common",
  "custody-db",
+ "custody-reconciliation",
  "custody-signing",
  "custody-wallet-manager",
  "custody-withdrawal-pipeline",

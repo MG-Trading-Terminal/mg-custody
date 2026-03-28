@@ -14,5 +14,5 @@ pub mod service;
 
 pub use balance_provider::BalanceProvider;
 pub use reconciler::{ReconciliationResult, DiscrepancyAlert};
-pub use proof_of_reserves::{MerkleProof, ReservesAttestation};
+pub use proof_of_reserves::{BalanceLeaf, MerkleProof, ReservesAttestation, generate_proof, merkle_root};
 pub use service::ReconciliationService;

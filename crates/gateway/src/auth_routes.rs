@@ -27,10 +27,16 @@ pub struct LoginRequest {
 
 #[derive(Serialize)]
 pub struct LoginResponse {
-    pub token: String,
-    pub user_id: Uuid,
-    pub role: String,
-    pub expires_in_seconds: i64,
+    /// Full session token, or null when requires_2fa is true.
+    pub token: Option<String>,
+    pub user_id: Option<Uuid>,
+    pub role: Option<String>,
+    pub expires_in_seconds: Option<i64>,
+    /// True when the account has TOTP enabled and a second factor is needed.
+    pub requires_2fa: bool,
+    /// Short-lived token to present with the TOTP code at /v1/auth/sessions/verify-2fa.
+    /// Only present when requires_2fa is true. Expires in 5 minutes.
+    pub pending_token: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -53,8 +59,13 @@ pub fn auth_router() -> Router<AppState> {
 
 /// POST /v1/auth/sessions — create session (login).
 ///
-/// Accepts email + password, verifies against argon2id hash in DB,
-/// returns a Bearer token valid for 8 hours.
+/// Accepts email + password, verifies against the stored hash.
+///
+/// If the account has TOTP enabled, returns `requires_2fa: true` and a short-lived
+/// `pending_token` instead of a full session. The client must then call
+/// `POST /v1/auth/sessions/verify-2fa` with the pending token and their TOTP code.
+///
+/// If TOTP is not enabled, returns a full session token immediately.
 async fn login(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
@@ -76,18 +87,48 @@ async fn login(
         return Err(ApiError::unauthorized("Invalid email or password"));
     }
 
-    // Extract IP from request (not available here directly, use placeholder)
-    let ip = "unknown".to_string(); // Will be set properly when we have ConnectInfo
+    // Check if TOTP is enabled for this user
+    let totp_enabled = state
+        .db
+        .load_totp(user_id)
+        .await
+        .map_err(|e| ApiError::internal(&e.to_string()))?
+        .map(|t| t.enabled)
+        .unwrap_or(false);
+
+    if totp_enabled {
+        // Issue a pending 2FA token — full session is created only after TOTP passes
+        let pending_token = state
+            .db
+            .create_pending_2fa_token(user_id)
+            .await
+            .map_err(|e| ApiError::internal(&e.to_string()))?;
+
+        tracing::info!(email = %req.email, "Password OK — 2FA required");
+
+        return Ok((
+            StatusCode::OK,
+            Json(LoginResponse {
+                token: None,
+                user_id: None,
+                role: None,
+                expires_in_seconds: None,
+                requires_2fa: true,
+                pending_token: Some(pending_token),
+            }),
+        ));
+    }
+
+    // No TOTP — create session directly
+    let ip = "unknown".to_string();
     let user_agent = "api".to_string();
 
-    // Create session
     let token = state
         .db
         .create_session(user_id, &ip, &user_agent)
         .await
         .map_err(|e| ApiError::internal(&e.to_string()))?;
 
-    // Update last_login_at
     let _ = state.db.update_last_login(user_id).await;
 
     tracing::info!(email = %req.email, role = %role_str, "User logged in");
@@ -95,10 +136,12 @@ async fn login(
     Ok((
         StatusCode::CREATED,
         Json(LoginResponse {
-            token,
-            user_id,
-            role: role_str,
-            expires_in_seconds: 8 * 3600,
+            token: Some(token),
+            user_id: Some(user_id),
+            role: Some(role_str),
+            expires_in_seconds: Some(8 * 3600),
+            requires_2fa: false,
+            pending_token: None,
         }),
     ))
 }
@@ -202,15 +245,33 @@ mod tests {
     }
 
     #[test]
-    fn login_response_serialization() {
+    fn login_response_serialization_no_2fa() {
         let resp = LoginResponse {
-            token: "abc123".into(),
-            user_id: Uuid::new_v4(),
-            role: "admin".into(),
-            expires_in_seconds: 28800,
+            token: Some("abc123".into()),
+            user_id: Some(Uuid::new_v4()),
+            role: Some("admin".into()),
+            expires_in_seconds: Some(28800),
+            requires_2fa: false,
+            pending_token: None,
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("abc123"));
         assert!(json.contains("28800"));
+        assert!(json.contains("\"requires_2fa\":false"));
+    }
+
+    #[test]
+    fn login_response_serialization_requires_2fa() {
+        let resp = LoginResponse {
+            token: None,
+            user_id: None,
+            role: None,
+            expires_in_seconds: None,
+            requires_2fa: true,
+            pending_token: Some("pending_abc".into()),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("\"requires_2fa\":true"));
+        assert!(json.contains("pending_abc"));
     }
 }

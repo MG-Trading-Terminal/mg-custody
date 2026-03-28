@@ -24,6 +24,7 @@ pub mod payment_flows;
 pub mod policy;
 pub mod scan_progress;
 pub mod sessions;
+pub mod totp;
 pub mod scheduled_tx;
 pub mod transactions;
 pub mod travel_rule;

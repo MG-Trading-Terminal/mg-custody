@@ -6,6 +6,7 @@
 pub mod admin_routes;
 pub mod auth;
 pub mod auth_routes;
+pub mod totp_routes;
 pub mod safe_routes;
 pub mod openapi;
 pub mod connectivity_routes;

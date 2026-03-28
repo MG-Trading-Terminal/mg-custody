@@ -318,6 +318,32 @@ impl CustodyDb {
         .await?;
         Ok(())
     }
+
+    /// Fetch just the role string for a user (used after 2FA completion).
+    pub async fn get_user_role(&self, user_id: Uuid) -> anyhow::Result<Option<String>> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT role FROM workspace_users WHERE id = $1 AND enabled = true",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(r,)| r))
+    }
+
+    /// Find user by ID — returns (user_id, role, password_hash).
+    /// Used after 2FA completion to build the session response.
+    pub async fn find_user_by_email_by_id(
+        &self,
+        user_id: Uuid,
+    ) -> anyhow::Result<Option<(Uuid, String, Option<String>)>> {
+        let row: Option<(Uuid, String, Option<String>)> = sqlx::query_as(
+            "SELECT id, role, password_hash FROM workspace_users WHERE id = $1 AND enabled = true",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
 }
 
 #[cfg(test)]

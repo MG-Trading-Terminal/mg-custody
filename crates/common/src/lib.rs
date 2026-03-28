@@ -95,6 +95,7 @@ pub mod staking_contracts;
 pub mod staking_ops;
 pub mod token2022;
 pub mod token_database;
+pub mod totp;
 pub mod token_ops;
 pub mod token_scan;
 pub mod token_registry;

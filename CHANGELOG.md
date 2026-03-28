@@ -5,6 +5,57 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-28) — Phase 28: TOTP 2FA + Proof of Reserves User Verification
+
+- **`crates/common/src/totp.rs`** — RFC 6238 TOTP implementation:
+  - `TotpSecret` — 20-byte secret, `Zeroize + ZeroizeOnDrop`, never logged or serialized plaintext
+  - `TotpSecret::generate()` — OsRng CSPRNG, 20 random bytes
+  - `TotpSecret::generate_code(time)` — HMAC-SHA1 + dynamic truncation per RFC 4226 §5.3
+  - `TotpSecret::verify(code, time)` — ±1 window clock-skew tolerance, constant-time comparison
+  - `TotpSecret::to_base32()` / `from_base32()` — RFC 4648 standard alphabet, no padding
+  - `TotpSecret::provisioning_uri(email, issuer)` — `otpauth://totp/` scheme for QR code
+  - 13 unit tests including RFC 6238 Appendix B test vectors (SHA1, 6 digits)
+
+- **`crates/db/migrations/015_totp.sql`** — TOTP persistence:
+  - `user_totp` — encrypted secret (AES-256-GCM), `enabled` flag, 8 backup code hashes, `backup_codes_used` boolean array
+  - `pending_2fa_tokens` — short-lived (5 min) intermediate token issued after password check, before TOTP; single-use via `consumed_at`
+
+- **`crates/db/src/totp.rs`** — TOTP DB operations:
+  - `encrypt_secret` / `decrypt_secret` — AES-256-GCM, nonce stored as `hex(nonce):hex(ciphertext)`
+  - `generate_backup_codes()` — 8 × 8-char alphanumeric (no ambiguous chars), returns `(raw, hashed)`
+  - `hash_backup_code(code)` — SHA-256, case-insensitive
+  - `upsert_totp_setup`, `enable_totp`, `delete_totp`, `load_totp` — full lifecycle
+  - `consume_backup_code` — atomic mark-used by array index, checks not-already-consumed
+  - `create_pending_2fa_token`, `consume_pending_2fa_token` — single-use 5-min tokens
+  - 11 unit tests: encrypt/decrypt roundtrip, wrong-key failure, tampered ciphertext, backup code uniqueness, case-insensitivity, format validation
+
+- **`crates/gateway/src/totp_routes.rs`** — TOTP API routes:
+  - `POST /v1/auth/totp/setup` — generate secret, return base32 + provisioning URI + 8 raw backup codes (shown once)
+  - `POST /v1/auth/totp/verify` — verify first code, enable TOTP; rejects if already enabled
+  - `POST /v1/auth/totp/disable` — requires valid TOTP code (Admin may skip); revokes all sessions
+  - `POST /v1/auth/sessions/verify-2fa` — consume pending token + TOTP/backup code → full session
+  - Encryption key: SHA-256("totp-v1:" || seed[0..32]) — deterministic across restarts
+  - 2 unit tests: key determinism, different seeds produce different keys
+
+- **Updated `crates/gateway/src/auth_routes.rs`** — 2FA login flow:
+  - `LoginResponse` updated: `token/user_id/role/expires_in_seconds` are now `Option<_>`, `requires_2fa: bool`, `pending_token: Option<String>` added
+  - Login checks `load_totp(user_id).enabled` — if true, issues 5-min `pending_token` instead of session
+  - 2 updated tests for both response shapes
+
+- **Updated `crates/gateway/src/rbac_middleware.rs`** — `/v1/auth/sessions/verify-2fa` added to public paths (pre-auth endpoint)
+
+- **`crates/reconciliation/src/proof_of_reserves.rs`** — `generate_proof` function added:
+  - Generates Merkle inclusion proof for any leaf index in O(log N)
+  - Exactly mirrors `merkle_root` logic (odd-level duplication, `while len > 1` condition)
+  - Single-leaf tree: empty sibling list, root = leaf hash (consistent with `merkle_root` behavior)
+  - 5 new tests: single-leaf, two-leaf both, four-leaf all, three-leaf (odd tree) all, out-of-bounds → None
+
+- **Updated `crates/gateway/src/user_routes.rs`** — Proof of Reserves endpoints:
+  - `GET /v1/user/proof-of-reserves` — returns user's balance leaves, Merkle proofs, root, attestation time
+  - `POST /v1/user/proof-of-reserves/verify` — verifies a submitted proof; accepts/strips `0x` prefixes
+  - `PorBalanceItem`, `ProofOfReservesResponse`, `PorLeafProof`, `VerifyProofRequest`, `VerifyProofResponse` types
+  - 7 unit tests: single-leaf verify, two-leaf both, four-leaf all, tampered leaf fails, tampered sibling fails, empty balances, odd tree (3 leaves)
+
 ### Added (2026-03-27) — Phase 27: Gnosis Safe Multi-Sig + Scheduled Withdrawals + WebSocket Enhancements
 
 - **`crates/common/src/safe_executor.rs`** — Gnosis Safe multi-sig execution engine:

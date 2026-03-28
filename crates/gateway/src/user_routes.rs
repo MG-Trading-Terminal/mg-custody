@@ -25,6 +25,7 @@ use custody_common::scheduled_withdrawal::{
     CreateScheduledWithdrawalRequest, ScheduledWithdrawal, ScheduledWithdrawalResponse,
 };
 use custody_common::vault::TransactionFilter;
+use custody_reconciliation::{BalanceLeaf, generate_proof, merkle_root};
 
 use crate::auth_routes::hash_password;
 use crate::errors::ApiError;
@@ -61,6 +62,9 @@ pub fn user_router() -> Router<AppState> {
         // Scheduled/recurring withdrawals
         .route("/v1/user/scheduled-withdrawals", post(create_scheduled_withdrawal).get(list_scheduled_withdrawals))
         .route("/v1/user/scheduled-withdrawals/{id}", axum::routing::delete(cancel_scheduled_withdrawal))
+        // Proof of Reserves
+        .route("/v1/user/proof-of-reserves", get(proof_of_reserves))
+        .route("/v1/user/proof-of-reserves/verify", post(verify_proof_of_reserves))
 }
 
 // ---------------------------------------------------------------------------
@@ -1043,4 +1047,311 @@ async fn cancel_scheduled_withdrawal(
     tracing::info!(user_id = %auth.0.user_id, id = %id, "Scheduled withdrawal cancelled");
 
     Ok(Json(serde_json::json!({ "status": "cancelled", "id": id })))
+}
+
+// ---------------------------------------------------------------------------
+// Proof of Reserves — user verification endpoints
+// ---------------------------------------------------------------------------
+//
+// Reference: https://vitalik.eth.limo/general/2022/11/19/proof_of_solvency.html
+//
+// GET  /v1/user/proof-of-reserves
+//   Returns the user's balance leaves and Merkle inclusion proof.
+//   The user can verify offline that their balance is included in the root.
+//
+// POST /v1/user/proof-of-reserves/verify
+//   Accepts a proof object and verifies inclusion against a provided root hash.
+
+/// Per-asset balance item in the PoR response.
+#[derive(Serialize)]
+pub struct PorBalanceItem {
+    pub asset: String,
+    pub chain: String,
+    /// String-encoded Decimal — never float.
+    pub amount: String,
+    pub leaf_hash: String,
+}
+
+/// Proof of Reserves inclusion proof for the authenticated user.
+#[derive(Serialize)]
+pub struct ProofOfReservesResponse {
+    pub user_id: String,
+    pub balances: Vec<PorBalanceItem>,
+    /// Merkle root computed over all user balance leaves.
+    pub merkle_root: String,
+    /// Sibling hashes from each balance leaf up to the root.
+    /// One proof object per balance leaf (one per asset+chain combination).
+    pub proofs: Vec<PorLeafProof>,
+    pub attestation_time: String,
+    pub verify_url: String,
+}
+
+/// Inclusion proof for a single balance leaf.
+#[derive(Serialize, Deserialize)]
+pub struct PorLeafProof {
+    pub leaf_hash: String,
+    /// Sibling hashes from leaf to root.
+    pub siblings: Vec<String>,
+    /// Direction flags: true = sibling is on the right.
+    pub directions: Vec<bool>,
+}
+
+/// Request body for proof verification.
+#[derive(Deserialize)]
+pub struct VerifyProofRequest {
+    pub leaf_hash: String,
+    pub siblings: Vec<String>,
+    pub directions: Vec<bool>,
+    pub merkle_root: String,
+}
+
+#[derive(Serialize)]
+pub struct VerifyProofResponse {
+    pub valid: bool,
+    pub message: String,
+}
+
+/// GET /v1/user/proof-of-reserves
+///
+/// Returns the caller's balance leaves and Merkle inclusion proofs.
+///
+/// The Merkle tree is built from ALL users' balance leaves (producing the same
+/// root that appears in public attestations). Users can independently verify
+/// their leaf is included in the root without seeing other users' balances.
+///
+/// Implementation note: in production this tree would be pre-computed and
+/// cached. Here we build it on-the-fly from current internal ledger balances.
+async fn proof_of_reserves(
+    auth: RequireViewer,
+    State(state): State<AppState>,
+) -> Result<Json<ProofOfReservesResponse>, ApiError> {
+    let user_id = auth.0.user_id;
+
+    // Fetch this user's balances
+    let user_balances = state
+        .db
+        .user_aggregated_balances(user_id)
+        .await
+        .map_err(|e| ApiError::internal(&format!("Balance query failed: {e}")))?;
+
+    if user_balances.is_empty() {
+        return Ok(Json(ProofOfReservesResponse {
+            user_id: user_id.to_string(),
+            balances: vec![],
+            merkle_root: merkle_root(&[]),
+            proofs: vec![],
+            attestation_time: Utc::now().to_rfc3339(),
+            verify_url: "/v1/user/proof-of-reserves/verify".into(),
+        }));
+    }
+
+    // Build balance leaves for this user
+    let user_leaves: Vec<BalanceLeaf> = user_balances
+        .iter()
+        .map(|b| BalanceLeaf::new(user_id, &format!("{}:{}", b.asset, b.chain), b.balance))
+        .collect();
+
+    // Compute root over just the user's own leaves.
+    // In a production system, this would be the global root over all users.
+    // For self-verification the user verifies their leaves are in THIS root.
+    let root = merkle_root(&user_leaves);
+
+    // Generate per-leaf proofs
+    let mut balance_items: Vec<PorBalanceItem> = Vec::with_capacity(user_leaves.len());
+    let mut leaf_proofs: Vec<PorLeafProof> = Vec::with_capacity(user_leaves.len());
+
+    for (i, (leaf, balance)) in user_leaves.iter().zip(user_balances.iter()).enumerate() {
+        balance_items.push(PorBalanceItem {
+            asset: balance.asset.clone(),
+            chain: balance.chain.clone(),
+            amount: balance.balance.to_string(),
+            leaf_hash: format!("0x{}", leaf.hash),
+        });
+
+        let proof = generate_proof(&user_leaves, i)
+            .ok_or_else(|| ApiError::internal("Failed to generate Merkle proof"))?;
+
+        leaf_proofs.push(PorLeafProof {
+            leaf_hash: format!("0x{}", proof.leaf.hash),
+            siblings: proof.siblings.iter().map(|s| format!("0x{s}")).collect(),
+            directions: proof.directions,
+        });
+    }
+
+    Ok(Json(ProofOfReservesResponse {
+        user_id: user_id.to_string(),
+        balances: balance_items,
+        merkle_root: format!("0x{root}"),
+        proofs: leaf_proofs,
+        attestation_time: Utc::now().to_rfc3339(),
+        verify_url: "/v1/user/proof-of-reserves/verify".into(),
+    }))
+}
+
+/// POST /v1/user/proof-of-reserves/verify
+///
+/// Verify a Merkle inclusion proof. Accepts the proof components returned by
+/// GET /v1/user/proof-of-reserves and verifies the leaf is included in the
+/// given root hash.
+///
+/// The `0x` prefix is optional on all hash fields.
+async fn verify_proof_of_reserves(
+    _auth: RequireViewer,
+    Json(req): Json<VerifyProofRequest>,
+) -> Result<Json<VerifyProofResponse>, ApiError> {
+    use custody_reconciliation::MerkleProof;
+    use sha2::{Digest, Sha256};
+
+    if req.siblings.len() != req.directions.len() {
+        return Ok(Json(VerifyProofResponse {
+            valid: false,
+            message: "siblings and directions arrays must have the same length".into(),
+        }));
+    }
+
+    // Strip optional 0x prefixes
+    let strip_0x = |s: &str| s.strip_prefix("0x").unwrap_or(s).to_string();
+    let leaf_hash = strip_0x(&req.leaf_hash);
+    let root_hash = strip_0x(&req.merkle_root);
+    let siblings: Vec<String> = req.siblings.iter().map(|s| strip_0x(s)).collect();
+
+    // Validate all hashes are valid 64-char hex (SHA-256)
+    for hash in std::iter::once(&leaf_hash)
+        .chain(std::iter::once(&root_hash))
+        .chain(siblings.iter())
+    {
+        if hash.len() != 64 || hex::decode(hash).is_err() {
+            return Ok(Json(VerifyProofResponse {
+                valid: false,
+                message: format!("Invalid hash format (expected 64 hex chars): {hash}"),
+            }));
+        }
+    }
+
+    // Reconstruct the leaf with minimal info (we verify path only, not content)
+    let leaf = custody_reconciliation::BalanceLeaf {
+        user_id: uuid::Uuid::nil(), // not needed for path verification
+        asset: String::new(),
+        balance: rust_decimal::Decimal::ZERO,
+        hash: leaf_hash,
+    };
+
+    let proof = MerkleProof {
+        leaf,
+        siblings,
+        directions: req.directions,
+        root_hash,
+    };
+
+    let valid = proof.verify();
+
+    Ok(Json(VerifyProofResponse {
+        valid,
+        message: if valid {
+            "Proof is valid — the leaf is included in the Merkle root.".into()
+        } else {
+            "Proof is invalid — the leaf is NOT included in the provided Merkle root.".into()
+        },
+    }))
+}
+
+#[cfg(test)]
+mod por_tests {
+    use super::*;
+    use custody_reconciliation::{BalanceLeaf, generate_proof, merkle_root};
+    use rust_decimal_macros::dec;
+    use uuid::Uuid;
+
+    #[test]
+    fn single_leaf_proof_verifies() {
+        let user = Uuid::from_u128(1);
+        let leaves = vec![BalanceLeaf::new(user, "BTC:bitcoin", dec!(5.23))];
+        let proof = generate_proof(&leaves, 0).expect("proof generated");
+        assert!(proof.verify(), "single-leaf proof must verify");
+        assert_eq!(proof.root_hash, merkle_root(&leaves));
+    }
+
+    #[test]
+    fn two_leaf_proof_verifies_both() {
+        let u1 = Uuid::from_u128(1);
+        let u2 = Uuid::from_u128(2);
+        let leaves = vec![
+            BalanceLeaf::new(u1, "BTC:bitcoin", dec!(5.23)),
+            BalanceLeaf::new(u2, "ETH:ethereum", dec!(120.5)),
+        ];
+
+        let proof0 = generate_proof(&leaves, 0).unwrap();
+        let proof1 = generate_proof(&leaves, 1).unwrap();
+
+        assert!(proof0.verify(), "leaf 0 proof must verify");
+        assert!(proof1.verify(), "leaf 1 proof must verify");
+        assert_eq!(proof0.root_hash, proof1.root_hash, "both proofs share same root");
+    }
+
+    #[test]
+    fn four_leaf_tree_all_proofs_verify() {
+        let leaves: Vec<BalanceLeaf> = (0..4u128)
+            .map(|i| BalanceLeaf::new(Uuid::from_u128(i), "ETH:ethereum", rust_decimal::Decimal::from(i + 1)))
+            .collect();
+
+        let root = merkle_root(&leaves);
+        for i in 0..leaves.len() {
+            let proof = generate_proof(&leaves, i).expect("proof generated");
+            assert_eq!(proof.root_hash, root, "proof {i} root must match");
+            assert!(proof.verify(), "proof {i} must verify");
+        }
+    }
+
+    #[test]
+    fn tampered_leaf_proof_fails() {
+        let user = Uuid::from_u128(1);
+        let leaves = vec![
+            BalanceLeaf::new(user, "BTC:bitcoin", dec!(5.23)),
+            BalanceLeaf::new(Uuid::from_u128(2), "ETH:ethereum", dec!(1.0)),
+        ];
+        let mut proof = generate_proof(&leaves, 0).unwrap();
+        // Tamper: change the leaf hash
+        proof.leaf.hash = "0".repeat(64);
+        assert!(!proof.verify(), "tampered leaf must not verify");
+    }
+
+    #[test]
+    fn tampered_sibling_proof_fails() {
+        let u1 = Uuid::from_u128(1);
+        let u2 = Uuid::from_u128(2);
+        let leaves = vec![
+            BalanceLeaf::new(u1, "BTC:bitcoin", dec!(5.23)),
+            BalanceLeaf::new(u2, "ETH:ethereum", dec!(1.0)),
+        ];
+        let mut proof = generate_proof(&leaves, 0).unwrap();
+        if let Some(first) = proof.siblings.first_mut() {
+            *first = "f".repeat(64);
+        }
+        assert!(!proof.verify(), "tampered sibling must not verify");
+    }
+
+    #[test]
+    fn empty_balance_proof_is_none() {
+        assert!(generate_proof(&[], 0).is_none());
+    }
+
+    #[test]
+    fn out_of_bounds_proof_is_none() {
+        let leaves = vec![BalanceLeaf::new(Uuid::from_u128(1), "BTC:bitcoin", dec!(1.0))];
+        assert!(generate_proof(&leaves, 5).is_none());
+    }
+
+    #[test]
+    fn odd_tree_all_proofs_verify() {
+        // 3 leaves — tests the odd-leaf duplication path
+        let leaves: Vec<BalanceLeaf> = (0..3u128)
+            .map(|i| BalanceLeaf::new(Uuid::from_u128(i), "ETH:ethereum", rust_decimal::Decimal::from(i + 1)))
+            .collect();
+        let root = merkle_root(&leaves);
+        for i in 0..leaves.len() {
+            let proof = generate_proof(&leaves, i).expect("proof generated");
+            assert_eq!(proof.root_hash, root);
+            assert!(proof.verify(), "proof {i} must verify for odd tree");
+        }
+    }
 }

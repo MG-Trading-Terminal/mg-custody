@@ -91,6 +91,72 @@ pub struct ReserveAddress {
     pub tier: String, // "hot", "warm", "cold"
 }
 
+/// Generate a Merkle inclusion proof for a specific leaf.
+///
+/// Builds the full Merkle tree from `leaves`, then constructs the proof path
+/// (sibling hashes and directions) for the leaf at position `leaf_index`.
+///
+/// The tree construction exactly mirrors `merkle_root`: odd levels duplicate
+/// the last element to make the count even before hashing.
+///
+/// A single-leaf tree has root = leaf.hash and an empty sibling list.
+///
+/// Returns `None` if `leaf_index` is out of bounds or `leaves` is empty.
+pub fn generate_proof(leaves: &[BalanceLeaf], leaf_index: usize) -> Option<MerkleProof> {
+    if leaves.is_empty() || leaf_index >= leaves.len() {
+        return None;
+    }
+
+    let root = merkle_root(leaves);
+    let mut hashes: Vec<String> = leaves.iter().map(|l| l.hash.clone()).collect();
+
+    let mut siblings: Vec<String> = Vec::new();
+    let mut directions: Vec<bool> = Vec::new(); // true = sibling is on the right
+    let mut current_idx = leaf_index;
+
+    // Mirror merkle_root's while hashes.len() > 1 loop exactly
+    while hashes.len() > 1 {
+        // Duplicate odd last element (same as merkle_root)
+        if hashes.len() % 2 != 0 {
+            hashes.push(hashes.last().unwrap().clone());
+        }
+
+        // Sibling index within this level
+        let sibling_idx = if current_idx % 2 == 0 {
+            current_idx + 1 // node is left child; sibling is right
+        } else {
+            current_idx - 1 // node is right child; sibling is left
+        };
+
+        let sibling_hash = hashes[sibling_idx].clone();
+        let sibling_is_right = current_idx % 2 == 0;
+
+        siblings.push(sibling_hash);
+        directions.push(sibling_is_right);
+
+        // Build next level (same as merkle_root)
+        let mut next_level = Vec::new();
+        for chunk in hashes.chunks(2) {
+            let combined = if chunk.len() == 2 {
+                format!("{}{}", chunk[0], chunk[1])
+            } else {
+                format!("{}{}", chunk[0], chunk[0]) // duplicate odd leaf
+            };
+            next_level.push(hex::encode(Sha256::digest(combined.as_bytes())));
+        }
+
+        current_idx /= 2;
+        hashes = next_level;
+    }
+
+    Some(MerkleProof {
+        leaf: leaves[leaf_index].clone(),
+        siblings,
+        directions,
+        root_hash: root,
+    })
+}
+
 /// Build a simple Merkle tree from leaves and return the root hash.
 pub fn merkle_root(leaves: &[BalanceLeaf]) -> String {
     if leaves.is_empty() {
@@ -203,5 +269,61 @@ mod tests {
     fn empty_tree_root() {
         let root = merkle_root(&[]);
         assert!(!root.is_empty());
+    }
+
+    #[test]
+    fn generate_proof_single_leaf() {
+        let leaves = vec![BalanceLeaf::new(Uuid::from_u128(1), "BTC:bitcoin", dec!(5.23))];
+        let proof = generate_proof(&leaves, 0).expect("proof should be generated");
+        assert_eq!(proof.root_hash, merkle_root(&leaves), "root hash mismatch");
+        assert!(proof.verify(), "single-leaf proof must verify");
+    }
+
+    #[test]
+    fn generate_proof_two_leaves_both_verify() {
+        let leaves = vec![
+            BalanceLeaf::new(Uuid::from_u128(1), "BTC:bitcoin", dec!(5.23)),
+            BalanceLeaf::new(Uuid::from_u128(2), "ETH:ethereum", dec!(120.5)),
+        ];
+        let root = merkle_root(&leaves);
+        let p0 = generate_proof(&leaves, 0).unwrap();
+        let p1 = generate_proof(&leaves, 1).unwrap();
+        assert!(p0.verify());
+        assert!(p1.verify());
+        assert_eq!(p0.root_hash, root);
+        assert_eq!(p1.root_hash, root);
+    }
+
+    #[test]
+    fn generate_proof_out_of_bounds_returns_none() {
+        let leaves = vec![BalanceLeaf::new(Uuid::from_u128(1), "BTC", dec!(1))];
+        assert!(generate_proof(&leaves, 5).is_none());
+        assert!(generate_proof(&[], 0).is_none());
+    }
+
+    #[test]
+    fn generate_proof_four_leaves_all_verify() {
+        let leaves: Vec<BalanceLeaf> = (0..4u128)
+            .map(|i| BalanceLeaf::new(Uuid::from_u128(i), "ETH", rust_decimal::Decimal::from(i + 1)))
+            .collect();
+        let root = merkle_root(&leaves);
+        for i in 0..leaves.len() {
+            let proof = generate_proof(&leaves, i).unwrap();
+            assert_eq!(proof.root_hash, root, "leaf {i} proof root mismatch");
+            assert!(proof.verify(), "leaf {i} proof must verify");
+        }
+    }
+
+    #[test]
+    fn generate_proof_three_leaves_all_verify() {
+        let leaves: Vec<BalanceLeaf> = (0..3u128)
+            .map(|i| BalanceLeaf::new(Uuid::from_u128(i), "ETH", rust_decimal::Decimal::from(i + 1)))
+            .collect();
+        let root = merkle_root(&leaves);
+        for i in 0..leaves.len() {
+            let proof = generate_proof(&leaves, i).unwrap();
+            assert_eq!(proof.root_hash, root, "leaf {i} proof root mismatch");
+            assert!(proof.verify(), "leaf {i} proof must verify");
+        }
     }
 }
