@@ -5,6 +5,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-27) — Batch Transactions, Address Book Labels, Token Import, Workspace Isolation
+
+- **Feature 1: Atomic batch withdrawals** — `POST /v1/withdrawals/batch`
+  - All-or-nothing semantics: all items validated before any DB write; single PostgreSQL transaction wraps all inserts
+  - Max 50 withdrawals per batch (was previously 100, reduced for safety)
+  - Upgraded to `RequireSigner` (was `RequireEditor`) — bulk fund movement is high-risk
+  - New `insert_withdrawals_atomic(&[Withdrawal])` method in `crates/db/src/withdrawals.rs` — transaction logic in DB layer, no raw sqlx in gateway
+  - Response shape changed: `count` + `total_amount_usd` replace `accepted`/`rejected` (batch never partially succeeds)
+  - New `ApiError::unprocessable_entity(msg)` (HTTP 422) for validation failures that list all errors before rejecting
+  - Route moved from `/v1/transactions/batch` to `/v1/withdrawals/batch` to match spec
+
+- **Feature 2: Address book labels and search** — `PUT /v1/address-book/{id}/label`, `GET /v1/addresses/search?q=`
+  - Migration `018_address_labels.sql`: `ADD COLUMN IF NOT EXISTS notes TEXT`, `ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ`, GIN index on `label` for full-text search
+  - `AddressBookEntry` common type gains `notes: Option<String>` and `last_used_at: Option<DateTime<Utc>>`
+  - `CustodyDb::update_address_label(id, label, notes)` — COALESCE partial update, `RequireEditor`
+  - `CustodyDb::search_addresses(query)` — ILIKE on label and address, LIKE-escape special chars, 50-result cap
+  - New `UpdateAddressLabelRequest` type in `custody-common::webhook`
+
+- **Feature 3: Custom token import at runtime** — `POST /v1/admin/tokens/import`
+  - `ImportTokenRequest` type in `custody-common::vault` (`symbol`, `chain`, `contract_address`, `decimals`, `name`, `coingecko_id`)
+  - Chain-specific address validation: ETH (0x + 42 hex chars), Tron (T prefix + 34 chars), Solana (32–44 base58), Bitcoin (rejected — no contract model)
+  - Duplicate check on `(symbol, chain)` pair before insert — returns 409 Conflict with existing asset ID
+  - `RequireAdmin` required; asset is inserted enabled=true and is_native=false
+  - 18 unit tests covering all chain validation cases and serde round-trips
+
+- **Feature 4: Multi-workspace isolation enforcement**
+  - `CustodyDb::find_vault_for_workspace(vault_id, owner_id)` — SQL `WHERE id = $1 AND owner_id = $2`; returns `None` for cross-workspace access (not an error) to prevent vault-ID enumeration
+  - `CustodyDb::list_vaults_for_workspace(owner_id, include_hidden)` — explicit workspace-scoped listing
+  - `get_vault`, `update_vault`, `delete_vault`, `create_vault_account`, `list_vault_accounts`, `get_vault_account` all now call workspace-scoped queries using `auth.0.user_id`
+  - Cross-workspace access returns 404 (not 403) — prevents enumeration of vault IDs belonging to other workspaces
+
+### Added (2026-03-27) — Deployment Runbook
+
+- **`docs/DEPLOYMENT_RUNBOOK.md`** — comprehensive operator runbook covering:
+  - Hardware requirements (CPU, RAM, disk), software prerequisites (Rust 1.85+, PostgreSQL 16+, Node.js 22+), firewall rules, and secrets generation checklist
+  - Method A: Docker Compose deployment with all environment variables, seed generation, Shamir backup, and health verification steps
+  - Method B: Binary from source with systemd service file and nginx reverse proxy config
+  - Initial configuration: HMAC secret rotation, seed ceremony, per-chain RPC setup, circuit breaker tuning, FIDO2 domain setup
+  - Security hardening: signer isolation (Mode 2 target), HSM config placeholders (Phase 4C), OS-level hardening (core dump disable, ptrace restriction), pre-deployment checklist
+  - Operational procedures: key rotation schedule (HMAC, admin key, DB password), quarterly rotation steps, emergency seed rotation trigger conditions
+  - Backup and recovery: daily `pg_dump` cron, seed file backup, three recovery scenarios (DB loss, seed file loss, complete host loss) with step-by-step commands and RTO targets
+  - Monitoring: Prometheus scrape config, Grafana import instructions, key metrics table with alert thresholds, Alertmanager rules for scan lag, RPC down, withdrawal failures, circuit breaker trip
+  - Incident response: circuit breaker trip procedure, emergency freeze (6-step compromise protocol), lost FIDO2 key recovery, DB corruption point-in-time recovery
+  - Upgrade procedure: rolling upgrade with pre-upgrade backup, migration application, Docker Compose upgrade, rollback procedure
+  - Troubleshooting: 8 common error patterns with root cause and fix, log grep patterns, health check interpretation, direct DB diagnostic queries
+  - Background tasks reference table with intervals and descriptions
+
 ### Added (2026-03-27) — Mobile-Responsive Dashboard, Production Docker, Real QR Code SVG
 
 - **`dashboard/src/routes/+layout.svelte`** — mobile-responsive sidebar:

@@ -8,6 +8,55 @@ use crate::CustodyDb;
 use crate::addresses::chain_from_str;
 
 impl CustodyDb {
+    /// Insert multiple withdrawals atomically in a single PostgreSQL transaction.
+    ///
+    /// All rows are inserted before committing.  If any insert fails the entire
+    /// transaction is rolled back and an error is returned — the caller can be
+    /// certain it is all-or-nothing.
+    ///
+    /// Rows that would violate the `ON CONFLICT (exchange_withdrawal_id)` unique
+    /// constraint are silently skipped (DO NOTHING) so that idempotent re-submission
+    /// of duplicates within the batch does not cause the whole batch to fail.
+    pub async fn insert_withdrawals_atomic(&self, withdrawals: &[Withdrawal]) -> anyhow::Result<()> {
+        let mut tx = self.pool.begin().await?;
+
+        for w in withdrawals {
+            let status_str = format!("{:?}", w.status).to_lowercase();
+            let tier_str = format!("{:?}", w.wallet_tier).to_lowercase();
+
+            sqlx::query(
+                "INSERT INTO withdrawals (id, exchange_withdrawal_id, asset, chain, destination_address,
+                 amount, fee, status, wallet_tier, tx_hash, block_height, confirmations, error_message,
+                 created_at, signed_at, broadcast_at, confirmed_at, delay_release_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+                 ON CONFLICT (exchange_withdrawal_id) DO NOTHING",
+            )
+            .bind(w.id)
+            .bind(w.exchange_withdrawal_id)
+            .bind(w.asset.as_str())
+            .bind(w.chain.as_str())
+            .bind(&w.destination_address)
+            .bind(w.amount)
+            .bind(w.fee)
+            .bind(&status_str)
+            .bind(&tier_str)
+            .bind(&w.tx_hash)
+            .bind(w.block_height.map(|h| h as i64))
+            .bind(w.confirmations as i64)
+            .bind(&w.error_message)
+            .bind(w.created_at)
+            .bind(w.signed_at)
+            .bind(w.broadcast_at)
+            .bind(w.confirmed_at)
+            .bind(w.delay_release_at)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
     /// Insert a new withdrawal request.
     pub async fn insert_withdrawal(&self, w: &Withdrawal) -> anyhow::Result<()> {
         let status_str = format!("{:?}", w.status).to_lowercase();

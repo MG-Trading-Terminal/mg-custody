@@ -292,6 +292,21 @@ pub struct CreateAssetRequest {
     pub decimals: u8,
 }
 
+/// Request body for `POST /v1/admin/tokens/import` — runtime custom token import.
+///
+/// Validates contract address format, checks for duplicates, and inserts
+/// into `managed_assets`. `name` and `coingecko_id` are informational metadata
+/// stored as JSON in the asset notes (until a dedicated column is added).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportTokenRequest {
+    pub symbol: String,
+    pub chain: Chain,
+    pub contract_address: String,
+    pub decimals: u8,
+    pub name: String,
+    pub coingecko_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateAssetRequest {
     pub enabled: bool,

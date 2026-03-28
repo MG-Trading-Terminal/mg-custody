@@ -64,10 +64,13 @@ pub struct WebhookTestResult {
 // Batch transactions
 // ---------------------------------------------------------------------------
 
-/// Request to submit multiple withdrawals in a single batch.
+/// Request to submit multiple withdrawals in a single atomic batch.
+///
+/// All withdrawals are validated first. If any item fails validation the
+/// entire batch is rejected — no partial inserts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchWithdrawalRequest {
-    /// Client-provided batch ID for idempotency.
+    /// Client-provided batch ID for idempotency (optional; generated if absent).
     pub batch_id: Option<String>,
     pub withdrawals: Vec<BatchWithdrawalItem>,
 }
@@ -83,17 +86,16 @@ pub struct BatchWithdrawalItem {
     pub note: Option<String>,
 }
 
-/// Response for batch submission.
+/// Response for a successful atomic batch submission.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchWithdrawalResponse {
     pub batch_id: String,
-    pub total: usize,
-    pub accepted: usize,
-    pub rejected: usize,
+    pub count: usize,
+    pub total_amount_usd: String,
     pub results: Vec<BatchItemResult>,
 }
 
-/// Result for a single item in a batch.
+/// Per-item result inside a successful batch response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchItemResult {
     pub withdrawal_id: Uuid,
@@ -116,6 +118,10 @@ pub struct AddressBookEntry {
     pub tag: Option<String>,
     /// Whether this address has been whitelisted for withdrawals.
     pub whitelisted: bool,
+    /// Optional free-text notes for this address.
+    pub notes: Option<String>,
+    /// Timestamp of the last withdrawal to this address.
+    pub last_used_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -126,6 +132,7 @@ pub struct CreateAddressBookRequest {
     pub address: String,
     pub chain: Chain,
     pub tag: Option<String>,
+    pub notes: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,6 +140,13 @@ pub struct UpdateAddressBookRequest {
     pub label: Option<String>,
     pub tag: Option<String>,
     pub whitelisted: Option<bool>,
+}
+
+/// Request body for `PUT /v1/address-book/{id}/label`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateAddressLabelRequest {
+    pub label: Option<String>,
+    pub notes: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -222,12 +236,15 @@ mod tests {
             chain: Chain::Ethereum,
             tag: Some("exchange".into()),
             whitelisted: true,
+            notes: Some("Main payout address".into()),
+            last_used_at: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
         let json = serde_json::to_string(&entry).unwrap();
         assert!(json.contains("Binance Hot"));
         assert!(json.contains("whitelisted"));
+        assert!(json.contains("notes"));
     }
 
     #[test]
@@ -250,27 +267,28 @@ mod tests {
     fn batch_response_structure() {
         let resp = BatchWithdrawalResponse {
             batch_id: "b-001".into(),
-            total: 3,
-            accepted: 2,
-            rejected: 1,
+            count: 2,
+            total_amount_usd: "1.5".into(),
             results: vec![
                 BatchItemResult {
                     withdrawal_id: Uuid::nil(),
                     custody_ref: Some(Uuid::nil()),
-                    status: "accepted".into(),
+                    status: "received".into(),
                     error: None,
                 },
                 BatchItemResult {
                     withdrawal_id: Uuid::nil(),
                     custody_ref: None,
-                    status: "rejected".into(),
-                    error: Some("Invalid address".into()),
+                    status: "duplicate".into(),
+                    error: None,
                 },
             ],
         };
         let json = serde_json::to_string(&resp).unwrap();
-        assert!(json.contains("rejected"));
-        assert!(json.contains("Invalid address"));
+        assert!(json.contains("b-001"));
+        assert!(json.contains("received"));
+        assert!(json.contains("total_amount_usd"));
+        assert!(json.contains("count"));
     }
 
     #[test]

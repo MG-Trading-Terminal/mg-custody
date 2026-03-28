@@ -84,6 +84,17 @@ impl ApiError {
             status: StatusCode::TOO_MANY_REQUESTS,
         }
     }
+
+    /// 422 Unprocessable Entity — the request was well-formed but failed
+    /// semantic validation (e.g. batch with invalid items).
+    pub fn unprocessable_entity(msg: &str) -> Self {
+        Self {
+            error: "unprocessable_entity".into(),
+            message: msg.into(),
+            request_id: Uuid::new_v4().to_string(),
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+        }
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -114,5 +125,6 @@ mod tests {
         assert_eq!(ApiError::conflict("").status, StatusCode::CONFLICT);
         assert_eq!(ApiError::unauthorized("").status, StatusCode::UNAUTHORIZED);
         assert_eq!(ApiError::rate_limited().status, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(ApiError::unprocessable_entity("").status, StatusCode::UNPROCESSABLE_ENTITY);
     }
 }

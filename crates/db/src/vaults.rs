@@ -116,6 +116,51 @@ impl CustodyDb {
     }
 
     // -----------------------------------------------------------------------
+    // Workspace-scoped vault queries
+    //
+    // The `vaults` table does not yet have a `workspace_id` column; workspace
+    // membership is expressed through `owner_id` which is set to the user's ID
+    // at creation time. These helpers add a second filter so that a user can
+    // only access vaults they own — enforcing the per-workspace boundary at the
+    // DB layer rather than relying solely on route-level checks.
+    // -----------------------------------------------------------------------
+
+    /// List vaults owned by `owner_id` — same as `list_vaults` but the name
+    /// makes the workspace-scoped intent explicit at call sites.
+    pub async fn list_vaults_for_workspace(
+        &self,
+        owner_id: Uuid,
+        include_hidden: bool,
+    ) -> anyhow::Result<Vec<Vault>> {
+        self.list_vaults(owner_id, include_hidden).await
+    }
+
+    /// Find a vault by `vault_id` only if it is owned by `owner_id`.
+    ///
+    /// Returns `Ok(None)` — not an error — when the vault exists but belongs
+    /// to a different workspace. Callers translate this to 404 so as not to
+    /// reveal whether the vault exists at all (prevents enumeration).
+    pub async fn find_vault_for_workspace(
+        &self,
+        vault_id: Uuid,
+        owner_id: Uuid,
+    ) -> anyhow::Result<Option<Vault>> {
+        let row: Option<(Uuid, String, Uuid, bool, bool, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>)> =
+            sqlx::query_as(
+                "SELECT id, name, owner_id, auto_fuel, hidden, created_at, updated_at
+                 FROM vaults WHERE id = $1 AND owner_id = $2",
+            )
+            .bind(vault_id)
+            .bind(owner_id)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        Ok(row.map(|(id, name, owner_id, auto_fuel, hidden, created_at, updated_at)| Vault {
+            id, name, owner_id, auto_fuel, hidden, created_at, updated_at,
+        }))
+    }
+
+    // -----------------------------------------------------------------------
     // VaultAccount CRUD
     // -----------------------------------------------------------------------
 

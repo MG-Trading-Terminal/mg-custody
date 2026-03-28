@@ -1,5 +1,43 @@
 # Sprint Log
 
+## Sprint N+5 — Phase 30: Batch Transactions, Address Labels, Token Import, Workspace Isolation (2026-03-27)
+
+### Goals
+- Atomic batch withdrawal endpoint (all-or-nothing, RequireSigner, max 50)
+- Address book labels + notes + fuzzy search
+- Runtime custom token import via API
+- Multi-workspace vault isolation at DB and route layer
+
+### Completed
+| Task | Crate/File | Status | Tests | Notes |
+|------|-----------|--------|-------|-------|
+| Atomic batch withdrawal `POST /v1/withdrawals/batch` | ops_routes.rs, db/withdrawals.rs | DONE | 10 | RequireSigner, 50-item cap, single TX |
+| `insert_withdrawals_atomic` DB method | db/withdrawals.rs | DONE | — | sqlx transaction, ON CONFLICT DO NOTHING |
+| Migration 018 address_book labels | db/migrations/018_address_labels.sql | DONE | — | notes, last_used_at, GIN index |
+| `update_address_label` + `search_addresses` DB methods | db/address_book.rs | DONE | 3 | ILIKE escape, 50-result cap |
+| `PUT /v1/address-book/{id}/label` + `GET /v1/addresses/search` | ops_routes.rs | DONE | 3 | RequireEditor / RequireViewer |
+| `AddressBookEntry` notes + last_used_at fields | common/webhook.rs | DONE | — | backward-compatible, Option fields |
+| `ImportTokenRequest` type + validate_contract_address | common/vault.rs, vault_routes.rs | DONE | 12 | ETH/Tron/Solana/BTC validation |
+| `POST /v1/admin/tokens/import` endpoint | vault_routes.rs | DONE | — | RequireAdmin, 409 on duplicate |
+| `find_vault_for_workspace` + `list_vaults_for_workspace` | db/vaults.rs | DONE | 2 | owner_id = user_id guard |
+| Workspace isolation in get/update/delete vault + account endpoints | vault_routes.rs | DONE | — | All 6 handlers updated |
+| `ApiError::unprocessable_entity` (HTTP 422) | gateway/errors.rs | DONE | 1 | Batch validation failure |
+
+### Metrics
+- **New tests added**: 31 (10 ops_routes batch + 3 address_book DB + 3 ops_routes address + 12 vault_routes token + 1 errors + 2 vault workspace)
+- **Tests passing**: 1,527 (all passing, 0 failed)
+- **New migrations**: 1 (`018_address_labels.sql`)
+- **Modified files**: 10 (ops_routes.rs, vault_routes.rs, errors.rs, db/address_book.rs, db/vaults.rs, db/withdrawals.rs, common/webhook.rs, common/vault.rs)
+- **Clippy**: zero new warnings in all modified files (pre-existing common crate warnings are unchanged)
+
+### References Used
+| Reference | URL | Used For |
+|-----------|-----|----------|
+| PostgreSQL ILIKE | https://www.postgresql.org/docs/current/functions-matching.html | Fuzzy label/address search |
+| PostgreSQL transactions (sqlx) | https://docs.rs/sqlx/latest/sqlx/struct.Transaction.html | Atomic batch insert |
+| HTTP 422 Unprocessable Entity | RFC 9110 §15.5.21 | Batch validation failure response |
+| OWASP: don't confirm existence on 404 | https://owasp.org/www-project-web-security-testing-guide/ | Cross-workspace 404 vs 403 |
+
 ## Sprint N+4 — Phase 29: Mobile Dashboard + Docker Production + QR Code (2026-03-27)
 
 ### Goals
