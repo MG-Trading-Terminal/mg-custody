@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
+	import { t, locale } from '$lib/i18n';
 
 	interface AssetBalance {
 		asset: string;
@@ -54,24 +55,25 @@
 	function statusClass(s: string) { return STATUS_COLOR[s] ?? 'muted'; }
 </script>
 
-<h1>Portfolio</h1>
+<!-- $locale read here makes the entire template reactive to locale changes -->
+<h1>{$locale, t('portfolio.title')}</h1>
 
 {#if loading}
-	<p class="muted">Loading…</p>
+	<p class="muted">{$locale, t('common.loading')}</p>
 {:else if error}
 	<p class="err">{error}</p>
 {:else if portfolio}
 	<div class="top-row">
 		<div class="card aum-card">
-			<p class="aum-label">Total Balance</p>
+			<p class="aum-label">{$locale, t('portfolio.total')}</p>
 			<p class="aum-value">${portfolio.total_usd}</p>
 		</div>
 		<div class="actions">
-			<a class="btn-primary" href="/deposit">Deposit</a>
-			<a class="btn-secondary" href="/withdraw">Withdraw</a>
+			<a class="btn-primary" href="/deposit">{$locale, t('portfolio.deposit')}</a>
+			<a class="btn-secondary" href="/withdraw">{$locale, t('portfolio.withdraw')}</a>
 			{#if portfolio.pending_approvals > 0}
 				<a class="btn-warn" href="/approvals">
-					Approvals
+					{$locale, t('portfolio.approvals')}
 					<span class="badge-count">{portfolio.pending_approvals}</span>
 				</a>
 			{/if}
@@ -79,13 +81,18 @@
 	</div>
 
 	<div class="card">
-		<h3>Assets</h3>
+		<h3>{$locale, t('portfolio.assets')}</h3>
 		{#if portfolio.balances.length === 0}
-			<p class="muted">No balances yet. Make a deposit to get started.</p>
+			<p class="muted">{$locale, t('portfolio.no_balances')}</p>
 		{:else}
 			<div class="table-wrap"><table>
 				<thead>
-					<tr><th>Asset</th><th>Balance</th><th>USD Value</th><th>% of Portfolio</th></tr>
+					<tr>
+						<th>{$locale, t('portfolio.col_asset')}</th>
+						<th>{$locale, t('portfolio.col_balance')}</th>
+						<th>{$locale, t('portfolio.col_usd')}</th>
+						<th>{$locale, t('portfolio.col_pct')}</th>
+					</tr>
 				</thead>
 				<tbody>
 					{#each portfolio.balances as row}
@@ -109,9 +116,9 @@
 	</div>
 
 	<div class="card">
-		<h3>Recent Activity</h3>
+		<h3>{$locale, t('portfolio.activity')}</h3>
 		{#if activity.length === 0}
-			<p class="muted">No recent activity.</p>
+			<p class="muted">{$locale, t('portfolio.no_activity')}</p>
 		{:else}
 			<ul class="activity-list">
 				{#each activity as ev}

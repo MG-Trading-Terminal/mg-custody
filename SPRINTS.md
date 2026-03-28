@@ -1,5 +1,57 @@
 # Sprint Log
 
+## Sprint N+7 — Cosmos Scanner+Signer, Staking Executor, i18n, Push Notifications, Geo Detection (2026-03-27)
+
+### Goals
+- Cosmos SDK real REST client: scan_block, get_balance, latest_height
+- Cosmos Amino JSON signer: sign_send, sign_ibc_transfer, bech32 address derivation
+- Staking executor: wire ETH deposit calldata + SOL delegation into execution flow
+- i18n module (en/ru/zh) wired into dashboard layout and portfolio page
+- Mobile push notification service (FCM + APNs stub + Web Push stub)
+- IP geolocation + login anomaly detection (no external API)
+
+### Completed
+| Task | File | Status | Tests | Notes |
+|------|------|--------|-------|-------|
+| `CosmosScanner` — REST LCD client | common/cosmos_chain.rs | DONE | 7 | scan_block, get_balance, latest_height |
+| `CosmosSigner` — Amino JSON signing + bech32 | common/cosmos_chain.rs | DONE | 8 | secp256k1, canonical JSON, key zeroed on drop |
+| `StdSignDoc`, `SignedTx`, sign doc builders | common/cosmos_chain.rs | DONE | 5 | MsgSend + IBC MsgTransfer |
+| `StakingExecutor::create_eth_stake()` | common/staking_executor.rs | DONE | 7 | 32 ETH enforced, hex decode, calldata selector |
+| `StakingExecutor::create_sol_delegation()` | common/staking_executor.rs | DONE | 5 | 0.01 SOL min, base58 vote account, lamport conversion |
+| `create_unstake()` + `create_claim_rewards()` | common/staking_executor.rs | DONE | 5 | chain validation, unsupported chain rejection |
+| `build_eth_deposit_calldata_full()` | common/staking_contracts.rs | DONE | — | ABI encoding of deposit(bytes,bytes,bytes,bytes32) |
+| `build_sol_stake_instructions()` | common/staking_contracts.rs | DONE | — | CreateAccount + Initialize + DelegateStake |
+| i18n module (60+ keys, en/ru/zh) | dashboard/src/lib/i18n.ts | DONE | — | Svelte store, localStorage persist, browser lang detect |
+| Layout language picker + reactive nav labels | dashboard/src/routes/+layout.svelte | DONE | — | select control in sidebar footer |
+| Portfolio page using t() | dashboard/src/routes/+page.svelte | DONE | — | All visible strings translated |
+| `PushNotificationService` + `DeviceToken` | common/push_notifications.rs | DONE | 14 | FCM HTTP, APNs stub, Web Push stub, broadcast() |
+| Migration `020_push_tokens.sql` | db/migrations/ | DONE | — | device_tokens with platform CHECK + UNIQUE token |
+| `push_routes.rs` — device registration API | gateway/push_routes.rs | DONE | — | POST/GET/DELETE /v1/user/devices |
+| `geo_detection.rs` — Tor/VPN/country detection | common/geo_detection.rs | DONE | 28 | 75+ Tor exits, 50+ datacenter CIDRs, is_new_country |
+| `analyze_login()` — anomaly scoring | common/geo_detection.rs | DONE | — | High/Medium/Low severity |
+| Migration `021_login_history_geo.sql` | db/migrations/ | DONE | — | country_code, is_tor, is_vpn, anomaly_flags |
+
+### Metrics
+- **New tests added**: ~82 (20 cosmos_chain + 20 staking_executor + 14 push_notifications + 28 geo_detection)
+- **Tests passing**: 1,034 (custody-common only; all passing, 0 failed)
+- **New files**: cosmos_chain.rs (rewritten), staking_executor.rs, push_notifications.rs, geo_detection.rs, i18n.ts, push_routes.rs, 020_push_tokens.sql, 021_login_history_geo.sql
+- **Modified files**: common/lib.rs, common/staking_contracts.rs, gateway/lib.rs, gateway/staking_routes.rs (no change), server/main.rs, dashboard/+layout.svelte, dashboard/+page.svelte
+
+### References Used
+| Reference | URL | Used For |
+|-----------|-----|----------|
+| Cosmos LCD REST API | https://v1.cosmos.network/rpc/ | scan_block, get_balance, latest_height endpoints |
+| Cosmos Amino signing | https://docs.cosmos.network/v0.47/learn/beginner/tx-lifecycle | StdSignDoc, canonical JSON, StdTx |
+| Bech32 encoding | https://github.com/bitcoin/bips/blob/master/bip-0173.mediawiki | bech32_encode, bech32_checksum |
+| Cosmos address derivation | https://docs.cosmos.network/v0.47/learn/beginner/accounts | RIPEMD-160(SHA-256(pubkey)) |
+| ETH deposit contract | https://etherscan.io/address/0x00000000219ab540356cBB839Cbe05303d7705Fa | build_eth_deposit_calldata_full |
+| Solana stake programming | https://docs.solana.com/staking/stake-programming | build_sol_stake_instructions |
+| FCM legacy HTTP | https://firebase.google.com/docs/cloud-messaging/http-server-ref | send_fcm() |
+| APNs HTTP/2 | https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns | send_apns() structure |
+| Web Push RFC 8030 | https://tools.ietf.org/html/rfc8030 | send_web_push() |
+| Tor exit list | https://check.torproject.org/torbulkexitlist | is_known_tor_exit() |
+| IANA special-purpose ranges | https://www.iana.org/assignments/iana-ipv4-special-registry | private IP detection |
+
 ## Sprint N+6 — SDK Auto-Generation, Rate Limit Persistence, Compliance Reporting, EVM L2 Wiring, API Versioning (2026-03-27)
 
 ### Goals

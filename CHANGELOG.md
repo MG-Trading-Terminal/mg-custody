@@ -5,6 +5,56 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-03-27) — Cosmos Scanner+Signer, Staking Executor, i18n Dashboard, Push Notifications, IP Geo Detection
+
+- **Feature 1: Cosmos SDK chain support**
+  - `crates/common/src/cosmos_chain.rs` — rewritten with real `CosmosScanner` (async REST LCD client), `CosmosSigner` (Amino JSON signing), and `StdSignDoc` types
+  - `CosmosScanner::cosmos_hub()` and `::osmosis()` factory methods; `scan_block(height)`, `get_balance(address)`, `latest_height()` async methods
+  - `CosmosSigner::sign_send()` and `sign_ibc_transfer()` — secp256k1 Amino JSON signing with canonical key-sorted JSON
+  - `bech32_address(pubkey, prefix)` — SHA-256 + RIPEMD-160 + bech32 address derivation matching Cosmos spec
+  - `SignedTx::to_broadcast_json()` — produces `StdTx` JSON for `/cosmos/tx/v1beta1/txs` broadcast
+  - Key material zeroed in `CosmosSigner::drop()`; private key never logged or serialized
+  - 20 unit tests (scanner defaults, uatom→ATOM conversion, bech32, sign doc fields, canonical JSON sort order, signer determinism, zero key rejection, broadcast JSON structure)
+  - References: Cosmos LCD REST API https://v1.cosmos.network/rpc/, Amino signing spec https://docs.cosmos.network/v0.47/learn/beginner/tx-lifecycle
+
+- **Feature 2: Staking execution**
+  - `crates/common/src/staking_executor.rs` — new `StakingExecutor` wiring existing calldata builders into an execution flow
+  - `create_eth_stake(amount, withdrawal_credentials, pubkey, sig, root)` — validates exactly 32 ETH, decodes hex args, calls deposit contract ABI encoder
+  - `create_sol_delegation(amount, validator, from, stake_account)` — validates ≥0.01 SOL minimum, converts SOL→lamports, decodes base58 vote account, calls stake instruction builder
+  - `create_unstake(position_id, chain)` and `create_claim_rewards(position_id, chain)` — chain validation, operation record construction
+  - Added `ETH_DEPOSIT_CONTRACT`, `build_eth_deposit_calldata_full()`, and `build_sol_stake_instructions()` to `staking_contracts.rs`
+  - `StakingOperation` and `StakingOpStatus` types with Serialize/Deserialize
+  - 20 unit tests (32 ETH enforced, fractional rejection, calldata selector, unique IDs, SOL minimum, base58 decode, unsupported chain rejection)
+
+- **Feature 3: i18n — multi-language dashboard**
+  - `dashboard/src/lib/i18n.ts` — complete i18n module: 3 locales (en/ru/zh), 60+ translation keys covering all nav items, portfolio, deposit, withdraw, transactions, approvals, profile, wallets, policies, users, audit, settings, and common labels
+  - Svelte `writable` store for reactive locale state; `setLocale()` persists to `localStorage`; `detectInitialLocale()` reads browser `navigator.language`
+  - `t(key)` — returns translation for current locale, falls back to `en`, then raw key
+  - `+layout.svelte` updated: nav labels use `t()` + `$locale` reactive pattern; language picker select control in sidebar footer
+  - `+page.svelte` (Portfolio) updated: all user-visible strings replaced with `t()` calls
+
+- **Feature 4: Mobile push notifications**
+  - `crates/common/src/push_notifications.rs` — `PushNotificationService`, `DeviceToken`, `Platform`, `PushPayload` types
+  - `send_fcm()` — HTTP POST to `https://fcm.googleapis.com/fcm/send` with `Authorization: key=...` header
+  - `send_apns()` — formats APNs aps payload, logs with tracing (HTTP/2 stub with clear TODO comment)
+  - `send_web_push()` — formats RFC 8030 notification payload, logs (VAPID stub)
+  - `broadcast(tokens, payload)` — fans out to multiple devices, logs per-device failures without aborting
+  - `PushPayload::withdrawal_approval()`, `large_deposit()`, `circuit_breaker_tripped()` convenience constructors
+  - Migration `020_push_tokens.sql` — `device_tokens` table with platform CHECK constraint and UNIQUE token
+  - `crates/gateway/src/push_routes.rs` — `POST/GET /v1/user/devices` and `DELETE /v1/user/devices/{id}` handlers (RequireViewer); token validation, platform check, prefix-only logging
+  - Wired into `server/src/main.rs` in both dev and HMAC router branches
+  - 14 unit tests (platform serialization, payload constructors, FCM/APNs/web payload structure, service construction)
+
+- **Feature 5: IP geolocation + login anomaly detection**
+  - `crates/common/src/geo_detection.rs` — pure in-memory IP geolocation (no external API calls)
+  - `is_known_tor_exit(ip)` — hardcoded list of 75+ well-known Tor exit nodes
+  - `is_datacenter_ip(ip)` — CIDR range checks for AWS, GCP, Azure, Hetzner, DigitalOcean, OVH, Linode, Vultr, Cloudflare
+  - `detect_country(ip)` — maps IPv4 to country via static CIDR blocks (top countries); IPv6 → is_vpn=true; IANA private ranges → "Private/Loopback"
+  - `is_new_country(history, country)` — returns true if country has never appeared in user's successful login history
+  - `analyze_login(ip, history)` — returns `GeoInfo` + `Vec<LoginAnomaly>` with severity levels (High: Tor, Medium: VPN/new country)
+  - Migration `021_login_history_geo.sql` — adds `country_code`, `is_tor`, `is_vpn`, `anomaly_flags` to `login_history`
+  - 28 unit tests (IP parser, CIDR range math, Tor detection, datacenter ranges, private IP handling, country detection, new-country logic, analyze_login severity)
+
 ### Added (2026-03-27) — SDK Auto-Generation, Rate Limit Persistence, Compliance Reporting, EVM L2 Wiring, API Versioning
 
 - **Feature 1: SDK auto-generation (Python + TypeScript)**

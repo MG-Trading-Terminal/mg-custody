@@ -1,9 +1,132 @@
 //! Staking contract calldata — Lido, Rocket Pool, Marinade, native staking.
+//!
+//! Also provides calldata builders for:
+//! - ETH beacon chain deposit contract (`build_eth_deposit_calldata_full`)
+//! - Solana native stake program instructions (`build_sol_stake_instructions`)
+//!
+//! References:
+//! - ETH deposit contract ABI: https://etherscan.io/address/0x00000000219ab540356cBB839Cbe05303d7705Fa
+//! - Solana stake program: https://docs.solana.com/staking/stake-programming
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 use crate::Chain;
+
+// ---------------------------------------------------------------------------
+// ETH Beacon Chain deposit contract
+// ---------------------------------------------------------------------------
+
+/// ETH Beacon Chain deposit contract address (mainnet).
+///
+/// Reference: https://etherscan.io/address/0x00000000219ab540356cBB839Cbe05303d7705Fa
+pub const ETH_DEPOSIT_CONTRACT: &str = "0x00000000219ab540356cBB839Cbe05303d7705Fa";
+
+/// Build ABI-encoded calldata for the deposit contract's `deposit()` function.
+///
+/// Function selector: 0x22895118
+/// Signature: `deposit(bytes pubkey, bytes withdrawal_credentials, bytes signature, bytes32 deposit_data_root)`
+///
+/// Reference: https://github.com/ethereum/consensus-specs/blob/dev/solidity_deposit_contract/deposit_contract.sol
+pub fn build_eth_deposit_calldata_full(
+    pubkey: &[u8; 48],
+    withdrawal_credentials: &[u8; 32],
+    signature: &[u8; 96],
+    deposit_data_root: &[u8; 32],
+) -> Vec<u8> {
+    // deposit(bytes, bytes, bytes, bytes32)
+    // Selector: 0x22895118
+    let selector: [u8; 4] = [0x22, 0x89, 0x51, 0x18];
+
+    let mut calldata = Vec::with_capacity(4 + 32 * 14);
+    calldata.extend_from_slice(&selector);
+
+    // ABI head section: offsets to dynamic args, then inline bytes32
+    // offset to pubkey data  = 128 (4 * 32)
+    calldata.extend_from_slice(&encode_u256(128));
+    // offset to withdrawal_credentials data = 192 (6 * 32)
+    calldata.extend_from_slice(&encode_u256(192));
+    // offset to signature data = 288 (9 * 32)
+    calldata.extend_from_slice(&encode_u256(288));
+    // deposit_data_root is bytes32 — inline
+    calldata.extend_from_slice(deposit_data_root);
+
+    // pubkey: length=48, data padded to multiple of 32 (64 bytes)
+    calldata.extend_from_slice(&encode_u256(48));
+    calldata.extend_from_slice(pubkey);
+    calldata.extend_from_slice(&[0u8; 16]); // pad 48 → 64
+
+    // withdrawal_credentials: length=32, already 32 bytes (no padding needed)
+    calldata.extend_from_slice(&encode_u256(32));
+    calldata.extend_from_slice(withdrawal_credentials);
+
+    // signature: length=96, padded to 128 bytes
+    calldata.extend_from_slice(&encode_u256(96));
+    calldata.extend_from_slice(signature);
+    calldata.extend_from_slice(&[0u8; 32]); // pad 96 → 128
+
+    calldata
+}
+
+fn encode_u256(value: u64) -> [u8; 32] {
+    let mut bytes = [0u8; 32];
+    bytes[24..32].copy_from_slice(&value.to_be_bytes());
+    bytes
+}
+
+// ---------------------------------------------------------------------------
+// Solana native stake program instructions
+// ---------------------------------------------------------------------------
+
+/// Build serialized instruction bytes for creating, initializing, and delegating
+/// a native Solana stake account.
+///
+/// Encodes three instructions:
+/// 1. SystemProgram::CreateAccount (create stake account with rent-exempt balance)
+/// 2. StakeProgram::Initialize (set staker + withdrawer authority)
+/// 3. StakeProgram::DelegateStake (delegate to vote account)
+///
+/// Reference: https://docs.solana.com/staking/stake-programming
+pub fn build_sol_stake_instructions(
+    from_pubkey: &[u8; 32],
+    stake_account: &[u8; 32],
+    vote_account: &[u8; 32],
+    lamports: u64,
+) -> Vec<u8> {
+    // Stake program ID bytes (Stake11111111111111111111111111111111111111)
+    let stake_program: [u8; 32] = {
+        let decoded = bs58::decode("Stake11111111111111111111111111111111111111")
+            .into_vec()
+            .unwrap_or_else(|_| vec![0u8; 32]);
+        let mut arr = [0u8; 32];
+        let len = decoded.len().min(32);
+        arr[..len].copy_from_slice(&decoded[..len]);
+        arr
+    };
+
+    let mut instructions = Vec::new();
+
+    // Instruction 1: SystemProgram::CreateAccount
+    // data layout: [instruction_index(4)] [lamports(8)] [space(8)] [owner(32)]
+    instructions.extend_from_slice(&0u32.to_le_bytes()); // CreateAccount = 0
+    instructions.extend_from_slice(&lamports.to_le_bytes());
+    instructions.extend_from_slice(&200u64.to_le_bytes()); // stake account space = 200 bytes
+    instructions.extend_from_slice(&stake_program);
+
+    // Instruction 2: StakeProgram::Initialize
+    // data layout: [instruction_index(4)] [staker_pubkey(32)] [withdrawer_pubkey(32)]
+    instructions.extend_from_slice(&0u32.to_le_bytes()); // Initialize = 0
+    instructions.extend_from_slice(from_pubkey); // staker authority = from (hot wallet)
+    instructions.extend_from_slice(from_pubkey); // withdrawer authority = from (hot wallet)
+
+    // Instruction 3: StakeProgram::DelegateStake
+    // data layout: [instruction_index(4)] [stake_account(32)] [vote_account(32)]
+    instructions.extend_from_slice(&2u32.to_le_bytes()); // DelegateStake = 2
+    instructions.extend_from_slice(stake_account);
+    instructions.extend_from_slice(vote_account);
+
+    instructions
+}
 
 // ---------------------------------------------------------------------------
 // Lido (Ethereum liquid staking)

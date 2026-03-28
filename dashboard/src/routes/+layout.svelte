@@ -1,27 +1,39 @@
 <script lang="ts">
+	import { locale, setLocale, LOCALES } from '$lib/i18n';
+	import type { Locale } from '$lib/i18n';
+
 	let { children } = $props();
 
 	let sidebarOpen = $state(false);
 
-	const userItems = [
-		{ href: '/',            label: 'Portfolio',     icon: '$' },
-		{ href: '/deposit',     label: 'Deposit',       icon: '+' },
-		{ href: '/withdraw',    label: 'Withdraw',      icon: '-' },
-		{ href: '/transactions',label: 'Transactions',  icon: 'T' },
-		{ href: '/approvals',   label: 'Approvals',     icon: 'A' },
-		{ href: '/profile',     label: 'Profile',       icon: 'Me' },
+	// Nav items use translation keys — labels are re-derived whenever $locale changes.
+	const userItemDefs = [
+		{ href: '/',             key: 'nav.portfolio', icon: '$' },
+		{ href: '/deposit',      key: 'nav.deposit',   icon: '+' },
+		{ href: '/withdraw',     key: 'nav.withdraw',  icon: '-' },
+		{ href: '/transactions', key: 'nav.transactions', icon: 'T' },
+		{ href: '/approvals',    key: 'nav.approvals', icon: 'A' },
+		{ href: '/profile',      key: 'nav.profile',   icon: 'Me' },
 	];
 
-	const adminItems = [
-		{ href: '/wallets',    label: 'Wallets',    icon: 'W' },
-		{ href: '/policies',   label: 'Policies',   icon: 'P' },
-		{ href: '/users',      label: 'Users',      icon: 'U' },
-		{ href: '/addresses',  label: 'Addresses',  icon: '@' },
-		{ href: '/audit',      label: 'Audit Log',  icon: 'L' },
-		{ href: '/settings',   label: 'Settings',   icon: 'S' },
+	const adminItemDefs = [
+		{ href: '/wallets',    key: 'nav.wallets',   icon: 'W' },
+		{ href: '/policies',   key: 'nav.policies',  icon: 'P' },
+		{ href: '/users',      key: 'nav.users',     icon: 'U' },
+		{ href: '/addresses',  key: 'nav.addresses', icon: '@' },
+		{ href: '/audit',      key: 'nav.audit',     icon: 'L' },
+		{ href: '/settings',   key: 'nav.settings',  icon: 'S' },
 	];
 
 	function closeSidebar() { sidebarOpen = false; }
+
+	function onLocaleChange(e: Event) {
+		setLocale((e.target as HTMLSelectElement).value as Locale);
+	}
+
+	// Derive translated label from the current locale store value.
+	// $locale triggers re-evaluation when locale changes.
+	import { t } from '$lib/i18n';
 </script>
 
 <svelte:head>
@@ -44,31 +56,50 @@
 			<h2>MG Custody</h2>
 		</div>
 		<ul>
-			{#each userItems as item}
+			{#each userItemDefs as item}
 				<li>
 					<a href={item.href} onclick={closeSidebar}>
 						<span class="icon">{item.icon}</span>
-						{item.label}
+						<!-- Re-evaluates when $locale changes -->
+						{$locale, t(item.key)}
 					</a>
 				</li>
 			{/each}
 		</ul>
 
 		<div class="section-sep">
-			<span>Admin</span>
+			<span>{$locale, t('nav.admin')}</span>
 		</div>
 
 		<ul>
-			{#each adminItems as item}
+			{#each adminItemDefs as item}
 				<li>
 					<a href={item.href} onclick={closeSidebar}>
 						<span class="icon">{item.icon}</span>
-						{item.label}
+						{$locale, t(item.key)}
 					</a>
 				</li>
 			{/each}
 		</ul>
+
+		<!-- Language picker in sidebar footer -->
+		<div class="lang-picker">
+			<label class="lang-label" for="lang-select">
+				&#127760;
+			</label>
+			<select
+				id="lang-select"
+				class="lang-select"
+				value={$locale}
+				onchange={onLocaleChange}
+			>
+				{#each LOCALES as loc}
+					<option value={loc.code}>{loc.label}</option>
+				{/each}
+			</select>
+		</div>
 	</nav>
+
 	<div class="content-wrap">
 		<header class="mobile-header">
 			<button
@@ -166,6 +197,37 @@
 		color: var(--fg-muted, #8b949e);
 		border-top: 1px solid var(--border, #30363d);
 		margin-top: 0.5rem;
+	}
+
+	/* Language picker — pinned to sidebar bottom */
+	.lang-picker {
+		margin-top: auto;
+		padding: 0.75rem 1rem;
+		border-top: 1px solid var(--border, #30363d);
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.lang-label {
+		font-size: 1rem;
+		cursor: pointer;
+	}
+
+	.lang-select {
+		flex: 1;
+		background: var(--sidebar-bg, #161b22);
+		color: var(--fg-muted, #8b949e);
+		border: 1px solid var(--border, #30363d);
+		border-radius: 4px;
+		padding: 0.3rem 0.4rem;
+		font-size: 0.8rem;
+		cursor: pointer;
+	}
+
+	.lang-select:focus {
+		outline: 1px solid var(--accent, #58a6ff);
+		color: var(--fg, #e1e4e8);
 	}
 
 	.content-wrap {

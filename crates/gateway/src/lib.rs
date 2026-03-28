@@ -6,6 +6,7 @@
 pub mod admin_routes;
 pub mod compliance_routes;
 pub mod auth;
+pub mod push_routes;
 pub mod auth_routes;
 pub mod password_reset_routes;
 pub mod totp_routes;

@@ -408,7 +408,8 @@ async fn main() -> anyhow::Result<()> {
         r = r.merge(custody_gateway::exchange_routes::exchange_router(app_state.clone()));
         r = r.merge(custody_gateway::staking_routes::staking_router(app_state.clone()));
         r = r.merge(custody_gateway::settlement_routes::settlement_router(app_state.clone()));
-        r = r.merge(custody_gateway::compliance_routes::compliance_router(app_state));
+        r = r.merge(custody_gateway::compliance_routes::compliance_router(app_state.clone()));
+        r = r.merge(custody_gateway::push_routes::push_router(app_state));
         r
     } else {
         tracing::info!("HMAC auth middleware ENABLED");
@@ -417,7 +418,8 @@ async fn main() -> anyhow::Result<()> {
         r = r.merge(custody_gateway::exchange_routes::exchange_router(app_state.clone()));
         r = r.merge(custody_gateway::staking_routes::staking_router(app_state.clone()));
         r = r.merge(custody_gateway::settlement_routes::settlement_router(app_state.clone()));
-        r = r.merge(custody_gateway::compliance_routes::compliance_router(app_state));
+        r = r.merge(custody_gateway::compliance_routes::compliance_router(app_state.clone()));
+        r = r.merge(custody_gateway::push_routes::push_router(app_state));
         r
     };
 
