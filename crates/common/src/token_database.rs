@@ -274,6 +274,64 @@ pub fn all_tokens() -> Vec<TokenEntry> {
     tokens.push(erc20("LOOKS", "LooksRare", "0xf4d2888d29D722226FafA5d9B24F9164c092421E", 18, false, "looksrare"));
     tokens.push(erc20("X2Y2", "X2Y2", "0x1E4EDE388cbc9F4b5c79681B7f94d36a11ABEBC9", 18, false, "x2y2"));
 
+    // --- Cross-chain bridged tokens (major tokens on L2s) ---
+    // These are the SAME tokens as Ethereum but bridged to L2s.
+    // Contract addresses are L2-specific (different from mainnet).
+
+    // Arbitrum bridged tokens
+    tokens.push(erc20("LINK-ARB", "Chainlink (Arbitrum)", "0xf97f4df75117a78c1A5a0DBb814Af92458539FB4", 18, false, "chainlink"));
+    tokens.push(erc20("UNI-ARB", "Uniswap (Arbitrum)", "0xFa7F8980b0f1E64A2062791cc3b0871572f1F7f0", 18, false, "uniswap"));
+    tokens.push(erc20("AAVE-ARB", "Aave (Arbitrum)", "0xba5DdD1f9d7F570dc94a51479a000E3BCE967196", 18, false, "aave"));
+    tokens.push(erc20("WBTC-ARB", "WBTC (Arbitrum)", "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f", 8, false, "wrapped-bitcoin"));
+    tokens.push(erc20("CRV-ARB", "Curve (Arbitrum)", "0x11cDb42B0EB46D95f990BeDD4695A6e3fA034978", 18, false, "curve-dao-token"));
+    tokens.push(erc20("LDO-ARB", "Lido DAO (Arbitrum)", "0x13Ad51ed4F1B7e9Dc168d8a00cB3f4dDD85EfA60", 18, false, "lido-dao"));
+    tokens.push(erc20("DAI-ARB", "Dai (Arbitrum)", "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1", 18, true, "dai"));
+
+    // Polygon bridged tokens
+    tokens.push(erc20("LINK-POLY", "Chainlink (Polygon)", "0x53E0bca35eC356BD5ddDFebbD1Fc0fD03FaBad39", 18, false, "chainlink"));
+    tokens.push(erc20("UNI-POLY", "Uniswap (Polygon)", "0xb33EaAd8d922B1083446DC23f610c2567fB5180f", 18, false, "uniswap"));
+    tokens.push(erc20("AAVE-POLY", "Aave (Polygon)", "0xD6DF932A45C0f255f85145f286eA0b292B21C90B", 18, false, "aave"));
+    tokens.push(erc20("WBTC-POLY", "WBTC (Polygon)", "0x1BFD67037B42Cf73acF2047067bd4F2C47D9BfD6", 8, false, "wrapped-bitcoin"));
+    tokens.push(erc20("CRV-POLY", "Curve (Polygon)", "0x172370d5Cd63279eFa6d502DAB29171933a610AF", 18, false, "curve-dao-token"));
+    tokens.push(erc20("DAI-POLY", "Dai (Polygon)", "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063", 18, true, "dai"));
+    tokens.push(erc20("WETH-POLY", "WETH (Polygon)", "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619", 18, false, "weth"));
+    tokens.push(erc20("BAL-POLY", "Balancer (Polygon)", "0x9a71012B13CA4d3D0Cdc72A177DF3ef03b0E76A3", 18, false, "balancer"));
+
+    // Optimism bridged tokens
+    tokens.push(erc20("LINK-OP", "Chainlink (Optimism)", "0x350a791Bfc2C21F9Ed5d10980Dad2e2638ffa7f6", 18, false, "chainlink"));
+    tokens.push(erc20("WBTC-OP", "WBTC (Optimism)", "0x68f180fcCe6836688e9084f035309E29Bf0A2095", 8, false, "wrapped-bitcoin"));
+    tokens.push(erc20("DAI-OP", "Dai (Optimism)", "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1", 18, true, "dai"));
+    tokens.push(erc20("AAVE-OP", "Aave (Optimism)", "0x76FB31fb4af56892A25e32cFC43De717950c9278", 18, false, "aave"));
+    tokens.push(erc20("LDO-OP", "Lido DAO (Optimism)", "0xFdb794692724153d1488CcdBE0C56c252596735F", 18, false, "lido-dao"));
+
+    // BSC bridged tokens
+    tokens.push(erc20("ETH-BSC", "Ethereum (BSC)", "0x2170Ed0880ac9A755fd29B2688956BD959F933F8", 18, false, "ethereum"));
+    tokens.push(erc20("BTCB", "Bitcoin BEP2", "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c", 18, false, "binance-bitcoin"));
+    tokens.push(erc20("DOT-BSC", "Polkadot (BSC)", "0x7083609fCE4d1d8Dc0C979AAb8c869Ea2C873402", 18, false, "polkadot"));
+    tokens.push(erc20("LINK-BSC", "Chainlink (BSC)", "0xF8A0BF9cF54Bb92F17374d9e9A321E6a111a51bD", 18, false, "chainlink"));
+    tokens.push(erc20("UNI-BSC", "Uniswap (BSC)", "0xBf5140A22578168FD562DCcF235E5D43A02ce9B1", 18, false, "uniswap"));
+    tokens.push(erc20("ADA-BSC", "Cardano (BSC)", "0x3EE2200Efb3400fAbB9AacF31297cBdD1d435D47", 18, false, "cardano"));
+    tokens.push(erc20("XRP-BSC", "XRP (BSC)", "0x1D2F0da169ceB9fC7B3144628dB156f3F6c60dBE", 18, false, "ripple"));
+    tokens.push(erc20("DOGE-BSC", "Dogecoin (BSC)", "0xbA2aE424d960c26247Dd6c32edC70B295c744C43", 8, false, "dogecoin"));
+    tokens.push(erc20("SOL-BSC", "Solana (BSC)", "0x570A5D26f7765Ecb712C0924E4De545B89fD43dF", 18, false, "solana"));
+    tokens.push(erc20("AVAX-BSC", "Avalanche (BSC)", "0x1CE0c2827e2eF14D5C4f29a091d735A204794041", 18, false, "avalanche-2"));
+    tokens.push(erc20("ATOM-BSC", "Cosmos (BSC)", "0x0Eb3a705fc54725037CC9e008bDede697f62F335", 18, false, "cosmos"));
+    tokens.push(erc20("FIL-BSC", "Filecoin (BSC)", "0x0D8Ce2A99Bb6e3B7Db580eD848240e4a0F9aE153", 18, false, "filecoin"));
+    tokens.push(erc20("LTC-BSC", "Litecoin (BSC)", "0x4338665CBB7B2485A8855A139b75D5e34AB0DB94", 18, false, "litecoin"));
+    tokens.push(erc20("EOS-BSC", "EOS (BSC)", "0x56b6fB708fC5732DEC1Afc8D8556423A2EDcCbD6", 18, false, "eos"));
+
+    // Base bridged tokens
+    tokens.push(erc20("WETH-BASE", "WETH (Base)", "0x4200000000000000000000000000000000000006", 18, false, "weth"));
+    tokens.push(erc20("DAI-BASE", "Dai (Base)", "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb", 18, true, "dai"));
+    tokens.push(erc20("cbETH-BASE", "Coinbase ETH (Base)", "0x2Ae3F1Ec7F1F5012CFEab0185bfc7aa3cf0DEc22", 18, false, "coinbase-wrapped-staked-eth"));
+
+    // Avalanche bridged tokens
+    tokens.push(erc20("WETH-AVAX", "WETH (Avalanche)", "0x49D5c2BdFfac6CE2BFdB6640F4F80f226bc10bAB", 18, false, "weth"));
+    tokens.push(erc20("WBTC-AVAX", "WBTC (Avalanche)", "0x50b7545627a5162F82A992c33b87aDc75187B218", 8, false, "wrapped-bitcoin"));
+    tokens.push(erc20("LINK-AVAX", "Chainlink (Avalanche)", "0x5947BB275c521040051D82396192181b413227A3", 18, false, "chainlink"));
+    tokens.push(erc20("DAI-AVAX", "Dai (Avalanche)", "0xd586E7F844cEa2F87f50152665BCbc2C279D8d70", 18, true, "dai"));
+    tokens.push(erc20("AAVE-AVAX", "Aave (Avalanche)", "0x63a72806098Bd3D9520cC43356dD78afe5D386D9", 18, false, "aave"));
+
     // --- Solana SPL (batch 5 — more ecosystem tokens) ---
     tokens.push(spl("MEAN", "Meanfi", "MEANeD3XDdUmNMsRGjASkSWdC8prLYsoRJ61pPeHctD", 6, false, "meanfi"));
     tokens.push(spl("MNGO-V2", "Mango V2", "MangoCzJ36AjZyKwVj3VnYU4GTonjfVEnJmvvWaxLac", 6, false, "mango-markets"));
@@ -430,7 +488,7 @@ mod tests {
     #[test]
     fn total_token_count() {
         let tokens = all_tokens();
-        assert!(tokens.len() >= 260, "Should have 260+ tokens, got {}", tokens.len());
+        assert!(tokens.len() >= 300, "Should have 300+ tokens, got {}", tokens.len());
     }
 
     #[test]
