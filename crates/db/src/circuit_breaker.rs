@@ -86,8 +86,20 @@ impl CustodyDb {
     }
 
     /// Check if a withdrawal amount is allowed. Returns Err with reason if blocked.
+    /// Also emits Prometheus metrics for monitoring.
     pub async fn check_circuit_breaker(&self, amount_usd: Decimal) -> anyhow::Result<()> {
+        use custody_common::prometheus_metrics::{CIRCUIT_BREAKER_TRIPPED, CIRCUIT_BREAKER_OUTFLOW_USD};
+        use rust_decimal::prelude::ToPrimitive;
+
         let state = self.load_circuit_breaker().await?;
+
+        // Emit current state to Prometheus
+        let tripped_val = if state.is_tripped { 1.0 } else { 0.0 };
+        CIRCUIT_BREAKER_TRIPPED.with_label_values(&["global"]).set(tripped_val);
+        CIRCUIT_BREAKER_OUTFLOW_USD.with_label_values(&["hourly"])
+            .set(state.hourly_outflow_usd.to_f64().unwrap_or(0.0));
+        CIRCUIT_BREAKER_OUTFLOW_USD.with_label_values(&["daily"])
+            .set(state.daily_outflow_usd.to_f64().unwrap_or(0.0));
 
         if state.is_tripped {
             anyhow::bail!("Circuit breaker is tripped: {}", state.trip_reason.as_deref().unwrap_or("unknown"));

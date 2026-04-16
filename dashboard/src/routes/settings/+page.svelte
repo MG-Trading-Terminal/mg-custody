@@ -249,6 +249,7 @@
 <section>
 	<h2>System Runtime</h2>
 	<div class="card">
+		{#if detailedHealth.system}
 		{@const sys = detailedHealth.system}
 		<div class="kv">
 			<span>Uptime</span>
@@ -271,6 +272,7 @@
 			<span class="badge {sys.circuit_breaker === 'normal' ? 'green' : 'red'}">{sys.circuit_breaker}</span>
 		</div>
 		<p class="note muted">Generated: {new Date(detailedHealth.generated_at).toLocaleString()}</p>
+		{/if}
 	</div>
 </section>
 {/if}

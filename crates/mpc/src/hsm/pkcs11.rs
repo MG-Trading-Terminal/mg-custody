@@ -16,7 +16,7 @@ use std::sync::Mutex;
 
 use anyhow::{Context, Result};
 use cryptoki::context::{CInitializeArgs, Pkcs11};
-use cryptoki::object::{Attribute, ObjectClass, ObjectHandle};
+use cryptoki::object::{Attribute, AttributeType, ObjectClass};
 use cryptoki::session::{Session, UserType};
 use cryptoki::types::AuthPin;
 
@@ -182,34 +182,47 @@ impl Pkcs11Hsm {
         self.pkcs11.is_some()
     }
 
-    /// Find a data object by label in the HSM.
-    fn find_object_by_label(&self, label: &str) -> Result<Option<ObjectHandle>> {
-        let hsm_mutex = self.pkcs11.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No PKCS#11 session"))?;
-        let hsm = hsm_mutex.lock()
-            .map_err(|e| anyhow::anyhow!("PKCS#11 session lock poisoned: {e}"))?;
-
-        let template = vec![
-            Attribute::Class(ObjectClass::DATA),
-            Attribute::Label(label.as_bytes().to_vec()),
-        ];
-
-        let objects = hsm.session.find_objects(&template)
-            .context("C_FindObjects failed")?;
-
-        Ok(objects.into_iter().next())
-    }
 }
 
 impl HsmAdapter for Pkcs11Hsm {
     fn store_share(&self, key_id: &str, party_id: u16, encrypted_share: &[u8]) -> Result<()> {
         let label = format!("{key_id}:{party_id}");
 
-        // Store in memory
+        // Real PKCS#11: store as CKO_DATA object
+        if let Some(ref hsm_mutex) = self.pkcs11 {
+            let hsm = hsm_mutex.lock()
+                .map_err(|e| anyhow::anyhow!("PKCS#11 lock poisoned: {e}"))?;
+
+            // Delete existing object with same label (upsert semantics)
+            let find_template = vec![
+                Attribute::Class(ObjectClass::DATA),
+                Attribute::Label(label.as_bytes().to_vec()),
+            ];
+            if let Ok(existing) = hsm.session.find_objects(&find_template) {
+                for obj in existing {
+                    let _ = hsm.session.destroy_object(obj);
+                }
+            }
+
+            // Create new data object
+            let template = vec![
+                Attribute::Class(ObjectClass::DATA),
+                Attribute::Token(true),        // persistent (survives session close)
+                Attribute::Private(true),       // requires login to access
+                Attribute::Label(label.as_bytes().to_vec()),
+                Attribute::Value(encrypted_share.to_vec()),
+            ];
+            hsm.session.create_object(&template)
+                .context("C_CreateObject failed for key share")?;
+
+            tracing::info!(key_id, party_id, size = encrypted_share.len(), "Key share stored in HSM");
+            return Ok(());
+        }
+
+        // File-backed fallback
         self.file_store.lock().unwrap()
             .insert(label.clone(), encrypted_share.to_vec());
 
-        // Persist to disk if file-backed
         if let Some(ref dir) = self.storage_dir {
             let path = dir.join(format!("{label}.share"));
             std::fs::write(&path, encrypted_share)?;
@@ -223,12 +236,39 @@ impl HsmAdapter for Pkcs11Hsm {
     fn load_share(&self, key_id: &str, party_id: u16) -> Result<Vec<u8>> {
         let label = format!("{key_id}:{party_id}");
 
-        // Try memory first
+        // Real PKCS#11: find and read CKO_DATA object
+        if let Some(ref hsm_mutex) = self.pkcs11 {
+            let hsm = hsm_mutex.lock()
+                .map_err(|e| anyhow::anyhow!("PKCS#11 lock poisoned: {e}"))?;
+
+            let template = vec![
+                Attribute::Class(ObjectClass::DATA),
+                Attribute::Label(label.as_bytes().to_vec()),
+            ];
+            let objects = hsm.session.find_objects(&template)
+                .context("C_FindObjects failed")?;
+
+            let obj = objects.into_iter().next()
+                .ok_or_else(|| anyhow::anyhow!("Key share not found in HSM: {key_id} party {party_id}"))?;
+
+            let attrs = hsm.session.get_attributes(obj, &[AttributeType::Value])
+                .context("C_GetAttributeValue failed")?;
+
+            for attr in attrs {
+                if let Attribute::Value(data) = attr {
+                    tracing::debug!(key_id, party_id, size = data.len(), "Key share loaded from HSM");
+                    return Ok(data);
+                }
+            }
+
+            anyhow::bail!("Key share found but CKA_VALUE missing: {key_id} party {party_id}");
+        }
+
+        // File-backed fallback
         if let Some(data) = self.file_store.lock().unwrap().get(&label) {
             return Ok(data.clone());
         }
 
-        // Try disk
         if let Some(ref dir) = self.storage_dir {
             let path = dir.join(format!("{label}.share"));
             if path.exists() {
@@ -244,6 +284,28 @@ impl HsmAdapter for Pkcs11Hsm {
     fn delete_share(&self, key_id: &str, party_id: u16) -> Result<()> {
         let label = format!("{key_id}:{party_id}");
 
+        // Real PKCS#11: find and destroy object
+        if let Some(ref hsm_mutex) = self.pkcs11 {
+            let hsm = hsm_mutex.lock()
+                .map_err(|e| anyhow::anyhow!("PKCS#11 lock poisoned: {e}"))?;
+
+            let template = vec![
+                Attribute::Class(ObjectClass::DATA),
+                Attribute::Label(label.as_bytes().to_vec()),
+            ];
+            let objects = hsm.session.find_objects(&template)
+                .context("C_FindObjects failed")?;
+
+            for obj in objects {
+                hsm.session.destroy_object(obj)
+                    .context("C_DestroyObject failed")?;
+            }
+
+            tracing::info!(key_id, party_id, "Key share deleted from HSM");
+            return Ok(());
+        }
+
+        // File-backed fallback
         self.file_store.lock().unwrap().remove(&label);
 
         if let Some(ref dir) = self.storage_dir {
@@ -258,6 +320,35 @@ impl HsmAdapter for Pkcs11Hsm {
     }
 
     fn list_keys(&self) -> Result<Vec<String>> {
+        // Real PKCS#11: list all CKO_DATA objects
+        if let Some(ref hsm_mutex) = self.pkcs11 {
+            let hsm = hsm_mutex.lock()
+                .map_err(|e| anyhow::anyhow!("PKCS#11 lock poisoned: {e}"))?;
+
+            let template = vec![Attribute::Class(ObjectClass::DATA)];
+            let objects = hsm.session.find_objects(&template)
+                .context("C_FindObjects failed")?;
+
+            let mut keys = Vec::new();
+            for obj in objects {
+                let attrs = hsm.session.get_attributes(obj, &[AttributeType::Label])
+                    .unwrap_or_default();
+                for attr in attrs {
+                    if let Attribute::Label(label_bytes) = attr {
+                        if let Ok(label) = String::from_utf8(label_bytes) {
+                            if let Some(key_id) = label.split(':').next() {
+                                keys.push(key_id.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            keys.sort();
+            keys.dedup();
+            return Ok(keys);
+        }
+
+        // File-backed fallback
         let store = self.file_store.lock().unwrap();
         let mut keys: Vec<String> = store.keys()
             .filter_map(|k| k.split(':').next().map(String::from))

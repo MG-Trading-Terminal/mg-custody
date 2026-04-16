@@ -132,6 +132,26 @@ pub static WALLET_BALANCE: Lazy<GaugeVec> = Lazy::new(|| {
     ).unwrap()
 });
 
+// ── Circuit breaker metrics ─────────────────────────────────────
+
+/// Gauge: 1 if circuit breaker is tripped, 0 if normal.
+pub static CIRCUIT_BREAKER_TRIPPED: Lazy<GaugeVec> = Lazy::new(|| {
+    register_gauge_vec!(
+        "custody_circuit_breaker_tripped",
+        "Circuit breaker state: 1=tripped, 0=normal",
+        &["chain"]
+    ).unwrap()
+});
+
+/// Counter of total outflow in USD equivalent (for monitoring approach to limits).
+pub static CIRCUIT_BREAKER_OUTFLOW_USD: Lazy<GaugeVec> = Lazy::new(|| {
+    register_gauge_vec!(
+        "custody_circuit_breaker_outflow_usd",
+        "Current outflow window total in USD",
+        &["window"] // "hourly" or "daily"
+    ).unwrap()
+});
+
 // ── API request metrics ───────────────────────────────────────────
 
 /// Histogram of HTTP API request durations, labelled by method and path.

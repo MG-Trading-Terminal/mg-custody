@@ -8,7 +8,7 @@ groups:
     rules:
       # ── Fund Safety ────────────────────────────────────────
       - alert: CircuitBreakerTripped
-        expr: custody_withdrawals_total{status="circuit_breaker_tripped"} > 0
+        expr: custody_circuit_breaker_tripped{chain="global"} == 1
         for: 0m
         labels:
           severity: critical
@@ -16,6 +16,16 @@ groups:
         annotations:
           summary: "Circuit breaker TRIPPED — all withdrawals halted"
           description: "The circuit breaker has tripped. This means per-tx, hourly, or daily outflow limits were exceeded. Manual intervention required."
+
+      - alert: CircuitBreakerApproachingLimit
+        expr: custody_circuit_breaker_outflow_usd{window="hourly"} > 8000000
+        for: 0m
+        labels:
+          severity: warning
+          team: custody
+        annotations:
+          summary: "Hourly outflow at ${{ $value }} — approaching $10M limit"
+          description: "Circuit breaker hourly outflow is above $8M. At current rate, the breaker will trip soon."
 
       - alert: SigningFailureRate
         expr: rate(custody_signing_total{status="failed"}[5m]) > 0.1
