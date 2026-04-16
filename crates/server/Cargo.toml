@@ -64,3 +64,5 @@ reqwest = { workspace = true }
 hex = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
