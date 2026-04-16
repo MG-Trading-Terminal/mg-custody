@@ -61,6 +61,7 @@ bech32 = "0.11"
 bs58 = { version = "0.5", features = ["check"] }
 bip32 = { version = "0.5", features = ["secp256k1"] }
 hex = "0.4"
+base64 = "0.22"
 hmac = "0.12"
 argon2 = "0.5"
 rand = "0.8"

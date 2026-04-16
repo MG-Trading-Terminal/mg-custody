@@ -1,5 +1,6 @@
 pub mod address_checksum;
 pub mod coingecko_import;
+pub mod ton_chain;
 pub mod audit_integrity;
 pub mod perf_benchmarks;
 pub mod abi_decoder;

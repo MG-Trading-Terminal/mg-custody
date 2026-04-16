@@ -311,6 +311,79 @@ pub fn validate_sui_address(addr: &str) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// Signing support
+// ---------------------------------------------------------------------------
+
+/// Sign an Aptos transfer (simplified BCS serialization).
+///
+/// Real implementation would use full BCS encoding for RawTransaction.
+pub fn sign_aptos_transfer(
+    signing_key: &ed25519_dalek::SigningKey,
+    to_address: &str,
+    amount_octas: u64,
+    sequence_number: u64,
+    chain_id: u8,
+) -> Result<Vec<u8>> {
+    use ed25519_dalek::Signer;
+
+    validate_aptos_address(to_address)?;
+
+    // Simplified transaction payload (real impl needs BCS)
+    let mut payload = Vec::new();
+    // Transaction header
+    payload.push(chain_id);
+    payload.extend_from_slice(&sequence_number.to_le_bytes());
+    // Destination (32 bytes from hex)
+    let to_hex = to_address.strip_prefix("0x").unwrap_or(to_address);
+    let to_bytes = hex::decode(to_hex).context("Invalid Aptos address hex")?;
+    payload.extend_from_slice(&to_bytes);
+    // Amount
+    payload.extend_from_slice(&amount_octas.to_le_bytes());
+
+    let signature = signing_key.sign(&payload);
+
+    let mut signed = Vec::new();
+    signed.extend_from_slice(&payload);
+    signed.extend_from_slice(&signature.to_bytes());
+    signed.extend_from_slice(&signing_key.verifying_key().to_bytes());
+
+    Ok(signed)
+}
+
+/// Sign a Sui transfer (simplified).
+///
+/// Real implementation would use full BCS TransactionData encoding.
+pub fn sign_sui_transfer(
+    signing_key: &ed25519_dalek::SigningKey,
+    to_address: &str,
+    amount_mist: u64,
+    gas_budget: u64,
+) -> Result<Vec<u8>> {
+    use ed25519_dalek::Signer;
+
+    validate_sui_address(to_address)?;
+
+    let mut payload = Vec::new();
+    // Destination
+    let to_hex = to_address.strip_prefix("0x").unwrap_or(to_address);
+    let to_bytes = hex::decode(to_hex).context("Invalid Sui address hex")?;
+    payload.extend_from_slice(&to_bytes);
+    // Amount + gas
+    payload.extend_from_slice(&amount_mist.to_le_bytes());
+    payload.extend_from_slice(&gas_budget.to_le_bytes());
+
+    let signature = signing_key.sign(&payload);
+
+    let mut signed = Vec::new();
+    // Sui uses "flag + signature + pubkey" scheme
+    signed.push(0x00); // Ed25519 flag
+    signed.extend_from_slice(&signature.to_bytes());
+    signed.extend_from_slice(&signing_key.verifying_key().to_bytes());
+
+    Ok(signed)
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -428,5 +501,49 @@ mod tests {
     fn sui_mainnet_url() {
         let s = SuiScanner::mainnet();
         assert_eq!(s.rpc_url, "https://fullnode.mainnet.sui.io:443");
+    }
+
+    // --- Signing ---
+
+    #[test]
+    fn aptos_signing_deterministic() {
+        let secret = [0x42u8; 32];
+        let key = ed25519_dalek::SigningKey::from_bytes(&secret);
+        let addr = "0x0000000000000000000000000000000000000000000000000000000000000001";
+
+        let tx1 = sign_aptos_transfer(&key, addr, 100_000_000, 0, 1).unwrap();
+        let tx2 = sign_aptos_transfer(&key, addr, 100_000_000, 0, 1).unwrap();
+        assert_eq!(tx1, tx2, "Same inputs = same signed tx");
+
+        let tx3 = sign_aptos_transfer(&key, addr, 200_000_000, 0, 1).unwrap();
+        assert_ne!(tx1, tx3, "Different amount = different tx");
+    }
+
+    #[test]
+    fn aptos_signing_invalid_address() {
+        let key = ed25519_dalek::SigningKey::from_bytes(&[0x42u8; 32]);
+        assert!(sign_aptos_transfer(&key, "not-valid", 100, 0, 1).is_err());
+        assert!(sign_aptos_transfer(&key, "0xshort", 100, 0, 1).is_err());
+    }
+
+    #[test]
+    fn sui_signing_deterministic() {
+        let secret = [0x42u8; 32];
+        let key = ed25519_dalek::SigningKey::from_bytes(&secret);
+        let addr = "0x0000000000000000000000000000000000000000000000000000000000000002";
+
+        let tx1 = sign_sui_transfer(&key, addr, 1_000_000_000, 10_000_000).unwrap();
+        let tx2 = sign_sui_transfer(&key, addr, 1_000_000_000, 10_000_000).unwrap();
+        assert_eq!(tx1, tx2, "Same inputs = same signed tx");
+
+        // Sui signature format: flag(1) + sig(64) + pubkey(32) = 97 bytes
+        assert_eq!(tx1.len(), 97, "Sui signed tx = flag + sig + pubkey");
+        assert_eq!(tx1[0], 0x00, "Ed25519 flag byte");
+    }
+
+    #[test]
+    fn sui_signing_invalid_address() {
+        let key = ed25519_dalek::SigningKey::from_bytes(&[0x42u8; 32]);
+        assert!(sign_sui_transfer(&key, "invalid", 1000, 1000).is_err());
     }
 }
