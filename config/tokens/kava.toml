@@ -1,0 +1,31 @@
+# Kava EVM — Verified Token Registry
+# Source: https://kavascan.com/tokens
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0x919C1c267BC06a7039e03fcc2eF738525769109c"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "WKAVA"
+name = "Wrapped KAVA"
+address = "0xc86c7C0eFbd6A49B35E8714C5f59D99De09A225b"
+decimals = 18
+coingecko_id = "kava"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0xE3F5a90F9cb311505cd691a46596599aA1A0AD7D"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "WBTC"
+name = "Wrapped BTC"
+address = "0x818ec0A7Fe18Ff94269904fCED6AE3DaE6d6dC0b"
+decimals = 8
+coingecko_id = "wrapped-bitcoin"

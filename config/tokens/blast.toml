@@ -1,0 +1,38 @@
+# Blast — Verified Token Registry
+# Source: https://blastscan.io/tokens
+
+[[tokens]]
+symbol = "USDB"
+name = "USDB"
+address = "0x4300000000000000000000000000000000000003"
+decimals = 18
+stablecoin = true
+coingecko_id = "usdb"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0x4300000000000000000000000000000000000004"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "BLAST"
+name = "Blast"
+address = "0xb1a5700fA2358173Fe465e6eA4Ff52E36e88E2ad"
+decimals = 18
+coingecko_id = "blast"
+
+[[tokens]]
+symbol = "JUICE"
+name = "Juice Finance"
+address = "0x818a92bc81Aad0053d72ba753FB5Bc3d0C5C0155"
+decimals = 18
+coingecko_id = "juice-finance"
+
+[[tokens]]
+symbol = "PAC"
+name = "PacMoon"
+address = "0x5ffd9EbD27f2fcAB044c0f0a26A45Cb62fa29c06"
+decimals = 18
+coingecko_id = "pacmoon"

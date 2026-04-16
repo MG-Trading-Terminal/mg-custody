@@ -1,0 +1,60 @@
+# Moonbeam — Verified Token Registry
+# Source: https://moonscan.io/tokens
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0xFFFFFFfFea09FB06d082fd1275CD48b191cbCD1d"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0x931715FEE2d06333043d11F658C8CE934aC61D0c"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WGLMR"
+name = "Wrapped GLMR"
+address = "0xAcc15dC74880C9944775448304B263D191c6077F"
+decimals = 18
+coingecko_id = "wrapped-moonbeam"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0xab3f0245B83feB11d15AAffeFD7AD465a59817eD"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "WBTC"
+name = "Wrapped BTC"
+address = "0x922D641a426DcFFaeF11680e5358F34d97d112E1"
+decimals = 8
+coingecko_id = "wrapped-bitcoin"
+
+[[tokens]]
+symbol = "DOT"
+name = "Polkadot"
+address = "0xFfFFfFff1FcaCBd218EDc0EbA20Fc2308C778080"
+decimals = 10
+coingecko_id = "polkadot"
+
+[[tokens]]
+symbol = "WELL"
+name = "Moonwell"
+address = "0x511aB53F793683763E5a8829738b70DA73A5503f"
+decimals = 18
+coingecko_id = "moonwell-artemis"
+
+[[tokens]]
+symbol = "STELLA"
+name = "StellaSwap"
+address = "0x0E358838ce72d5e61E0018a2ffaC4bEC5F4c88d2"
+decimals = 18
+coingecko_id = "stellaswap"

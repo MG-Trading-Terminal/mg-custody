@@ -1,0 +1,46 @@
+# BOB (Build on Bitcoin) — Verified Token Registry
+# Source: https://explorer.gobob.xyz/tokens
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0x05D032ac25d322df992303dCa074EE7392C117b9"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0xe75D0fB2C24A55cA1e3F96781a2bCC7bdba058F0"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WBTC"
+name = "Wrapped BTC"
+address = "0x03C7054BCB39f7b2e5B2c7AcB37583e32D70Cfa3"
+decimals = 8
+coingecko_id = "wrapped-bitcoin"
+
+[[tokens]]
+symbol = "tBTC"
+name = "Threshold BTC"
+address = "0xBBa2eF945D523C4e2608C9E1214C2Cc64D4fc2e2"
+decimals = 18
+coingecko_id = "tbtc"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0x4200000000000000000000000000000000000006"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "SOV"
+name = "Sovryn"
+address = "0xba74a9B3F2fE1F3e5c6A4f2cF30551eb0d9b2D35"
+decimals = 18
+coingecko_id = "sovryn"

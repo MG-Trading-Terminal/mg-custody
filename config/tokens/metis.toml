@@ -1,0 +1,40 @@
+# Metis Andromeda — Verified Token Registry
+# Source: https://andromeda-explorer.metis.io/tokens
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0xbB06DCA3AE6887fAbF931640f67cab3e3a16F4dC"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0xEA32A96608495e54156Ae48931A7c0f0046d1e99"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WMETIS"
+name = "Wrapped METIS"
+address = "0xDeadDeAddeAddEAddeadDEaDDEAdDeaDDeAD0000"
+decimals = 18
+coingecko_id = "metis-token"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0x420000000000000000000000000000000000000a"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "DAI"
+name = "Dai"
+address = "0x4c078361FC9BbB78DF910800A991C7c3DD2F6ce0"
+decimals = 18
+stablecoin = true
+coingecko_id = "dai"

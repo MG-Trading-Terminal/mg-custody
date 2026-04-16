@@ -1,0 +1,32 @@
+# Core — Verified Token Registry
+# Source: https://scan.coredao.org/tokens
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0x900101d06A7426441Ae63e9AB3B9b0F63Be145F1"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0xa4151B2B3e269645b82e46271060C0aBD22309E8"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WCORE"
+name = "Wrapped CORE"
+address = "0x40375C92d9FAf44d2f9db9Bd9ba41a3317a2404f"
+decimals = 18
+coingecko_id = "coredaoorg"
+
+[[tokens]]
+symbol = "coreBTC"
+name = "Core BTC"
+address = "0x8034aB88C3512246Bf3E5C4E05C35b6D1ca15c05"
+decimals = 8
+coingecko_id = "core-bridged-btc"

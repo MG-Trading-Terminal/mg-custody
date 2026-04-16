@@ -1,0 +1,39 @@
+# Mode — Verified Token Registry
+# Source: https://explorer.mode.network/tokens
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0xd988097fb8612cc24eeC14542bC03424c656005f"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0xf0F161fDA2712DB8b566946122a5af183995e2eD"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0x4200000000000000000000000000000000000006"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "MODE"
+name = "Mode"
+address = "0xDfc7C877a950e49D2610114102175A06C2e3167a"
+decimals = 18
+coingecko_id = "mode"
+
+[[tokens]]
+symbol = "ezETH"
+name = "Renzo Staked ETH"
+address = "0x2416092f143378750bb29b79eD961ab195CcEea5"
+decimals = 18
+coingecko_id = "renzo-restaked-eth"

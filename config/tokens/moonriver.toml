@@ -1,0 +1,39 @@
+# Moonriver — Verified Token Registry
+# Source: https://moonriver.moonscan.io/tokens
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0xB44a9B6905aF7c801311e8F4E76932ee959c663C"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0xE3F5a90F9cb311505cd691a46596599aA1A0AD7D"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WMOVR"
+name = "Wrapped MOVR"
+address = "0x98878B06940aE243284CA214F92Bb71a2b032B8A"
+decimals = 18
+coingecko_id = "moonriver"
+
+[[tokens]]
+symbol = "SOLAR"
+name = "SolarBeam"
+address = "0x6bD193Ee6D2104F14F94E2cA6efefae561A4334B"
+decimals = 18
+coingecko_id = "solarbeam"
+
+[[tokens]]
+symbol = "KSM"
+name = "Kusama"
+address = "0xFfFFfFff1FcaCBd218EDc0EbA20Fc2308C778080"
+decimals = 12
+coingecko_id = "kusama"

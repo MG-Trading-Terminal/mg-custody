@@ -1,0 +1,39 @@
+# Manta Pacific — Verified Token Registry
+# Source: https://pacific-explorer.manta.network/tokens
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0xf417F5A458eC102B90352F697D6e2Ac3A3d2851f"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0xb73603C5d87fA094B7314C74ACE2e64D165016fb"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0x0Dc808adcE2099A9F62AA87D9670745AbA741746"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "wstETH"
+name = "Wrapped stETH"
+address = "0x2FE3AD97a60EB7c79A976FC18Bb5fFD07Dd94BA0"
+decimals = 18
+coingecko_id = "wrapped-steth"
+
+[[tokens]]
+symbol = "STONE"
+name = "StakeStone ETH"
+address = "0xEc901DA9c68E90798BbBb74c11406A32a70652C3"
+decimals = 18
+coingecko_id = "stakestone-ether"

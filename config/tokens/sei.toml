@@ -1,0 +1,46 @@
+# Sei — Verified Token Registry
+# Source: https://seitrace.com/tokens
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0xB75D0B03c06A926e488e2659DF1A861F860bD3d1"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0x3894085Ef7Ff0f0aeDf52E2A2704928d1Ec074F2"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WSEI"
+name = "Wrapped SEI"
+address = "0xE30feDd158A2e3b13e9badaeABaFc5516e95e8C7"
+decimals = 18
+coingecko_id = "sei-network"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0x160345fC359604fC6e70E3c5fAcbdE5F7A9342d8"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "WBTC"
+name = "Wrapped BTC"
+address = "0x2Df7c3F1C11Fe74BAAA6B56C691Bc6540e1B3C3B"
+decimals = 8
+coingecko_id = "wrapped-bitcoin"
+
+[[tokens]]
+symbol = "iSEI"
+name = "Silo Staked SEI"
+address = "0x5Cf6826140C1C56Ff49C808A1A75407Cd1DF9423"
+decimals = 6
+coingecko_id = "silo-staked-sei"
