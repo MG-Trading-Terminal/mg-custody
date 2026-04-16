@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import { t, locale } from '$lib/i18n';
+	import { tokenIcon } from '$lib/icons/tokens';
 
 	interface AssetBalance {
 		asset: string;
@@ -97,7 +98,7 @@
 				<tbody>
 					{#each portfolio.balances as row}
 						<tr>
-							<td class="asset-name">{row.asset}</td>
+							<td class="asset-name"><span class="token-cell">{@html tokenIcon(row.asset, 20)} {row.asset}</span></td>
 							<td class="mono">{row.balance}</td>
 							<td class="mono">${row.usd_value}</td>
 							<td>
@@ -124,7 +125,7 @@
 				{#each activity as ev}
 					<li class="activity-row">
 						<span class="activity-type">{ev.type}</span>
-						<span class="activity-asset muted">{ev.asset}</span>
+						<span class="activity-asset muted">{@html tokenIcon(ev.asset, 14)} {ev.asset}</span>
 						<span class="mono">{ev.amount}</span>
 						<span class="badge {statusClass(ev.status)}">{ev.status}</span>
 						<span class="muted activity-date">{fmt(ev.created_at)}</span>

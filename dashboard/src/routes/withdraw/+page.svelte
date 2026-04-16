@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
+	import { chainIcon, tokenIcon } from '$lib/icons/tokens';
 
 	interface FeeEstimate {
 		amount: string;
@@ -127,7 +128,7 @@
 		<label class="field">
 			Chain
 			<select bind:value={chain}>
-				{#each CHAINS as c}<option value={c}>{c}</option>{/each}
+				{#each CHAINS as c}<option value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>{/each}
 			</select>
 		</label>
 

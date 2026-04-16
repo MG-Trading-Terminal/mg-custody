@@ -284,6 +284,18 @@
 		color: var(--fg, #e1e4e8);
 	}
 
+	/* Token/chain icon inline with text */
+	:global(.token-cell) {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+
+	:global(.token-cell svg) {
+		flex-shrink: 0;
+		border-radius: 50%;
+	}
+
 	.app {
 		display: flex;
 		min-height: 100vh;

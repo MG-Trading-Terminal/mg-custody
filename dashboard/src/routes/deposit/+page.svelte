@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
+	import { chainIcon, tokenIcon } from '$lib/icons/tokens';
 
 	interface DepositAddress {
 		address: string;
@@ -95,6 +96,7 @@
 				class:active={selectedChain === chain}
 				onclick={() => { selectedChain = chain; fetchAddress(chain); }}
 			>
+				{@html chainIcon(chain, 18)}
 				{chain}
 			</button>
 		{/each}
@@ -153,7 +155,7 @@
 			<tbody>
 				{#each history as dep}
 					<tr>
-						<td>{dep.asset}</td>
+						<td><span class="token-cell">{@html tokenIcon(dep.asset, 18)} {dep.asset}</span></td>
 						<td class="mono">{dep.amount}</td>
 						<td class="mono muted">{trunc(dep.tx_hash)}</td>
 						<td class="muted">{confirmProgress(dep)}</td>
