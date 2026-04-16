@@ -1,0 +1,321 @@
+# Solana SPL — Verified Token Registry
+# Source: https://solscan.io/tokens + Jupiter token list
+# NOTE: Solana uses mint addresses (base58), not hex
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WSOL"
+name = "Wrapped SOL"
+address = "So11111111111111111111111111111111111111112"
+decimals = 9
+coingecko_id = "wrapped-solana"
+
+[[tokens]]
+symbol = "JUP"
+name = "Jupiter"
+address = "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN"
+decimals = 6
+coingecko_id = "jupiter-exchange-solana"
+
+[[tokens]]
+symbol = "JTO"
+name = "Jito"
+address = "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL"
+decimals = 9
+coingecko_id = "jito-governance-token"
+
+[[tokens]]
+symbol = "WIF"
+name = "dogwifhat"
+address = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"
+decimals = 6
+coingecko_id = "dogwifcoin"
+
+[[tokens]]
+symbol = "BONK"
+name = "Bonk"
+address = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+decimals = 5
+coingecko_id = "bonk"
+
+[[tokens]]
+symbol = "PYTH"
+name = "Pyth Network"
+address = "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3"
+decimals = 6
+coingecko_id = "pyth-network"
+
+[[tokens]]
+symbol = "RAY"
+name = "Raydium"
+address = "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R"
+decimals = 6
+coingecko_id = "raydium"
+
+[[tokens]]
+symbol = "ORCA"
+name = "Orca"
+address = "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE"
+decimals = 6
+coingecko_id = "orca"
+
+[[tokens]]
+symbol = "RENDER"
+name = "Render"
+address = "rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof"
+decimals = 8
+coingecko_id = "render-token"
+
+[[tokens]]
+symbol = "W"
+name = "Wormhole"
+address = "85VBFQZC9TZkfaptBWjvUw7YbZjy52A6mjtPGjstQAmQ"
+decimals = 6
+coingecko_id = "wormhole"
+
+[[tokens]]
+symbol = "HNT"
+name = "Helium"
+address = "hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux"
+decimals = 8
+coingecko_id = "helium"
+
+[[tokens]]
+symbol = "TRUMP"
+name = "Official Trump"
+address = "HaP8r3ksG76PhQLTqR8FYBeNiQpejcFbQmiHbg787Ut1"
+decimals = 6
+coingecko_id = "official-trump"
+
+[[tokens]]
+symbol = "PENGU"
+name = "Pudgy Penguins"
+address = "2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv"
+decimals = 6
+coingecko_id = "pudgy-penguins"
+
+[[tokens]]
+symbol = "GRASS"
+name = "Grass"
+address = "Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs"
+decimals = 9
+coingecko_id = "grass"
+
+[[tokens]]
+symbol = "AI16Z"
+name = "ai16z"
+address = "HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC"
+decimals = 9
+coingecko_id = "ai16z"
+
+[[tokens]]
+symbol = "FARTCOIN"
+name = "Fartcoin"
+address = "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump"
+decimals = 6
+coingecko_id = "fartcoin"
+
+[[tokens]]
+symbol = "GOAT"
+name = "Goatseus Maximus"
+address = "CzLSujWBLFsSjncfkh59rUFqvafWcY5tzedWJSuypump"
+decimals = 6
+coingecko_id = "goatseus-maximus"
+
+[[tokens]]
+symbol = "POPCAT"
+name = "Popcat"
+address = "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr"
+decimals = 9
+coingecko_id = "popcat"
+
+[[tokens]]
+symbol = "MEW"
+name = "cat in a dogs world"
+address = "MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5"
+decimals = 5
+coingecko_id = "cat-in-a-dogs-world"
+
+[[tokens]]
+symbol = "JITOSOL"
+name = "Jito Staked SOL"
+address = "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn"
+decimals = 9
+coingecko_id = "jito-staked-sol"
+
+[[tokens]]
+symbol = "mSOL"
+name = "Marinade SOL"
+address = "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So"
+decimals = 9
+coingecko_id = "marinade-staked-sol"
+
+[[tokens]]
+symbol = "bSOL"
+name = "BlazeStake SOL"
+address = "bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1"
+decimals = 9
+coingecko_id = "blazestake-staked-sol"
+
+[[tokens]]
+symbol = "SLERF"
+name = "Slerf"
+address = "7BgBvyjrZX1YKz4oh9mjb8ZScatkkwb8DzFx7LoiVkM3"
+decimals = 9
+coingecko_id = "slerf"
+
+[[tokens]]
+symbol = "DRIFT"
+name = "Drift Protocol"
+address = "DriFtupJYLTosbwoN8koMbEYSx54aFAVLddWsbksjwg7"
+decimals = 6
+coingecko_id = "drift-protocol"
+
+[[tokens]]
+symbol = "KMNO"
+name = "Kamino"
+address = "KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS"
+decimals = 6
+coingecko_id = "kamino"
+
+[[tokens]]
+symbol = "ONDO"
+name = "Ondo Finance"
+address = "FKMKctiJnbZKL16pCmR7ig6bvjcMJffuUMjB97YqiHae"
+decimals = 9
+coingecko_id = "ondo-finance"
+
+[[tokens]]
+symbol = "PNUT"
+name = "Peanut the Squirrel"
+address = "2qEHjDLDLbuBgRYvsxhc5D6uDWAivNFZGan56P1tpump"
+decimals = 6
+coingecko_id = "peanut-the-squirrel"
+
+[[tokens]]
+symbol = "SPX"
+name = "SPX6900"
+address = "J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr"
+decimals = 8
+coingecko_id = "spx6900"
+
+[[tokens]]
+symbol = "ZEUS"
+name = "Zeus Network"
+address = "ZEUS1aR7aX8DFFJf5QjWj2ftDDdNTroMNGo8YoQm3Gq"
+decimals = 6
+coingecko_id = "zeus-network"
+
+[[tokens]]
+symbol = "HONEY"
+name = "Hivemapper"
+address = "4vMsoUT2BWatFweudnQM1xedRLfJgJ7hsWhY4SVz68Rd"
+decimals = 9
+coingecko_id = "hivemapper"
+
+[[tokens]]
+symbol = "NOS"
+name = "Nosana"
+address = "nosXBVoaCTtYdLvKY6Csb4AC8JCdQKKAaWYtx2ZMoo7"
+decimals = 6
+coingecko_id = "nosana"
+
+[[tokens]]
+symbol = "TBTC"
+name = "Threshold BTC"
+address = "6DNSN2BJsaPFdBAy7hc91iKsZPBLHKRzTJYXCstUUvak"
+decimals = 8
+coingecko_id = "tbtc"
+
+[[tokens]]
+symbol = "PYUSD"
+name = "PayPal USD"
+address = "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo"
+decimals = 6
+stablecoin = true
+coingecko_id = "paypal-usd"
+
+[[tokens]]
+symbol = "MOBILE"
+name = "Helium Mobile"
+address = "mb1eu7TzEc71KxDpsmsKoucSSuuo6KWzSY2qPAqTL7W9"
+decimals = 6
+coingecko_id = "helium-mobile"
+
+[[tokens]]
+symbol = "SONIC"
+name = "Sonic SVM"
+address = "SonicxvLud19qGC6NhHvFPRKjLgQPaKNTSq1iKH3pMTe"
+decimals = 9
+coingecko_id = "sonic-svm"
+
+[[tokens]]
+symbol = "TENSOR"
+name = "Tensor"
+address = "TNSRxcUxoT9xBG3de7PiJyTDYu7kskLqcpddxnEJAS6"
+decimals = 9
+coingecko_id = "tensor"
+
+[[tokens]]
+symbol = "PARCL"
+name = "Parcl"
+address = "PARCLmkMBRkiHPBUDFBo2qYA5QUjzJqm7XQgVXeXDu8"
+decimals = 6
+coingecko_id = "parcl"
+
+[[tokens]]
+symbol = "ACCESS"
+name = "Access Protocol"
+address = "5MAYDfq5yxtudAhtfyuMBuHZjgAbaS9tbEyEQYAhDS5y"
+decimals = 6
+coingecko_id = "access-protocol"
+
+[[tokens]]
+symbol = "ATLAS"
+name = "Star Atlas"
+address = "ATLASXmbPQxBUYbxPsV97usA3fPQYEqzQBUHgiFCUsXx"
+decimals = 8
+coingecko_id = "star-atlas"
+
+[[tokens]]
+symbol = "STEP"
+name = "Step Finance"
+address = "StepAscQoEioFxxWGnh2sLBDFp9d8rvKz2Yp39iDpyT"
+decimals = 9
+coingecko_id = "step-finance"
+
+[[tokens]]
+symbol = "SAMO"
+name = "Samoyedcoin"
+address = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"
+decimals = 9
+coingecko_id = "samoyedcoin"
+
+[[tokens]]
+symbol = "FIDA"
+name = "Bonfida"
+address = "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp"
+decimals = 6
+coingecko_id = "bonfida"
+
+[[tokens]]
+symbol = "CHILLGUY"
+name = "Just a chill guy"
+address = "Df6yfrKC8kZE3P82g4d3GhezfLVMAiIE3EY4Gp4gN1gN"
+decimals = 6
+coingecko_id = "just-a-chill-guy"

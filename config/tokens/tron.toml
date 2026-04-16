@@ -1,0 +1,106 @@
+# Tron TRC-20 — Verified Token Registry
+# Source: https://tronscan.org/#/tokens/list
+# NOTE: Tron uses Base58Check addresses (T...)
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "USDD"
+name = "Decentralized USD"
+address = "TPYmHEhy5n8TCEfYGqW2rPxsghSfzghPDn"
+decimals = 18
+stablecoin = true
+coingecko_id = "usdd"
+
+[[tokens]]
+symbol = "TUSD"
+name = "TrueUSD"
+address = "TUpMhErZL2fhh4sVNULAbNKLokS4GjC1F4"
+decimals = 18
+stablecoin = true
+coingecko_id = "true-usd"
+
+[[tokens]]
+symbol = "USDJ"
+name = "JUST Stablecoin"
+address = "TMwFHYXLJaRUPeW6421aqXL4ZEzPRFGkGT"
+decimals = 18
+stablecoin = true
+coingecko_id = "just-stablecoin"
+
+[[tokens]]
+symbol = "WTRX"
+name = "Wrapped TRX"
+address = "TNUC9Qb1rRpS5CbWLmNMxXBjyFoydXjWFR"
+decimals = 6
+coingecko_id = "wrapped-tron"
+
+[[tokens]]
+symbol = "BTT"
+name = "BitTorrent"
+address = "TAFjULxiVgT4qWk6UZwjqwZXTSaGaqnVp4"
+decimals = 18
+coingecko_id = "bittorrent"
+
+[[tokens]]
+symbol = "JST"
+name = "JUST"
+address = "TCFLL5dx5ZJdKnWuesXxi1VPwjLVmWZZy9"
+decimals = 18
+coingecko_id = "just"
+
+[[tokens]]
+symbol = "SUN"
+name = "SUN"
+address = "TSSMHYeV2uE9qYH95DqyoCuNCzEL1NvU3S"
+decimals = 18
+coingecko_id = "sun-token"
+
+[[tokens]]
+symbol = "WIN"
+name = "WINkLink"
+address = "TLa2f6VPqDgRE67v1736s7bJ8Ray5wYjU7"
+decimals = 6
+coingecko_id = "wink"
+
+[[tokens]]
+symbol = "NFT"
+name = "APENFT"
+address = "TFczxzPhnThNSqr5by8tvxsdCFRRz6cPNq"
+decimals = 6
+coingecko_id = "apenft"
+
+[[tokens]]
+symbol = "HTX"
+name = "HTX Token"
+address = "TUPM7K8REVzD2UdV4R5fe5M8XbnR2DdoJ6"
+decimals = 18
+coingecko_id = "huobi-token"
+
+[[tokens]]
+symbol = "SUNDOG"
+name = "SunDog"
+address = "TXuLTqxzTHkvgCvCW3B4sHmqn1kYPpmAjb"
+decimals = 18
+coingecko_id = "sundog"
+
+[[tokens]]
+symbol = "stUSDT"
+name = "Staked USDT"
+address = "TThzftt9WKLQ54T5fi6GKjvou22PpEGMTC"
+decimals = 18
+coingecko_id = "staked-usdt"

@@ -1,0 +1,61 @@
+# zkSync Era — Verified Token Registry
+# Source: https://explorer.zksync.io/
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0x493257fD37EDB34451f62EDf8D2a0C418852bA4C"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0x1d17CBcF0D6D143135aE902365D2E5e2A16538D4"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0x5AEa5775959fBC2557Cc8789bC1bf90A239D9a91"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "WBTC"
+name = "Wrapped BTC"
+address = "0xBBeB516fb02a01611cBBE0453Fe3c580D7281877"
+decimals = 8
+coingecko_id = "wrapped-bitcoin"
+
+[[tokens]]
+symbol = "ZK"
+name = "ZKsync"
+address = "0x5A7d6b2F92C77FAD6CCaBd7EE0624E64907Eaf3E"
+decimals = 18
+coingecko_id = "zksync"
+
+[[tokens]]
+symbol = "DAI"
+name = "Dai"
+address = "0x4B9eb6c0b6ea15176BBF62841C6B2A8a398cb656"
+decimals = 18
+stablecoin = true
+coingecko_id = "dai"
+
+[[tokens]]
+symbol = "MUTE"
+name = "Mute"
+address = "0x0e97C7a0F8B2C9885C8ac9fC6136e829CbC21d42"
+decimals = 18
+coingecko_id = "mute"
+
+[[tokens]]
+symbol = "HOLD"
+name = "Holdstation"
+address = "0xed4040fD47629e7c8FBB7DA76bb50B3e7695F0f2"
+decimals = 18
+coingecko_id = "holdstation"

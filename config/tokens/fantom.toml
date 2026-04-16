@@ -1,0 +1,103 @@
+# Fantom Opera — Verified Token Registry
+# Source: https://ftmscan.com/tokens
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0x049d68029688eAbF473097a2fC38ef61633A3C7A"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0x04068DA6C83AFCFA0e13ba15A6696662335D5B75"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "DAI"
+name = "Dai"
+address = "0x8D11eC38a3EB5E956B052f67Da8Bdc9bef8Abf3E"
+decimals = 18
+stablecoin = true
+coingecko_id = "dai"
+
+[[tokens]]
+symbol = "WFTM"
+name = "Wrapped Fantom"
+address = "0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83"
+decimals = 18
+coingecko_id = "wrapped-fantom"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0x74b23882a30290451A17c44f4F05243b6b58C76d"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "WBTC"
+name = "Wrapped BTC"
+address = "0x321162Cd933E2Be498Cd2267a90534A804051b11"
+decimals = 8
+coingecko_id = "wrapped-bitcoin"
+
+[[tokens]]
+symbol = "BOO"
+name = "SpookySwap"
+address = "0x841FAD6EAe12c286d1Fd18d1d525DFfA75C7EFFE"
+decimals = 18
+coingecko_id = "spookyswap"
+
+[[tokens]]
+symbol = "SPIRIT"
+name = "SpiritSwap"
+address = "0x5Cc61A78F164885776AA610fb0FE1257df78E59B"
+decimals = 18
+coingecko_id = "spiritswap"
+
+[[tokens]]
+symbol = "EQUAL"
+name = "Equalizer"
+address = "0x3Fd3A0c85B70754eFc07aC9Ac0cbBDCe664865A6"
+decimals = 18
+coingecko_id = "equalizer-dex"
+
+[[tokens]]
+symbol = "LINK"
+name = "Chainlink"
+address = "0xb3654dc3D10Ea7645f8319668E8F54d2574FBdC8"
+decimals = 18
+coingecko_id = "chainlink"
+
+[[tokens]]
+symbol = "AAVE"
+name = "Aave"
+address = "0x6a07A792ab2965C72a5B8088d3a069A7aC3a993B"
+decimals = 18
+coingecko_id = "aave"
+
+[[tokens]]
+symbol = "CRV"
+name = "Curve"
+address = "0x1E4F97b9f9F913c46F1632781732927B9019C68b"
+decimals = 18
+coingecko_id = "curve-dao-token"
+
+[[tokens]]
+symbol = "SCREAM"
+name = "Scream"
+address = "0xe0654C8e6fd4D733349ac7E09f6f23DA256bF475"
+decimals = 18
+coingecko_id = "scream"
+
+[[tokens]]
+symbol = "LQDR"
+name = "Liquid Driver"
+address = "0x10b620b2dbAC4Faa7D7FFD71Da486f5D44cd86f9"
+decimals = 18
+coingecko_id = "liquid-driver"

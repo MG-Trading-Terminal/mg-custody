@@ -1,0 +1,39 @@
+# Mantle — Verified Token Registry
+# Source: https://explorer.mantle.xyz/tokens
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0x201EBa5CC46D216Ce6DC03F6a759e8E766e956aE"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0x09Bc4E0D864854c6aFB6eB9A9cdF58aC190D0dF9"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WMNT"
+name = "Wrapped Mantle"
+address = "0x78c1b0C915c4FAA5FffA6CAbf0219DA63d7f4cb8"
+decimals = 18
+coingecko_id = "mantle"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0xdEAddEaDdeadDEadDEADDEAddEADDEAddead1111"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "mETH"
+name = "Mantle Staked ETH"
+address = "0xcDA86A272531e8640cD7F1a92c01839911B90bb0"
+decimals = 18
+coingecko_id = "mantle-staked-ether"

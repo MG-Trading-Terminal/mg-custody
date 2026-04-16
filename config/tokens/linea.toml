@@ -1,0 +1,47 @@
+# Linea — Verified Token Registry
+# Source: https://lineascan.build/tokens
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0xA219439258ca9da29E9Cc4cE5596924745e12B93"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0x176211869cA2b568f2A7D4EE941E073a821EE1ff"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0xe5D7C2a44FfDDf6b295A15c148167daaAf5Cf34f"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "WBTC"
+name = "Wrapped BTC"
+address = "0x3aAB2285ddcDdaD8edf438C1bAB47e1a9D05a9b4"
+decimals = 8
+coingecko_id = "wrapped-bitcoin"
+
+[[tokens]]
+symbol = "DAI"
+name = "Dai"
+address = "0x4AF15ec2A0BD43Db75dd04E62FAA3B8EF36b00d5"
+decimals = 18
+stablecoin = true
+coingecko_id = "dai"
+
+[[tokens]]
+symbol = "wstETH"
+name = "Wrapped stETH"
+address = "0xB5beDd42000b71FddE22D3eE8a79Bd49A568fC8F"
+decimals = 18
+coingecko_id = "wrapped-steth"

@@ -1,0 +1,53 @@
+# Gnosis Chain — Verified Token Registry
+# Source: https://gnosisscan.io/tokens
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0x4ECaBa5870353805a9F068101A40E0f32ed605C6"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0xDDAfbb505ad214D7b80b1f830fcCc89B60fb7A83"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WXDAI"
+name = "Wrapped xDAI"
+address = "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d"
+decimals = 18
+coingecko_id = "wrapped-xdai"
+
+[[tokens]]
+symbol = "GNO"
+name = "Gnosis"
+address = "0x9C58BAcC331c9aa871AFD802DB6379a98e80CEdb"
+decimals = 18
+coingecko_id = "gnosis"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0x6A023CCd1ff6F2045C3309768eAd9E68F978f6e1"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "WBTC"
+name = "Wrapped BTC"
+address = "0x8e5bBbb09Ed1ebdE8674Cda39A0c169401db4252"
+decimals = 8
+coingecko_id = "wrapped-bitcoin"
+
+[[tokens]]
+symbol = "sDAI"
+name = "Savings xDAI"
+address = "0xaf204776c7245bF4147c2612BF6e5972Ee483701"
+decimals = 18
+coingecko_id = "savings-xdai"
