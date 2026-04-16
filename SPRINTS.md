@@ -1,5 +1,53 @@
 # Sprint Log
 
+## Sprint P1-P4 — Production Hardening, Testnet E2E, HSM, Monitoring (2026-04-16)
+
+### Goals
+- Fix fund-safety bugs (circuit breaker bypass, scanner overflow, zero txid)
+- E2E testnet integration tests (Sepolia, Tron Nile, Solana devnet)
+- Real PKCS#11 HSM integration via cryptoki crate
+- Dependency security audit (protobuf, rustls-webpki)
+- Prometheus alerting rules + Grafana dashboard
+- Clippy cleanup across codebase
+
+### Completed
+| Task | Sprint | Status | Tests |
+|------|--------|--------|-------|
+| Price oracle zero-price guard | P1 | DONE | +1 |
+| Scanner uint256_to_decimal → Result | P1 | DONE | +1 (overflow test) |
+| Bitcoin signing invalid txid → error | P1 | DONE | — |
+| RBAC denials → audit trail | P1 | DONE | +1 |
+| All 25 DB migrations on startup | P1 | DONE | — |
+| ROADMAP false negatives fixed | P1 | DONE | — |
+| Testnet config (Sepolia/Nile/devnet) | P2 | DONE | — |
+| E2E testnet tests (9 tests) | P2 | DONE | +9 |
+| Real PKCS#11 via cryptoki | P3 | DONE | +2 |
+| protobuf vulnerability removed | P3 | DONE | — |
+| rustls-webpki upgraded | P3 | DONE | — |
+| Prometheus alert rules (12 rules) | P4 | DONE | — |
+| Grafana dashboard (10 panels) | P4 | DONE | — |
+| Clippy autofix (47 files) | P3 | DONE | — |
+
+### Metrics
+- **New tests added**: 14 (P1: 3, P2: 9, P3: 2)
+- **Tests passing**: 1,660+ (all crates, 0 failures)
+- **Security bugs fixed**: 3 (fund-safety)
+- **Dependencies fixed**: 2 (protobuf removed, rustls-webpki upgraded)
+- **Clippy warnings**: 134 → 54 (80 fixed)
+- **Files changed**: 60+
+- **New files**: 4 (testnet.toml, e2e_testnet.rs, prometheus_alerts.yml, grafana dashboard)
+- **Commits**: 6
+
+### References
+- cryptoki crate: https://docs.rs/cryptoki/0.7
+- PKCS#11 spec: https://docs.oasis-open.org/pkcs11/pkcs11-base/v2.40/
+- RUSTSEC-2024-0437 (protobuf): https://rustsec.org/advisories/RUSTSEC-2024-0437
+- RUSTSEC-2026-0098/0099 (rustls-webpki): https://rustsec.org/advisories/RUSTSEC-2026-0098
+- Prometheus alerting rules: https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/
+- Grafana dashboard JSON: https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/
+
+---
+
 ## Sprint N+11 — Dark/Light Theme, NFT Custody, NEAR, Aptos/Sui, Webhook Retry Dashboard (2026-03-27)
 
 ### Goals
