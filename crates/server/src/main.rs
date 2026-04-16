@@ -109,6 +109,7 @@ async fn main() -> anyhow::Result<()> {
                 ("023_api_key_usage", include_str!("../../db/migrations/023_api_key_usage.sql")),
                 ("024_memo_tag", include_str!("../../db/migrations/024_memo_tag.sql")),
                 ("025_nft_custody", include_str!("../../db/migrations/025_nft_custody.sql")),
+                ("026_token_metadata", include_str!("../../db/migrations/026_token_metadata.sql")),
             ];
             for (name, sql) in migrations {
                 if let Err(e) = sqlx::raw_sql(sql).execute(&pool).await {

@@ -304,7 +304,14 @@ pub struct ImportTokenRequest {
     pub contract_address: String,
     pub decimals: u8,
     pub name: String,
+    #[serde(default)]
     pub coingecko_id: Option<String>,
+    #[serde(default)]
+    pub logo_url: Option<String>,
+    #[serde(default)]
+    pub is_stablecoin: Option<bool>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

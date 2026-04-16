@@ -1,0 +1,28 @@
+# Code Owners — required reviewers for sensitive areas.
+# Changes to these paths require approval from designated owners.
+
+# Signing & key management — security-critical
+crates/signing/          @security-team
+crates/mpc/              @security-team
+crates/signer-service/   @security-team
+crates/address-factory/  @security-team
+
+# Withdrawal pipeline — fund movement
+crates/withdrawal-pipeline/  @security-team
+
+# Authentication & authorization
+crates/gateway/src/auth_routes.rs       @security-team
+crates/gateway/src/rbac_middleware.rs    @security-team
+crates/gateway/src/fido2_routes.rs      @security-team
+
+# Database migrations — schema changes need review
+crates/db/migrations/    @security-team
+
+# Configuration — limits, keys, endpoints
+config/                  @security-team
+
+# CI/CD and security tooling
+.github/                 @security-team
+deny.toml                @security-team
+Dockerfile               @security-team
+docker-compose.yml       @security-team
