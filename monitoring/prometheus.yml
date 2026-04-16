@@ -1,0 +1,27 @@
+# Custody Service — Prometheus Configuration
+#
+# Deploy: docker run -v $(pwd)/monitoring:/etc/prometheus prom/prometheus
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "prometheus_alerts.yml"
+
+scrape_configs:
+  - job_name: "custody"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["localhost:8443"]
+        labels:
+          service: "custody"
+          environment: "production"
+
+  # Separate signer service has no /metrics (no HTTP).
+  # Monitor via custody main service health checks.
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["localhost:9093"]

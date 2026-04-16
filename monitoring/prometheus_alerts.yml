@@ -1,0 +1,132 @@
+# Custody Service — Prometheus Alerting Rules
+#
+# Deploy to Prometheus: copy to /etc/prometheus/rules/ and reload.
+# These rules assume the custody service exposes /metrics on :8443.
+
+groups:
+  - name: custody_critical
+    rules:
+      # ── Fund Safety ────────────────────────────────────────
+      - alert: CircuitBreakerTripped
+        expr: custody_withdrawals_total{status="circuit_breaker_tripped"} > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: custody
+        annotations:
+          summary: "Circuit breaker TRIPPED — all withdrawals halted"
+          description: "The circuit breaker has tripped. This means per-tx, hourly, or daily outflow limits were exceeded. Manual intervention required."
+
+      - alert: SigningFailureRate
+        expr: rate(custody_signing_total{status="failed"}[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          team: custody
+        annotations:
+          summary: "Signing failure rate > 10% on {{ $labels.chain }}"
+          description: "{{ $value }} signing failures/sec on {{ $labels.chain }}. Check HSM connectivity and key availability."
+
+      - alert: WithdrawalStuck
+        expr: custody_withdrawals_total{status="broadcast"} - custody_withdrawals_total{status="confirmed"} > 10
+        for: 30m
+        labels:
+          severity: warning
+          team: custody
+        annotations:
+          summary: "{{ $value }} withdrawals broadcast but not confirmed in 30min"
+          description: "Possible stuck transactions. Check chain congestion and fee levels."
+
+      # ── Chain Health ───────────────────────────────────────
+      - alert: ChainScanLag
+        expr: custody_chain_scan_lag > 50
+        for: 5m
+        labels:
+          severity: warning
+          team: custody
+        annotations:
+          summary: "{{ $labels.chain }} scanner is {{ $value }} blocks behind"
+          description: "Scanner lag exceeded 50 blocks. Check RPC node health and network connectivity."
+
+      - alert: ChainScanLagCritical
+        expr: custody_chain_scan_lag > 200
+        for: 5m
+        labels:
+          severity: critical
+          team: custody
+        annotations:
+          summary: "{{ $labels.chain }} scanner CRITICAL lag: {{ $value }} blocks"
+          description: "Scanner is severely behind. Deposits may be missed. Check RPC node immediately."
+
+      - alert: ChainRpcDown
+        expr: up{job="custody"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: custody
+        annotations:
+          summary: "Custody service is DOWN"
+          description: "The custody service /metrics endpoint is unreachable."
+
+      - alert: ChainRpcLatencyHigh
+        expr: histogram_quantile(0.95, rate(custody_chain_rpc_latency_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: custody
+        annotations:
+          summary: "{{ $labels.chain }} RPC p95 latency > 5s"
+          description: "RPC calls to {{ $labels.chain }} are slow. Consider switching to fallback endpoint."
+
+      # ── Security ───────────────────────────────────────────
+      - alert: PermissionDenialSpike
+        expr: rate(custody_permission_denials_total[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: custody
+        annotations:
+          summary: "Permission denial spike: {{ $value }}/sec"
+          description: "Elevated RBAC denials. Possible unauthorized access attempt or misconfigured client."
+
+      - alert: ComplianceScreeningBlocked
+        expr: increase(custody_compliance_screenings_total{result="blocked"}[1h]) > 5
+        for: 0m
+        labels:
+          severity: warning
+          team: custody
+        annotations:
+          summary: "{{ $value }} compliance-blocked transactions in last hour"
+          description: "Multiple transactions blocked by AML/KYT screening. Review flagged addresses."
+
+      # ── API Health ─────────────────────────────────────────
+      - alert: ApiErrorRate
+        expr: rate(custody_api_request_count{status=~"5.."}[5m]) / rate(custody_api_request_count[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          team: custody
+        annotations:
+          summary: "API 5xx error rate > 5%"
+          description: "{{ $value | humanizePercentage }} of API requests returning 5xx. Check logs."
+
+      - alert: ApiLatencyHigh
+        expr: histogram_quantile(0.95, rate(custody_api_request_latency_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          team: custody
+        annotations:
+          summary: "API p95 latency > 2s"
+          description: "API response times degraded. Check database and chain node connectivity."
+
+      # ── Wallet Balance ─────────────────────────────────────
+      - alert: HotWalletLow
+        expr: custody_wallet_balance{tier="hot"} < 1000
+        for: 10m
+        labels:
+          severity: warning
+          team: custody
+        annotations:
+          summary: "{{ $labels.asset }} hot wallet balance low: {{ $value }}"
+          description: "Hot wallet for {{ $labels.asset }} is below $1,000. Sweep from warm wallet may be needed."

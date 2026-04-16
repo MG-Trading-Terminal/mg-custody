@@ -1,0 +1,174 @@
+{
+  "dashboard": {
+    "title": "MG Custody — Operations Dashboard",
+    "description": "Real-time monitoring of deposits, withdrawals, chain health, signing, and compliance",
+    "tags": ["custody", "blockchain", "production"],
+    "timezone": "utc",
+    "refresh": "10s",
+    "time": { "from": "now-1h", "to": "now" },
+    "panels": [
+      {
+        "title": "Deposits (rate/min)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "expr": "rate(custody_deposits_total[5m]) * 60",
+            "legendFormat": "{{ chain }} — {{ status }}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "ops" }
+        }
+      },
+      {
+        "title": "Withdrawals (rate/min)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+        "targets": [
+          {
+            "expr": "rate(custody_withdrawals_total[5m]) * 60",
+            "legendFormat": "{{ chain }} — {{ status }}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "ops" }
+        }
+      },
+      {
+        "title": "Signing Latency (p95)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(custody_signing_latency_seconds_bucket[5m]))",
+            "legendFormat": "{{ chain }} p95"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "s" }
+        }
+      },
+      {
+        "title": "Chain Block Height",
+        "type": "stat",
+        "gridPos": { "h": 4, "w": 12, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "expr": "custody_chain_block_height",
+            "legendFormat": "{{ chain }}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "none", "decimals": 0 }
+        }
+      },
+      {
+        "title": "Scanner Lag (blocks behind)",
+        "type": "gauge",
+        "gridPos": { "h": 4, "w": 12, "x": 12, "y": 8 },
+        "targets": [
+          {
+            "expr": "custody_chain_scan_lag",
+            "legendFormat": "{{ chain }}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                { "value": 0, "color": "green" },
+                { "value": 20, "color": "yellow" },
+                { "value": 50, "color": "orange" },
+                { "value": 200, "color": "red" }
+              ]
+            },
+            "max": 500
+          }
+        }
+      },
+      {
+        "title": "RPC Latency (p95)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(custody_chain_rpc_latency_seconds_bucket[5m]))",
+            "legendFormat": "{{ chain }} p95"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "s" }
+        }
+      },
+      {
+        "title": "Wallet Balances",
+        "type": "bargauge",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+        "targets": [
+          {
+            "expr": "custody_wallet_balance",
+            "legendFormat": "{{ asset }} — {{ tier }}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "currencyUSD" }
+        }
+      },
+      {
+        "title": "API Request Rate",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 0, "y": 20 },
+        "targets": [
+          {
+            "expr": "rate(custody_api_request_count[5m]) * 60",
+            "legendFormat": "{{ method }} {{ path }} — {{ status }}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "reqps" }
+        }
+      },
+      {
+        "title": "API Latency (p50/p95/p99)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 8, "y": 20 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(custody_api_request_latency_seconds_bucket[5m]))",
+            "legendFormat": "p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(custody_api_request_latency_seconds_bucket[5m]))",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(custody_api_request_latency_seconds_bucket[5m]))",
+            "legendFormat": "p99"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "s" }
+        }
+      },
+      {
+        "title": "Security Events",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 8, "x": 16, "y": 20 },
+        "targets": [
+          {
+            "expr": "rate(custody_permission_denials_total[5m]) * 60",
+            "legendFormat": "RBAC denials ({{ required_role }})"
+          },
+          {
+            "expr": "rate(custody_compliance_screenings_total{result=\"blocked\"}[5m]) * 60",
+            "legendFormat": "Compliance blocks"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": { "unit": "ops" }
+        }
+      }
+    ]
+  }
+}
