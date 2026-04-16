@@ -741,6 +741,193 @@ pub fn default_evm_chains() -> Vec<EvmChainDef> {
             enabled: true,
             testnet: false,
         },
+        EvmChainDef {
+            id: "sei".into(),
+            name: "Sei".into(),
+            chain_id: 1329,
+            rpc_url: "https://evm-rpc.sei-apis.com".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://seitrace.com".into()),
+            required_confirmations: 12,
+            block_time_secs: 1,
+            native_token: "SEI".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0x3894085Ef7Ff0f0aeDf52E2A2704928d1Ec074F2".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0x3894085Ef7Ff0f0aeDf52E2A2704928d1Ec074F2".into(), decimals: 6,
+                }),
+                ("0xB75D0B03c06A926e488e2659DF1A861F860bD3d1".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0xB75D0B03c06A926e488e2659DF1A861F860bD3d1".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "taiko".into(),
+            name: "Taiko".into(),
+            chain_id: 167000,
+            rpc_url: "https://rpc.mainnet.taiko.xyz".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://taikoscan.io".into()),
+            required_confirmations: 12,
+            block_time_secs: 12,
+            native_token: "ETH".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0x2DEF195713CF4a606B49D07E520e22C17899a736".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0x2DEF195713CF4a606B49D07E520e22C17899a736".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "pulsechain".into(),
+            name: "PulseChain".into(),
+            chain_id: 369,
+            rpc_url: "https://rpc.pulsechain.com".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://otter.pulsechain.com".into()),
+            required_confirmations: 12,
+            block_time_secs: 10,
+            native_token: "PLS".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0x0Cb6F5a34ad42ec934882A05265A7d5F59b51A2f".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0x0Cb6F5a34ad42ec934882A05265A7d5F59b51A2f".into(), decimals: 6,
+                }),
+                ("0x15D38573d2feeb82e7ad5187aB8c1D52810B1f07".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0x15D38573d2feeb82e7ad5187aB8c1D52810B1f07".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "evmos".into(),
+            name: "Evmos".into(),
+            chain_id: 9001,
+            rpc_url: "https://evmos-evm-rpc.publicnode.com".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://www.mintscan.io/evmos".into()),
+            required_confirmations: 12,
+            block_time_secs: 6,
+            native_token: "EVMOS".into(),
+            native_decimals: 18,
+            tokens: HashMap::new(),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "telos".into(),
+            name: "Telos EVM".into(),
+            chain_id: 40,
+            rpc_url: "https://mainnet.telos.net/evm".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://www.teloscan.io".into()),
+            required_confirmations: 12,
+            block_time_secs: 1,
+            native_token: "TLOS".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0xeFAeeE334F0Fd1712f9a8cc375f427D9Cdd40d73".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0xeFAeeE334F0Fd1712f9a8cc375f427D9Cdd40d73".into(), decimals: 6,
+                }),
+                ("0x818ec0A7Fe18Ff94269904fCED6AE3DaE6d6dC0b".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0x818ec0A7Fe18Ff94269904fCED6AE3DaE6d6dC0b".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "iotex".into(),
+            name: "IoTeX".into(),
+            chain_id: 4689,
+            rpc_url: "https://babel-api.mainnet.iotex.io".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://iotexscan.io".into()),
+            required_confirmations: 12,
+            block_time_secs: 5,
+            native_token: "IOTX".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0x6fbCdc1169B5130C59E72E51Ed68A84841C98cd1".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0x6fbCdc1169B5130C59E72E51Ed68A84841C98cd1".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "okxchain".into(),
+            name: "OKX Chain".into(),
+            chain_id: 66,
+            rpc_url: "https://exchainrpc.okex.org".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://www.oklink.com/okc".into()),
+            required_confirmations: 12,
+            block_time_secs: 4,
+            native_token: "OKT".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0x382bB369d343125BfB2117af9c149795C6C65C50".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0x382bB369d343125BfB2117af9c149795C6C65C50".into(), decimals: 18,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "heco".into(),
+            name: "Huobi ECO Chain".into(),
+            chain_id: 128,
+            rpc_url: "https://http-mainnet.hecochain.com".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://www.hecoinfo.com".into()),
+            required_confirmations: 12,
+            block_time_secs: 3,
+            native_token: "HT".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0xa71EdC38d189767582C38A3145b5873052c3e47a".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0xa71EdC38d189767582C38A3145b5873052c3e47a".into(), decimals: 18,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "wemix".into(),
+            name: "WEMIX3.0".into(),
+            chain_id: 1111,
+            rpc_url: "https://api.wemix.com".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://explorer.wemix.com".into()),
+            required_confirmations: 12,
+            block_time_secs: 1,
+            native_token: "WEMIX".into(),
+            native_decimals: 18,
+            tokens: HashMap::new(),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "harmony".into(),
+            name: "Harmony".into(),
+            chain_id: 1666600000,
+            rpc_url: "https://api.harmony.one".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://explorer.harmony.one".into()),
+            required_confirmations: 12,
+            block_time_secs: 2,
+            native_token: "ONE".into(),
+            native_decimals: 18,
+            tokens: HashMap::new(),
+            enabled: true,
+            testnet: false,
+        },
         // Testnets
         EvmChainDef {
             id: "sepolia".into(),
@@ -807,8 +994,8 @@ mod tests {
         for chain in registry.enabled_chains() {
             for token in chain.tokens.values() {
                 if token.symbol == "USDT" {
-                    // BSC, opBNB, Rootstock USDT are 18 decimals, all others are 6
-                    if chain.id == "bsc" || chain.id == "opbnb" || chain.id == "rootstock" {
+                    // BSC, opBNB, Rootstock, Heco, OKX USDT are 18 decimals, all others are 6
+                    if matches!(chain.id.as_str(), "bsc" | "opbnb" | "rootstock" | "heco" | "okxchain") {
                         assert_eq!(token.decimals, 18, "BSC USDT should be 18 decimals");
                     } else {
                         assert_eq!(token.decimals, 6, "USDT should be 6 decimals on {}", chain.id);

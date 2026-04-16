@@ -35,7 +35,7 @@ pub enum TokenType {
 
 /// Get all verified tokens in the database.
 pub fn all_tokens() -> Vec<TokenEntry> {
-    let mut tokens = Vec::with_capacity(200);
+    let mut tokens = Vec::with_capacity(250);
 
     // --- Native tokens ---
     tokens.push(native("BTC", "Bitcoin", Chain::Bitcoin, 8, "bitcoin"));
@@ -168,6 +168,36 @@ pub fn all_tokens() -> Vec<TokenEntry> {
     // --- Tron TRC-20 (batch 2) ---
     tokens.push(trc20("TUSD", "TrueUSD", "TUpMhErZL2fhh4sVNULAbNKLokS4GjC1F4", 18, true, "true-usd"));
     tokens.push(trc20("USDJ", "JUST Stablecoin", "TMwFHYXLJaRUPeW6421aqXL4ZEzPRFGkGT", 18, true, "just-stablecoin"));
+    tokens.push(trc20("APENFT", "APENFT", "TFczxzPhnThNSqr5by8tvxsdCFRRz6cPNq", 6, false, "apenft"));
+    tokens.push(trc20("NFT", "NFTMart", "TFczxzPhnThNSqr5by8tvxsdCFRRz6cPNq", 6, false, "apenft"));
+
+    // --- Solana SPL (batch 3 — major DeFi + infra) ---
+    tokens.push(spl("MSOL", "Marinade staked SOL", "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So", 9, false, "marinade-staked-sol"));
+    tokens.push(spl("SAMO", "Samoyedcoin", "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", 9, false, "samoyedcoin"));
+    tokens.push(spl("STEP", "Step Finance", "StepAscQoEioFxxWGnh2sLBDFp9d8rvKz2Yp39iDpyT", 9, false, "step-finance"));
+    tokens.push(spl("MARINADE", "Marinade", "MNDEFzGvMt87ueuHvVU9VcTqsAP5b3fTGPsHuuPA5ey", 9, false, "marinade"));
+    tokens.push(spl("PYUSD", "PayPal USD", "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo", 6, true, "paypal-usd"));
+    tokens.push(spl("FIDA", "Bonfida", "EchesyfXePKdLtoiZSL8pBe8Myagyy8ZRqsACNCFGnvp", 6, false, "bonfida"));
+    tokens.push(spl("MNDE", "Marinade Governance", "MNDEFzGvMt87ueuHvVU9VcTqsAP5b3fTGPsHuuPA5ey", 9, false, "marinade"));
+    tokens.push(spl("RNDR", "Render Token", "rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof", 8, false, "render-token"));
+    tokens.push(spl("ATLAS", "Star Atlas", "ATLASXmbPQxBUYbxPsV97usA3fPQYEqzQBUHgiFCUsXx", 8, false, "star-atlas"));
+    tokens.push(spl("POLIS", "Star Atlas DAO", "poLisWXnNRwC6oBu1vHiuKQzFjGL4XDSu4g9qjz9qVk", 8, false, "star-atlas-dao"));
+
+    // --- Ethereum ERC-20 (batch 4 — more DeFi + gaming + AI) ---
+    tokens.push(erc20("THETA", "Theta Network", "0x3883f5e181fccaF8410FA61e12b59BAd963fb645", 18, false, "theta-token"));
+    tokens.push(erc20("JASMY", "JasmyCoin", "0x7420B4b9a0110cdC71fB720908340C03F9Bc03EC", 18, false, "jasmycoin"));
+    tokens.push(erc20("AGIX", "SingularityNET", "0x5B7533812759B45C2B44C19e320ba2cD2681b542", 8, false, "singularitynet"));
+    tokens.push(erc20("ANKR", "Ankr", "0x8290333ceF9e6D528dD5618Fb97a76f268f3EDD4", 18, false, "ankr"));
+    tokens.push(erc20("HOT", "Holo", "0x6c6EE5e31d828De241282B9606C8e98Ea48526E2", 18, false, "holotoken"));
+    tokens.push(erc20("CRO", "Cronos", "0xA0b73E1Ff0B80914AB6fe0444E65848C4C34450b", 8, false, "crypto-com-chain"));
+    tokens.push(erc20("CAKE", "PancakeSwap", "0x152649eA73beAb28c5b49B26eb48f7EAD6d4c898", 18, false, "pancakeswap-token"));
+    tokens.push(erc20("KCS", "KuCoin Token", "0xf34960d9d60be18cC1D5Afc1A6F012A723a28811", 6, false, "kucoin-shares"));
+    tokens.push(erc20("NEXO", "Nexo", "0xB62132e35a6c13ee1EE0f84dC5d40bad8d815206", 18, false, "nexo"));
+    tokens.push(erc20("BAND", "Band Protocol", "0xBA11D00c5f74255f56a5E366F4F77f5A186d7f55", 18, false, "band-protocol"));
+    tokens.push(erc20("STORJ", "Storj", "0xB64ef51C888972c908CFacf59B47C1AfBC0Ab8aC", 8, false, "storj"));
+    tokens.push(erc20("CELR", "Celer Network", "0x4F9254C83EB525f9FCf346490bbb3ed28a81C667", 18, false, "celer-network"));
+    tokens.push(erc20("API3", "API3", "0x0b38210ea11411557c13457D4dA7dC6ea731B88a", 18, false, "api3"));
+    tokens.push(erc20("RLC", "iExec RLC", "0x607F4C5BB672230e8672085532f7e901544a7375", 9, false, "iexec-rlc"));
 
     tokens
 }
@@ -239,7 +269,7 @@ mod tests {
     #[test]
     fn total_token_count() {
         let tokens = all_tokens();
-        assert!(tokens.len() >= 110, "Should have 110+ tokens, got {}", tokens.len());
+        assert!(tokens.len() >= 140, "Should have 140+ tokens, got {}", tokens.len());
     }
 
     #[test]
