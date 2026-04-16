@@ -1,0 +1,127 @@
+# Optimism — Verified Token Registry
+# Source: https://optimistic.etherscan.io/tokens
+
+[[tokens]]
+symbol = "OP"
+name = "Optimism"
+address = "0x4200000000000000000000000000000000000042"
+decimals = 18
+coingecko_id = "optimism"
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0x94b008aA00579c1307B0EF2c499aD98a8ce58e58"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin (Native)"
+address = "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "USDC.e"
+name = "Bridged USDC"
+address = "0x7F5c764cBc14f9669B88837ca1490cCa17c31607"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0x4200000000000000000000000000000000000006"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "WBTC"
+name = "Wrapped BTC"
+address = "0x68f180fcCe6836688e9084f035309E29Bf0A2095"
+decimals = 8
+coingecko_id = "wrapped-bitcoin"
+
+[[tokens]]
+symbol = "DAI"
+name = "Dai"
+address = "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1"
+decimals = 18
+stablecoin = true
+coingecko_id = "dai"
+
+[[tokens]]
+symbol = "LINK"
+name = "Chainlink"
+address = "0x350a791Bfc2C21F9Ed5d10980Dad2e2638ffa7f6"
+decimals = 18
+coingecko_id = "chainlink"
+
+[[tokens]]
+symbol = "SNX"
+name = "Synthetix"
+address = "0x8700dAec35aF8Ff88c16BdF0418774CB3D7599B4"
+decimals = 18
+coingecko_id = "havven"
+
+[[tokens]]
+symbol = "AAVE"
+name = "Aave"
+address = "0x76FB31fb4af56892A25e32cFC43De717950c9278"
+decimals = 18
+coingecko_id = "aave"
+
+[[tokens]]
+symbol = "VELO"
+name = "Velodrome"
+address = "0x9560e827aF36c94D2Ac33a39bCE1Fe78631088Db"
+decimals = 18
+coingecko_id = "velodrome-finance"
+
+[[tokens]]
+symbol = "LDO"
+name = "Lido DAO"
+address = "0xFdb794692724153d1488CcdBE0C56c252596735F"
+decimals = 18
+coingecko_id = "lido-dao"
+
+[[tokens]]
+symbol = "wstETH"
+name = "Wrapped stETH"
+address = "0x1F32b1c2345538c0c6f582fCB022739c4A194Ebb"
+decimals = 18
+coingecko_id = "wrapped-steth"
+
+[[tokens]]
+symbol = "rETH"
+name = "Rocket Pool ETH"
+address = "0x9Bcef72be871e61ED4fBbc7630889beE758eb81D"
+decimals = 18
+coingecko_id = "rocket-pool-eth"
+
+[[tokens]]
+symbol = "FRAX"
+name = "Frax"
+address = "0x2E3D870790dC77A83DD1d18184Acc7439A53f475"
+decimals = 18
+stablecoin = true
+coingecko_id = "frax"
+
+[[tokens]]
+symbol = "sUSD"
+name = "Synthetix USD"
+address = "0x8c6f28f2F1A3C87F0f938b96d27ac47F56DdF58a"
+decimals = 18
+stablecoin = true
+coingecko_id = "susd"
+
+[[tokens]]
+symbol = "PERP"
+name = "Perpetual Protocol"
+address = "0x9e1028F5F1D5eDE59748FFceE5532509976840E0"
+decimals = 18
+coingecko_id = "perpetual-protocol"
