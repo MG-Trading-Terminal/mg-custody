@@ -8,6 +8,7 @@ custody-common = { path = "../common" }
 alloy = { workspace = true }
 bitcoin = { workspace = true }
 bip32 = { workspace = true }
+bip39 = { workspace = true }
 k256 = { workspace = true }
 ripemd = { workspace = true }
 ed25519-dalek = { workspace = true }

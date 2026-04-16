@@ -17,7 +17,7 @@ use rand::RngCore;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// A single share of a split secret.
-#[derive(Zeroize, ZeroizeOnDrop)]
+#[derive(Zeroize, ZeroizeOnDrop, serde::Serialize, serde::Deserialize)]
 pub struct Share {
     /// 1-based share index (x-coordinate in the polynomial).
     pub index: u8,
