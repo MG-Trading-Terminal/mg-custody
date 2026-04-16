@@ -117,3 +117,45 @@ impl ManagedAssetRow {
         }
     }
 }
+
+impl CustodyDb {
+    /// Update the cached USD price for a token.
+    pub async fn update_token_price(
+        &self,
+        symbol: &str,
+        chain: &str,
+        price_usd: rust_decimal::Decimal,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE managed_assets SET last_price_usd = $3, last_price_updated_at = NOW()
+             WHERE UPPER(symbol) = UPPER($1) AND chain = $2",
+        )
+        .bind(symbol)
+        .bind(chain)
+        .bind(price_usd)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Get all tokens with coingecko_id set (for price refresh).
+    pub async fn tokens_with_coingecko_id(&self) -> anyhow::Result<Vec<(String, String, String)>> {
+        let rows: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT symbol, chain, coingecko_id FROM managed_assets
+             WHERE coingecko_id IS NOT NULL AND coingecko_id != '' AND enabled = true",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Get cached prices for all tokens.
+    pub async fn get_token_prices(&self) -> anyhow::Result<Vec<(String, String, Option<rust_decimal::Decimal>)>> {
+        let rows: Vec<(String, String, Option<rust_decimal::Decimal>)> = sqlx::query_as(
+            "SELECT symbol, chain, last_price_usd FROM managed_assets WHERE enabled = true ORDER BY symbol",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+}

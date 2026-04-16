@@ -938,6 +938,42 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Price refresh task (every 60s — CoinGecko free tier: 10-30 req/min)
+    {
+        let price_db = db.clone();
+        let price_oracle = std::sync::Arc::new(custody_common::price_oracle::PriceOracle::with_default_ttl());
+        // Seed fallback prices immediately
+        price_oracle.seed_fallback_prices();
+
+        tokio::spawn(async move {
+            let client = ::reqwest::Client::new();
+            tracing::info!("Starting price refresh loop (60s interval)");
+            loop {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+
+                match custody_common::price_oracle::fetch_coingecko_prices(
+                    &client,
+                    custody_common::price_oracle::COINGECKO_IDS,
+                ).await {
+                    Ok(prices) => {
+                        price_oracle.set_prices(&prices);
+                        // Persist to DB for dashboard
+                        for (symbol, price) in &prices {
+                            // Update across all chains for this symbol
+                            for chain in &["ethereum", "tron", "solana", "bitcoin"] {
+                                let _ = price_db.update_token_price(symbol, chain, *price).await;
+                            }
+                        }
+                        tracing::debug!(count = prices.len(), "Prices refreshed from CoinGecko");
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "CoinGecko price refresh failed — using cached prices");
+                    }
+                }
+            }
+        });
+    }
+
     // DB pool metrics emitter (every 10s)
     {
         let pool_ref = db.pool.clone();

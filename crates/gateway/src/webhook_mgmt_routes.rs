@@ -57,6 +57,8 @@ pub fn webhook_mgmt_router() -> Router<AppState> {
         .route("/v1/health/perf", get(perf_health))
         // Audit log integrity check (Feature 5b)
         .route("/v1/admin/audit/integrity", get(audit_integrity_check))
+        // Token prices (dashboard)
+        .route("/v1/prices", get(token_prices))
         // Circuit breaker status (dashboard Policies page)
         .route("/v1/circuit-breaker/status", get(circuit_breaker_status))
         // Policy rules list (dashboard Policies page)
@@ -972,6 +974,29 @@ mod tests {
             "daily_outflow_usd": "0",
         });
         assert!(!status["is_tripped"].as_bool().unwrap());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Token prices endpoint
+// ---------------------------------------------------------------------------
+
+async fn token_prices(
+    _auth: RequireViewer,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    match state.db.get_token_prices().await {
+        Ok(prices) => {
+            let entries: Vec<serde_json::Value> = prices.into_iter().map(|(symbol, chain, price)| {
+                serde_json::json!({
+                    "symbol": symbol,
+                    "chain": chain,
+                    "price_usd": price.map(|p| p.to_string()),
+                })
+            }).collect();
+            Ok(Json(serde_json::json!({ "prices": entries })))
+        }
+        Err(_) => Ok(Json(serde_json::json!({ "prices": [] }))),
     }
 }
 
