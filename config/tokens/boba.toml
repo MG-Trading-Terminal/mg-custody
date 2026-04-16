@@ -1,0 +1,38 @@
+# Boba Network — Verified Token Registry
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0x5DE1677344D3Cb0D7D465c10b72A8f60699C062d"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0x66a2A913e447d6b4BF33EFbec43aAeF87890FBbc"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0xDeadDeAddeAddEAddeadDEaDDEAdDeaDDeAD0000"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "BOBA"
+name = "Boba Token"
+address = "0xa18bF3994C0Cc6E3b63ac420308E5383f53120D7"
+decimals = 18
+coingecko_id = "boba-network"
+
+[[tokens]]
+symbol = "DAI"
+name = "Dai"
+address = "0xf74195Bb8a5cf652411867c5C2C5b8C2a402be35"
+decimals = 18
+stablecoin = true
+coingecko_id = "dai"

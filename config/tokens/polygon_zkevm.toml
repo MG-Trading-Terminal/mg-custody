@@ -1,0 +1,38 @@
+# Polygon zkEVM — Verified Token Registry
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0x1E4a5963aBFD975d8c9021ce480b42188849D41d"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0xA8CE8aee21bC2A48a5EF670afCc9274C7bbbC035"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0x4F9A0e7FD2Bf6067db6994CF12E4495Df938E6e9"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "DAI"
+name = "Dai"
+address = "0xC5015b9d9161Dca7e18e32f6f25C4aD850731Fd4"
+decimals = 18
+stablecoin = true
+coingecko_id = "dai"
+
+[[tokens]]
+symbol = "QUICK"
+name = "QuickSwap"
+address = "0x68286607A1d43602d880D349187c3c48c0fD05E6"
+decimals = 18
+coingecko_id = "quickswap"

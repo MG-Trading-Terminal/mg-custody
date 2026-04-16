@@ -1,0 +1,30 @@
+# Bitlayer (Bitcoin L2) — Verified Token Registry
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0xFe9F969Faf8ad72a83b761138bF25dE87efF9DD2"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0x9827431e8b77E87C9894bd50B055D6BE56bE0225"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WBTC"
+name = "Wrapped BTC"
+address = "0xFF204e2681A6fA0e2C3FaDe68a1B28fb90E4Fc5F"
+decimals = 18
+coingecko_id = "wrapped-bitcoin"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0xEf63d4E178b3180BeEc9B0E143e0f37F4c93f4C2"
+decimals = 18
+coingecko_id = "weth"

@@ -1,0 +1,37 @@
+# Astar — Verified Token Registry
+[[tokens]]
+symbol = "WASTR"
+name = "Wrapped ASTR"
+address = "0xAeaaf0e2c81Af264101B9129C00F4440cCF0F720"
+decimals = 18
+coingecko_id = "astar"
+
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0x3795C36e7D12A8c252A20C5a7B455f7c57b60283"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0x6a2d262D56735DbA19Dd70682B39F6bE9a931D98"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "DOT"
+name = "Polkadot"
+address = "0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF"
+decimals = 10
+coingecko_id = "polkadot"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0x81ECac0D6Be0550A00FF064a4f9dd2400585FE9c"
+decimals = 18
+coingecko_id = "weth"

@@ -1,0 +1,22 @@
+# IoTeX — Verified Token Registry
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0x6fbCdc1169B5130C59E72E51Ed68A84841C98cd1"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "WIOTX"
+name = "Wrapped IOTX"
+address = "0xA00744882684C3e4747faEFD68D283eA44099D03"
+decimals = 18
+coingecko_id = "iotex"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0x0258866edAf84D6081df17660357aB20A5C1B9A8"
+decimals = 18
+coingecko_id = "weth"

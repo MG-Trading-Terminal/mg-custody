@@ -1,0 +1,38 @@
+# Klaytn — Verified Token Registry
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0xceE8FAF64bB97a73bb51E115Aa89C17FfA8dD167"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0x6270B58BE569a7c0b8f47594F191631Ae5b2C86C"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WKLAY"
+name = "Wrapped KLAY"
+address = "0x19Aac5f612f524B754CA7e7c41cbFa2E981A4432"
+decimals = 18
+coingecko_id = "klay-token"
+
+[[tokens]]
+symbol = "oUSDT"
+name = "Orbit Bridge USDT"
+address = "0xCeE8FAF64bB97a73bb51E115Aa89C17FfA8dD167"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "KSP"
+name = "KLAYswap"
+address = "0xC6a2Ad8cC6e4A7E08FC37cC5954be07d499E7654"
+decimals = 18
+coingecko_id = "klayswap-protocol"

@@ -1,0 +1,30 @@
+# Conflux eSpace — Verified Token Registry
+# NOTE: USDT on Conflux uses 18 decimals
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0xfe97E85d13ABD9c1c33384E796F10B73905637cE"
+decimals = 18
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "WCFX"
+name = "Wrapped CFX"
+address = "0x14b2D3bC65e74DAE81aE8d4e5e0B4e6f8D1d0b2c"
+decimals = 18
+coingecko_id = "conflux-token"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0xa47f43DE2f9623aCb395CA4905746496D2014d57"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "WBTC"
+name = "Wrapped BTC"
+address = "0x1f545487c62e5ACfEa45dcAdd9B7bAab987C0074"
+decimals = 8
+coingecko_id = "wrapped-bitcoin"

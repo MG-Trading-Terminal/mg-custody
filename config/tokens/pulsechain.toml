@@ -1,0 +1,45 @@
+# PulseChain — Verified Token Registry
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD (bridged)"
+address = "0x0Cb6F5a34ad42ec934882A05265A7d5F59b51A2f"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin (bridged)"
+address = "0x15D38573d2feeb82e7ad5187aB8c1D52810B1f07"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WPLS"
+name = "Wrapped PLS"
+address = "0xA1077a294dDE1B09bB078844df40758a5D0f9a27"
+decimals = 18
+coingecko_id = "pulsechain"
+
+[[tokens]]
+symbol = "PLSX"
+name = "PulseX"
+address = "0x95B303987A60C71504D99Aa1b13B4DA07b0790ab"
+decimals = 18
+coingecko_id = "pulsex"
+
+[[tokens]]
+symbol = "HEX"
+name = "HEX"
+address = "0x2b591e99afE9f32eAA6214f7B7629768c40Eeb39"
+decimals = 8
+coingecko_id = "hex"
+
+[[tokens]]
+symbol = "DAI"
+name = "Dai (bridged)"
+address = "0xefD766cCb38EaF1dfd701853BFCe31359239F305"
+decimals = 18
+stablecoin = true
+coingecko_id = "dai"

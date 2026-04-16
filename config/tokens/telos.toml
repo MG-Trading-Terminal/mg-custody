@@ -1,0 +1,30 @@
+# Telos EVM — Verified Token Registry
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0xeFAeeE334F0Fd1712f9a8cc375f427D9Cdd40d73"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0x818ec0A7Fe18Ff94269904fCED6AE3DaE6d6dC0b"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WTLOS"
+name = "Wrapped TLOS"
+address = "0xD102cE6A4dB07D247fcc28F366A623Df0938CA9E"
+decimals = 18
+coingecko_id = "telos"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0xfA9343C3897324496A05fC75abeD6bAC29f8A40f"
+decimals = 18
+coingecko_id = "weth"

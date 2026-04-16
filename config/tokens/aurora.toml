@@ -1,0 +1,44 @@
+# Aurora (NEAR EVM) — Verified Token Registry
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0x4988a896b1227218e4A686fdE5EabdcAbd91571f"
+decimals = 6
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "USDC"
+name = "USD Coin"
+address = "0xB12BFcA5A55806AaF64E99521918A4bf0fC40802"
+decimals = 6
+stablecoin = true
+coingecko_id = "usd-coin"
+
+[[tokens]]
+symbol = "WETH"
+name = "Wrapped Ether"
+address = "0xC9BdeEd33CD01541e1eeD10f90519d2C06Fe3feB"
+decimals = 18
+coingecko_id = "weth"
+
+[[tokens]]
+symbol = "NEAR"
+name = "Wrapped NEAR"
+address = "0xC42C30aC6Cc15faC9bD938618BcaA1a1FaE8501d"
+decimals = 24
+coingecko_id = "near"
+
+[[tokens]]
+symbol = "TRI"
+name = "Trisolaris"
+address = "0xFa94348467f64D5A457F75Fef514Da61AdD0c4a3"
+decimals = 18
+coingecko_id = "trisolaris"
+
+[[tokens]]
+symbol = "BSTN"
+name = "Bastion"
+address = "0x9f1F933C660a1DC856F300353aC04198Db3a5967"
+decimals = 18
+coingecko_id = "bastion-protocol"

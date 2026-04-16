@@ -1,0 +1,24 @@
+# opBNB — Verified Token Registry
+# NOTE: opBNB USDT uses 18 decimals (like BSC)
+[[tokens]]
+symbol = "USDT"
+name = "Tether USD"
+address = "0x9e5AAC1Ba1a2e6aEd6b32689DFcF62A509Ca96f3"
+decimals = 18
+stablecoin = true
+coingecko_id = "tether"
+
+[[tokens]]
+symbol = "FDUSD"
+name = "First Digital USD"
+address = "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb"
+decimals = 18
+stablecoin = true
+coingecko_id = "first-digital-usd"
+
+[[tokens]]
+symbol = "WBNB"
+name = "Wrapped BNB"
+address = "0x4200000000000000000000000000000000000006"
+decimals = 18
+coingecko_id = "wbnb"
