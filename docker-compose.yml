@@ -47,6 +47,8 @@ services:
       CUSTODY_SEED_PASSWORD: ${CUSTODY_SEED_PASSWORD:-}
       CUSTODY_FIDO2__RP_ID: ${FIDO2_RP_ID:-localhost}
       CUSTODY_FIDO2__RP_ORIGIN: ${FIDO2_RP_ORIGIN:-http://localhost:8443}
+      SIGNER_SOCKET: /run/custody/signer.sock
+      SIGNER_IPC_SECRET: ${SIGNER_IPC_SECRET:-dev-ipc-secret}
       RUST_LOG: info,custody=debug
     ports:
       - "8443:8443"
@@ -55,6 +57,8 @@ services:
       - backend
     volumes:
       - ./config:/opt/custody/config:ro
+      # Shared IPC socket for signer communication
+      - /run/custody:/run/custody
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8443/health || exit 1"]
       interval: 10s
@@ -72,18 +76,18 @@ services:
       dockerfile: Dockerfile
     command: ["custody-signer"]
     environment:
-      DATABASE_URL: postgres://custody:${POSTGRES_PASSWORD:-custody_dev_password}@postgres:5432/custody
-      CUSTODY_DATABASE__URL: postgres://custody:${POSTGRES_PASSWORD:-custody_dev_password}@postgres:5432/custody
-      CUSTODY_HMAC_SECRET: ${CUSTODY_HMAC_SECRET:-}
+      # Signer has NO database — it only holds keys and signs via IPC
+      SIGNER_SOCKET: /run/custody/signer.sock
+      SIGNER_IPC_SECRET: ${SIGNER_IPC_SECRET:-dev-ipc-secret}
       CUSTODY_SEED_FILE: ${CUSTODY_SEED_FILE:-}
       CUSTODY_SEED_PASSWORD: ${CUSTODY_SEED_PASSWORD:-}
       RUST_LOG: info,custody=debug
-    # Signer has NO frontend network access — internal only
+    # Signer has NO frontend network access — internal only (Zone 3)
     networks:
       - backend
     volumes:
       - ./config:/opt/custody/config:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
+      # Shared IPC socket directory between custody and signer
+      - /run/custody:/run/custody
+    # Signer does NOT depend on postgres — it has no DB
     restart: unless-stopped
