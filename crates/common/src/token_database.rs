@@ -35,7 +35,7 @@ pub enum TokenType {
 
 /// Get all verified tokens in the database.
 pub fn all_tokens() -> Vec<TokenEntry> {
-    let mut tokens = Vec::with_capacity(250);
+    let mut tokens = Vec::with_capacity(400);
 
     // --- Native tokens ---
     tokens.push(native("BTC", "Bitcoin", Chain::Bitcoin, 8, "bitcoin"));
@@ -165,6 +165,20 @@ pub fn all_tokens() -> Vec<TokenEntry> {
     tokens.push(erc20("CHZ", "Chiliz", "0x3506424F91fD33084466F402d5D97f05F8e3b4AF", 18, false, "chiliz"));
     tokens.push(erc20("OSMO", "Osmosis (wrapped)", "0xD176A78B1a4Aab8e3175C367589d4E052ECf6285", 6, false, "osmosis"));
 
+    // --- Solana SPL (batch 4 — more DeFi + memecoins) ---
+    tokens.push(spl("TRUMP", "Official Trump", "HaP8r3ksG76PhQLTqR8FYBeNiQpejcFbQmiHbg787Ut1", 6, false, "official-trump"));
+    tokens.push(spl("SLERF", "Slerf", "7BgBvyjrZX1YKz4oh9mjb8ZScatkkwb8DzFx7LoiVkM3", 9, false, "slerf"));
+    tokens.push(spl("PENGU", "Pudgy Penguins", "2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv", 6, false, "pudgy-penguins"));
+    tokens.push(spl("AI16Z", "ai16z", "HeLp6NuQkmYB4pYWo2zYs22mESHXPQYzXbB8n4V98jwC", 9, false, "ai16z"));
+    tokens.push(spl("GRASS", "Grass", "Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs", 9, false, "grass"));
+    tokens.push(spl("PNUT", "Peanut the Squirrel", "2qEHjDLDLbuBgRYvsxhc5D6uDWAivNFZGan56P1tpump", 6, false, "peanut-the-squirrel"));
+    tokens.push(spl("VIRTUAL", "Virtuals Protocol", "VIRAL3PGfJsvVHDBxhKxZdK3BDqMTvRo2qc1K2DQPUMP", 9, false, "virtual-protocol"));
+    tokens.push(spl("ONDO", "Ondo", "FKMKctiJnbZKL16pCmR7ig6bvjcMJffuUMjB97YqiHae", 9, false, "ondo-finance"));
+    tokens.push(spl("SONIC", "Sonic SVM", "SonicxvLud19qGC6NhHvFPRKjLgQPaKNTSq1iKH3pMTe", 9, false, "sonic-svm"));
+    tokens.push(spl("SPX", "SPX6900", "J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr", 8, false, "spx6900"));
+    tokens.push(spl("FARTCOIN", "Fartcoin", "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump", 6, false, "fartcoin"));
+    tokens.push(spl("GOAT", "Goatseus Maximus", "CzLSujWBLFsSjncfkh59rUFqvafWcY5tzedWJSuypump", 6, false, "goatseus-maximus"));
+
     // --- Tron TRC-20 (batch 2) ---
     tokens.push(trc20("TUSD", "TrueUSD", "TUpMhErZL2fhh4sVNULAbNKLokS4GjC1F4", 18, true, "true-usd"));
     tokens.push(trc20("USDJ", "JUST Stablecoin", "TMwFHYXLJaRUPeW6421aqXL4ZEzPRFGkGT", 18, true, "just-stablecoin"));
@@ -183,7 +197,53 @@ pub fn all_tokens() -> Vec<TokenEntry> {
     tokens.push(spl("ATLAS", "Star Atlas", "ATLASXmbPQxBUYbxPsV97usA3fPQYEqzQBUHgiFCUsXx", 8, false, "star-atlas"));
     tokens.push(spl("POLIS", "Star Atlas DAO", "poLisWXnNRwC6oBu1vHiuKQzFjGL4XDSu4g9qjz9qVk", 8, false, "star-atlas-dao"));
 
-    // --- Ethereum ERC-20 (batch 4 — more DeFi + gaming + AI) ---
+    // --- Ethereum ERC-20 (batch 4 — L1 native tokens + wrapped) ---
+    tokens.push(erc20("NEAR", "NEAR Protocol", "0x85F17Cf997934a597031b2E18a9aB6ebD4B9f6a4", 24, false, "near"));
+    tokens.push(erc20("SEI", "Sei", "0x1dB2466d9F5e10D7090E7152B68d62703a2245F0", 18, false, "sei-network"));
+    tokens.push(erc20("SUI", "Sui (wrapped)", "0x1bdd3Cf7F79cfB8EdbB955f20ad99211551BA275", 9, false, "sui"));
+    tokens.push(erc20("TIA", "Celestia", "0x93c0F6C299E3E06a00cBBFE5E0E474bE7Bb8b0F7", 6, false, "celestia"));
+    tokens.push(erc20("INJ", "Injective", "0xe28b3B32B6c345A34Ff64674606124Dd5Aceca30", 18, false, "injective-protocol"));
+    tokens.push(erc20("FTM", "Fantom (wrapped)", "0x4E15361FD6b4BB609Fa63C81A2be19d873717870", 18, false, "fantom"));
+    tokens.push(erc20("KAVA", "Kava", "0x0C356B7fD36a5357E5A017EF11887ba100C9AB76", 6, false, "kava"));
+    tokens.push(erc20("MINA", "Mina Protocol", "0x0058058b1a0f2f4D4e84b1dd35B38c99a2eA30fA", 18, false, "mina-protocol"));
+    tokens.push(erc20("RON", "Ronin", "0x9c2dc0c3CC2BADdE84B0025Cf4df1c5aF288D835", 18, false, "ronin"));
+    tokens.push(erc20("ASTR", "Astar", "0x60539b1daa11f9d2a5d5397c84f40e2feae9a920", 18, false, "astar"));
+    tokens.push(erc20("ROSE", "Oasis Network", "0x26B80FBfC01b71495f477d5237071242e0d959d7", 18, false, "oasis-network"));
+    tokens.push(erc20("ONE", "Harmony", "0x799a4202c12ca952cB311598a024C80eD371a41e", 18, false, "harmony"));
+    tokens.push(erc20("CELO", "Celo (wrapped)", "0x3294395e62F4eB6aF3f1Fcf89f5602D90Fb3Ef69", 18, false, "celo"));
+    tokens.push(erc20("GLMR", "Moonbeam", "0xD8AAeD2Bcb06A755102bfBC0060DdAd7d5eA4Eb3", 18, false, "moonbeam"));
+    tokens.push(erc20("MOVR", "Moonriver", "0x3E8B42a29b5c0B7FDef6e49C10A8fFA0eaD33901", 18, false, "moonriver"));
+
+    // --- Ethereum ERC-20 (batch 5 — DeFi blue chips continued) ---
+    tokens.push(erc20("LQTY", "Liquity", "0x6DEA81C8171D0bA574754EF6F8b412F2Ed88c54D", 18, false, "liquity"));
+    tokens.push(erc20("SPELL", "Spell Token", "0x090185f2135308BaD17527004364eBcC2D37e5F6", 18, false, "spell-token"));
+    tokens.push(erc20("CVX", "Convex Finance", "0x4e3FBD56CD56c3e72c1403e103b45Db9da5B9D2B", 18, false, "convex-finance"));
+    tokens.push(erc20("FXS", "Frax Share", "0x3432B6A60D23Ca0dFCa7761B7ab56459D9C964D0", 18, false, "frax-share"));
+    tokens.push(erc20("ALCX", "Alchemix", "0xdBdb4d16EdA451D0503b854CF79D55697F90c8DF", 18, false, "alchemix"));
+    tokens.push(erc20("INST", "Instadapp", "0x6f40d4A6237C257fff2dB00FA0510DeEECd303eb", 18, false, "instadapp"));
+    tokens.push(erc20("RBN", "Ribbon Finance", "0x6123B0049F904d730dB3C36a31167D9d4f1fa1EF", 18, false, "ribbon-finance"));
+    tokens.push(erc20("TRIBE", "Tribe", "0xc7283b66Eb1EB5FB86327f08e1B5816b0720212B", 18, false, "tribe-2"));
+    tokens.push(erc20("PERP", "Perpetual Protocol", "0xbC396689893D065F41bc2C6EcbeE5e0085233447", 18, false, "perpetual-protocol"));
+    tokens.push(erc20("DODO", "DODO", "0x43Dfc4159D86F3A37A5A4B3D4580b888ad7d4DDd", 18, false, "dodo"));
+    tokens.push(erc20("BADGER", "Badger DAO", "0x3472A5A71965499acd81997a54BBA8D852C6E53d", 18, false, "badger-dao"));
+    tokens.push(erc20("MPL", "Maple", "0x33349B282065b0284d756F0577FB39c158F935e6", 18, false, "maple"));
+    tokens.push(erc20("MORPHO", "Morpho", "0x9994E35Db50125E0DF82e4c2dde62496CE330999", 18, false, "morpho"));
+
+    // --- Ethereum ERC-20 (batch 6 — AI + gaming + memes) ---
+    tokens.push(erc20("TAO", "Bittensor (wrapped)", "0x77E06c9eCCf2E797fd462A92B6D7642EF85b0A44", 9, false, "bittensor"));
+    tokens.push(erc20("AR", "Arweave (wrapped)", "0x07B70E8b5b5E38d4b58B206C9AEeFA0E98775fD7", 12, false, "arweave"));
+    tokens.push(erc20("TURBO", "Turbo", "0xA35923162C49cF95e6BF26623385eb431ad920D3", 18, false, "turbo"));
+    tokens.push(erc20("NEIRO", "Neiro", "0x812Ba41e071C7b7fA4EBcFB62dF5F45f6fA853Ee", 9, false, "neiro-on-eth"));
+    tokens.push(erc20("MOG", "Mog Coin", "0xaaeE1A9723aaDB7afA2810263653A34bA2C21C7a", 18, false, "mog-coin"));
+    tokens.push(erc20("PEOPLE", "ConstitutionDAO", "0x7A58c0Be72BE218B41C608b7Fe7C5bB630736C71", 18, false, "constitutiondao"));
+    tokens.push(erc20("ENJ", "Enjin Coin", "0xF629cBd94d3791C9250152BD8dfBDF380E2a3B9c", 18, false, "enjincoin"));
+    tokens.push(erc20("SUPER", "SuperVerse", "0x463390955C48E0681bDD3F8a0C545c0430cF55fa", 18, false, "superverse"));
+    tokens.push(erc20("ALT", "AltLayer", "0x8457CA5040ad67fdebbCC8EdCE889A335Bc0fbFB", 18, false, "altlayer"));
+    tokens.push(erc20("PIXEL", "Pixels", "0x3429d03c6F7521AeC737A0BBF2E5ddcef2C3Ae31", 18, false, "pixels"));
+    tokens.push(erc20("PRIME", "Echelon Prime", "0xb23d80f5FefcDDaa212212F028021B41DEd428CF", 18, false, "echelon-prime"));
+    tokens.push(erc20("STRK", "Starknet", "0xCa14007Eff0dB1f8135f4C25B34De49AB0d42766", 18, false, "starknet"));
+
+    // --- Ethereum ERC-20 (batch 7 — more top 100 by market cap) ---
     tokens.push(erc20("THETA", "Theta Network", "0x3883f5e181fccaF8410FA61e12b59BAd963fb645", 18, false, "theta-token"));
     tokens.push(erc20("JASMY", "JasmyCoin", "0x7420B4b9a0110cdC71fB720908340C03F9Bc03EC", 18, false, "jasmycoin"));
     tokens.push(erc20("AGIX", "SingularityNET", "0x5B7533812759B45C2B44C19e320ba2cD2681b542", 8, false, "singularitynet"));
@@ -269,7 +329,7 @@ mod tests {
     #[test]
     fn total_token_count() {
         let tokens = all_tokens();
-        assert!(tokens.len() >= 140, "Should have 140+ tokens, got {}", tokens.len());
+        assert!(tokens.len() >= 190, "Should have 190+ tokens, got {}", tokens.len());
     }
 
     #[test]
