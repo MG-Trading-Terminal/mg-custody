@@ -165,6 +165,16 @@ async fn login(
         return Err(ApiError::unauthorized("Invalid email or password"));
     }
 
+    // Auto-upgrade legacy SHA-256 hashes to argon2id on successful login
+    if needs_rehash(&stored_hash) {
+        let new_hash = hash_password(&req.password);
+        if let Err(e) = state.db.set_user_password_hash(user_id, &new_hash).await {
+            tracing::warn!(error = %e, "Failed to rehash password (non-critical)");
+        } else {
+            tracing::info!(user = %req.email, "Password upgraded from SHA-256 to argon2id");
+        }
+    }
+
     // ── TOTP check ────────────────────────────────────────────────────────────
     let totp_enabled = state
         .db
@@ -294,20 +304,40 @@ async fn revoke_session(
     }
 }
 
-/// Verify password against argon2id hash.
-/// For MVP, uses simple SHA-256 comparison (upgrade to argon2id when argon2 crate added).
+/// Verify password against stored hash.
+///
+/// Supports both argon2id (new, prefix `$argon2id$`) and legacy SHA-256 (hex string).
+/// Legacy hashes are auto-upgraded on next successful login via rehash.
 fn verify_password(password: &str, stored_hash: &str) -> bool {
-    use sha2::{Digest, Sha256};
-    let computed = hex::encode(Sha256::digest(password.as_bytes()));
-    // Constant-time comparison
-    constant_time_eq(computed.as_bytes(), stored_hash.as_bytes())
+    if stored_hash.starts_with("$argon2") {
+        // Argon2id verification (constant-time internally)
+        use argon2::{Argon2, PasswordHash, PasswordVerifier};
+        let Ok(parsed) = PasswordHash::new(stored_hash) else { return false };
+        Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok()
+    } else {
+        // Legacy SHA-256 fallback (for migration from old hashes)
+        use sha2::{Digest, Sha256};
+        let computed = hex::encode(Sha256::digest(password.as_bytes()));
+        constant_time_eq(computed.as_bytes(), stored_hash.as_bytes())
+    }
 }
 
-/// Hash a password for storage.
-/// For MVP, uses SHA-256. TODO: upgrade to argon2id.
+/// Check if a stored hash needs rehashing (i.e., it's legacy SHA-256).
+pub fn needs_rehash(stored_hash: &str) -> bool {
+    !stored_hash.starts_with("$argon2")
+}
+
+/// Hash a password for storage using argon2id.
+///
+/// Parameters: OWASP 2024 recommended (m=19456 KiB, t=2, p=1).
+/// Returns PHC string format: `$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>`
 pub fn hash_password(password: &str) -> String {
-    use sha2::{Digest, Sha256};
-    hex::encode(Sha256::digest(password.as_bytes()))
+    use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
+    let salt = SaltString::generate(&mut rand::thread_rng());
+    Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .expect("argon2id hashing should not fail")
+        .to_string()
 }
 
 /// Constant-time byte comparison to prevent timing attacks.
@@ -327,11 +357,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn password_hashing() {
+    fn password_hashing_argon2id() {
         let hash = hash_password("my_secret_password");
-        assert_eq!(hash.len(), 64); // SHA-256 hex
+        // Argon2id hashes start with $argon2id$
+        assert!(hash.starts_with("$argon2id$"), "Hash should be argon2id, got: {}", &hash[..20]);
         assert!(verify_password("my_secret_password", &hash));
         assert!(!verify_password("wrong_password", &hash));
+    }
+
+    #[test]
+    fn legacy_sha256_still_verifies() {
+        // Legacy hash: SHA-256 of "legacy_password"
+        use sha2::{Digest, Sha256};
+        let legacy_hash = hex::encode(Sha256::digest(b"legacy_password"));
+        assert!(verify_password("legacy_password", &legacy_hash));
+        assert!(!verify_password("wrong", &legacy_hash));
+        assert!(needs_rehash(&legacy_hash), "SHA-256 should need rehash");
+    }
+
+    #[test]
+    fn argon2id_does_not_need_rehash() {
+        let hash = hash_password("test123");
+        assert!(!needs_rehash(&hash), "Argon2id should not need rehash");
     }
 
     #[test]

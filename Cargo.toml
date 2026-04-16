@@ -62,6 +62,7 @@ bs58 = { version = "0.5", features = ["check"] }
 bip32 = { version = "0.5", features = ["secp256k1"] }
 hex = "0.4"
 hmac = "0.12"
+argon2 = "0.5"
 rand = "0.8"
 
 round-based = { version = "0.4.1", features = ["derive", "sim-async"] }

@@ -169,21 +169,59 @@ pub fn sol_address(seed: &[u8; 64], index: u32) -> Result<[u8; 32]> {
     Ok(signing_key.verifying_key().to_bytes())
 }
 
+/// Associated Token Program ID (ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL).
+pub const ASSOCIATED_TOKEN_PROGRAM_ID: [u8; 32] = [
+    140, 151, 37, 143, 78, 36, 137, 241, 187, 61, 16, 41, 20, 142, 13, 131,
+    11, 90, 19, 153, 218, 255, 16, 132, 4, 142, 123, 216, 219, 233, 248, 89,
+];
+
 /// Derive the Associated Token Account (ATA) address.
 ///
 /// ATA = PDA([wallet, TOKEN_PROGRAM_ID, mint], ASSOCIATED_TOKEN_PROGRAM_ID)
-/// Uses SHA-256 based PDA derivation.
+/// Uses real `find_program_address` algorithm: tries bump seeds 255→0.
 pub fn derive_ata_address(wallet: &[u8; 32], mint: &[u8; 32]) -> [u8; 32] {
-    // Simplified PDA: SHA256(wallet || TOKEN_PROGRAM || mint || "ProgramDerivedAddress")
-    // Real implementation uses find_program_address which tries bump seeds
+    // Seeds: [wallet_pubkey, token_program_id, mint_pubkey]
+    let seeds: &[&[u8]] = &[wallet, &TOKEN_PROGRAM_ID, mint];
+    find_program_address(seeds, &ASSOCIATED_TOKEN_PROGRAM_ID)
+}
+
+/// Solana `find_program_address` — iterates bump from 255 down to 0.
+///
+/// PDA = SHA256(seeds... + bump + program_id + "ProgramDerivedAddress")
+/// Must NOT be on the Ed25519 curve (that's the whole point of PDAs).
+pub fn find_program_address(seeds: &[&[u8]], program_id: &[u8; 32]) -> [u8; 32] {
+    for bump in (0..=255u8).rev() {
+        let candidate = create_program_address(seeds, &[bump], program_id);
+        if let Some(addr) = candidate {
+            return addr;
+        }
+    }
+    // Should never happen — at least one bump will produce an off-curve point
+    panic!("Could not find valid PDA bump seed");
+}
+
+/// Try to create a program address with given seeds + bump.
+/// Returns None if the result is on the Ed25519 curve (invalid PDA).
+fn create_program_address(seeds: &[&[u8]], bump: &[u8], program_id: &[u8; 32]) -> Option<[u8; 32]> {
     let mut hasher = Sha256::new();
-    hasher.update(wallet);
-    hasher.update(mint);
-    hasher.update(b"ata_derivation"); // simplified
+    for seed in seeds {
+        hasher.update(seed);
+    }
+    hasher.update(bump);
+    hasher.update(program_id);
+    hasher.update(b"ProgramDerivedAddress");
     let hash = hasher.finalize();
+
     let mut result = [0u8; 32];
     result.copy_from_slice(&hash);
-    result
+
+    // Check if the point is on the Ed25519 curve — PDAs must NOT be valid public keys.
+    // We use ed25519-dalek's VerifyingKey::from_bytes which returns Err for off-curve points.
+    if ed25519_dalek::VerifyingKey::from_bytes(&result).is_ok() {
+        return None; // On curve — not a valid PDA, try next bump
+    }
+
+    Some(result)
 }
 
 /// Solana Token Program ID.

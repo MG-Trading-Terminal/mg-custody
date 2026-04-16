@@ -9,7 +9,7 @@ use axum::{
 use chrono::Utc;
 use custody_common::*;
 use std::time::Duration;
-use tower_http::cors::{CorsLayer, Any};
+use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
@@ -143,15 +143,34 @@ pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
 
 /// CORS layer — internal API, restrict to configured origins.
 fn cors_layer() -> CorsLayer {
-    CorsLayer::new()
-        .allow_origin(Any) // Internal API — configure for specific origin in production
+    // CORS origin: same-origin by default (dashboard served by same axum server).
+    // Override with CUSTODY_CORS_ORIGIN env var for split deployments.
+    let allowed_origin = std::env::var("CUSTODY_CORS_ORIGIN").ok();
+
+    let cors = CorsLayer::new()
         .allow_methods([
             axum::http::Method::GET,
             axum::http::Method::POST,
+            axum::http::Method::PUT,
+            axum::http::Method::DELETE,
             axum::http::Method::OPTIONS,
         ])
-        .allow_headers(Any)
-        .max_age(Duration::from_secs(3600))
+        .allow_headers([
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::AUTHORIZATION,
+            axum::http::HeaderName::from_static("x-custody-timestamp"),
+            axum::http::HeaderName::from_static("x-custody-signature"),
+        ])
+        .max_age(Duration::from_secs(3600));
+
+    if let Some(origin) = allowed_origin {
+        cors.allow_origin(origin.parse::<axum::http::HeaderValue>().expect("Invalid CUSTODY_CORS_ORIGIN"))
+    } else {
+        // Default: same-origin only (no Access-Control-Allow-Origin header sent,
+        // browser enforces same-origin policy automatically).
+        // For development, set CUSTODY_CORS_ORIGIN=http://localhost:5173
+        cors
+    }
 }
 
 async fn health() -> &'static str { "ok" }
