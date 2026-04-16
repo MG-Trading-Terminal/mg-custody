@@ -9,7 +9,7 @@
 
 use anyhow::{Context, Result};
 use bip32::{DerivationPath, XPrv};
-use k256::ecdsa::{signature::hazmat::PrehashSigner, Signature, SigningKey, VerifyingKey};
+use k256::ecdsa::{signature::hazmat::PrehashSigner, Signature, SigningKey};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 

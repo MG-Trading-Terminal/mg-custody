@@ -148,7 +148,7 @@ impl TravelRuleProvider for NotabeneProvider {
         });
 
         let resp = self.client
-            .post(&format!("{}/transaction", self.base_url))
+            .post(format!("{}/transaction", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .json(&payload)
             .send()
@@ -175,7 +175,7 @@ impl TravelRuleProvider for NotabeneProvider {
 
     async fn receive_beneficiary_data(&self, transfer_id: Uuid) -> Result<Option<TravelRuleData>> {
         let resp = self.client
-            .get(&format!("{}/transaction/{}", self.base_url, transfer_id))
+            .get(format!("{}/transaction/{}", self.base_url, transfer_id))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .send()
             .await;
@@ -196,7 +196,7 @@ impl TravelRuleProvider for NotabeneProvider {
 
     async fn lookup_vasp(&self, address: &str) -> Result<Option<String>> {
         let resp = self.client
-            .get(&format!("{}/vasp/lookup", self.base_url))
+            .get(format!("{}/vasp/lookup", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .query(&[("address", address)])
             .send()

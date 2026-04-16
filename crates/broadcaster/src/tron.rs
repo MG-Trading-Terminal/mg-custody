@@ -23,7 +23,7 @@ impl Broadcaster for TronBroadcaster {
             .context("Tron signed tx should be JSON")?;
 
         let resp: serde_json::Value = self.client
-            .post(&format!("{}/wallet/broadcasttransaction", self.api_url))
+            .post(format!("{}/wallet/broadcasttransaction", self.api_url))
             .json(&tx_json)
             .send().await.context("Tron broadcast")?
             .json().await?;
@@ -39,7 +39,7 @@ impl Broadcaster for TronBroadcaster {
 
     async fn tx_status(&self, tx_hash: &str) -> Result<Option<TxStatus>> {
         let resp: serde_json::Value = self.client
-            .post(&format!("{}/wallet/gettransactioninfobyid", self.api_url))
+            .post(format!("{}/wallet/gettransactioninfobyid", self.api_url))
             .json(&serde_json::json!({"value": tx_hash}))
             .send().await?
             .json().await?;

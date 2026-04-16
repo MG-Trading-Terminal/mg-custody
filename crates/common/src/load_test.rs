@@ -3,7 +3,6 @@
 //! Defines scenarios for stress testing the custody service.
 
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 
 /// Load test scenario.
 #[derive(Debug, Clone, Serialize, Deserialize)]

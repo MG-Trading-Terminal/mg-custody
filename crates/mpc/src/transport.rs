@@ -90,6 +90,12 @@ pub struct InMemoryTransport {
     messages: std::sync::Mutex<Vec<MpcMessage>>,
 }
 
+impl Default for InMemoryTransport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InMemoryTransport {
     pub fn new() -> Self {
         Self { messages: std::sync::Mutex::new(Vec::new()) }

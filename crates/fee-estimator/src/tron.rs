@@ -25,7 +25,7 @@ impl TronFeeEstimator {
     pub async fn estimate(&self) -> Result<FeeEstimate> {
         // Query chain parameters for current energy price
         let resp: serde_json::Value = self.client
-            .get(&format!("{}/wallet/getchainparameters", self.api_url))
+            .get(format!("{}/wallet/getchainparameters", self.api_url))
             .send().await.context("Tron getchainparameters")?
             .json().await?;
 
@@ -49,7 +49,7 @@ impl TronFeeEstimator {
     /// Check account's available Energy.
     pub async fn get_energy(&self, address: &str) -> Result<u64> {
         let resp: serde_json::Value = self.client
-            .post(&format!("{}/wallet/getaccountresource", self.api_url))
+            .post(format!("{}/wallet/getaccountresource", self.api_url))
             .json(&serde_json::json!({"address": address, "visible": true}))
             .send().await?
             .json().await?;

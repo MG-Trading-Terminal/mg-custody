@@ -36,7 +36,7 @@ impl TronScanner {
     /// Get a block by number.
     async fn get_block(&self, num: u64) -> Result<serde_json::Value> {
         self.client
-            .post(&format!("{}/wallet/getblockbynum", self.api_url))
+            .post(format!("{}/wallet/getblockbynum", self.api_url))
             .json(&serde_json::json!({"num": num}))
             .send().await.context("Tron getblockbynum")?
             .json().await.context("Tron block parse")
@@ -138,7 +138,7 @@ impl ChainScanner for TronScanner {
 
     async fn current_block_height(&self) -> Result<u64> {
         let resp: serde_json::Value = self.client
-            .get(&format!("{}/wallet/getnowblock", self.api_url))
+            .get(format!("{}/wallet/getnowblock", self.api_url))
             .send().await.context("Tron getnowblock")?
             .json().await.context("Tron nowblock parse")?;
 

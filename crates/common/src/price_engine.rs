@@ -76,7 +76,7 @@ pub fn aggregate_prices(quotes: &[PriceQuote]) -> Option<Decimal> {
     let mut prices: Vec<Decimal> = quotes.iter().map(|q| q.price_usd).collect();
     prices.sort();
     let mid = prices.len() / 2;
-    if prices.len() % 2 == 0 {
+    if prices.len().is_multiple_of(2) {
         Some((prices[mid - 1] + prices[mid]) / Decimal::new(2, 0))
     } else {
         Some(prices[mid])

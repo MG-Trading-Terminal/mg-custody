@@ -107,14 +107,13 @@ impl Pkcs11Hsm {
             let mut store = HashMap::new();
             if let Ok(entries) = std::fs::read_dir(&dir) {
                 for entry in entries.flatten() {
-                    if let Some(name) = entry.file_name().to_str() {
-                        if name.ends_with(".share") {
+                    if let Some(name) = entry.file_name().to_str()
+                        && name.ends_with(".share") {
                             let key = name.trim_end_matches(".share").to_string();
                             if let Ok(data) = std::fs::read(entry.path()) {
                                 store.insert(key, data);
                             }
                         }
-                    }
                 }
             }
 

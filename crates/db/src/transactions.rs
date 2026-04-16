@@ -53,13 +53,12 @@ impl CustodyDb {
         all_txs.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(b.id.cmp(&a.id)));
 
         // Apply cursor: skip until we pass the cursor position.
-        if let Some(ref cursor) = filter.cursor {
-            if let Some((cursor_time, cursor_id)) = parse_cursor(cursor) {
+        if let Some(ref cursor) = filter.cursor
+            && let Some((cursor_time, cursor_id)) = parse_cursor(cursor) {
                 all_txs.retain(|tx| {
                     (tx.created_at, tx.id) < (cursor_time, cursor_id)
                 });
             }
-        }
 
         // Paginate
         let has_more = all_txs.len() > limit as usize;
@@ -231,41 +230,34 @@ impl CustodyDb {
 
 /// Apply in-memory filters to a transaction.
 fn apply_filter(tx: &Transaction, filter: &TransactionFilter) -> bool {
-    if let Some(ref asset) = filter.asset {
-        if tx.asset.as_str() != asset {
+    if let Some(ref asset) = filter.asset
+        && tx.asset.as_str() != asset {
             return false;
         }
-    }
-    if let Some(ref chain) = filter.chain {
-        if tx.chain.as_str() != chain {
+    if let Some(ref chain) = filter.chain
+        && tx.chain.as_str() != chain {
             return false;
         }
-    }
-    if let Some(ref status) = filter.status {
-        if tx.status != *status {
+    if let Some(ref status) = filter.status
+        && tx.status != *status {
             return false;
         }
-    }
-    if let Some(ref after) = filter.after {
-        if tx.created_at < *after {
+    if let Some(ref after) = filter.after
+        && tx.created_at < *after {
             return false;
         }
-    }
-    if let Some(ref before) = filter.before {
-        if tx.created_at > *before {
+    if let Some(ref before) = filter.before
+        && tx.created_at > *before {
             return false;
         }
-    }
-    if let Some(ref min) = filter.min_amount {
-        if tx.amount < *min {
+    if let Some(ref min) = filter.min_amount
+        && tx.amount < *min {
             return false;
         }
-    }
-    if let Some(ref max) = filter.max_amount {
-        if tx.amount > *max {
+    if let Some(ref max) = filter.max_amount
+        && tx.amount > *max {
             return false;
         }
-    }
     if let Some(vault_id) = filter.vault_id {
         let matches = tx.source_vault_id == Some(vault_id)
             || tx.dest_vault_id == Some(vault_id);

@@ -117,19 +117,19 @@ pub fn generate_proof(leaves: &[BalanceLeaf], leaf_index: usize) -> Option<Merkl
     // Mirror merkle_root's while hashes.len() > 1 loop exactly
     while hashes.len() > 1 {
         // Duplicate odd last element (same as merkle_root)
-        if hashes.len() % 2 != 0 {
+        if !hashes.len().is_multiple_of(2) {
             hashes.push(hashes.last().unwrap().clone());
         }
 
         // Sibling index within this level
-        let sibling_idx = if current_idx % 2 == 0 {
+        let sibling_idx = if current_idx.is_multiple_of(2) {
             current_idx + 1 // node is left child; sibling is right
         } else {
             current_idx - 1 // node is right child; sibling is left
         };
 
         let sibling_hash = hashes[sibling_idx].clone();
-        let sibling_is_right = current_idx % 2 == 0;
+        let sibling_is_right = current_idx.is_multiple_of(2);
 
         siblings.push(sibling_hash);
         directions.push(sibling_is_right);

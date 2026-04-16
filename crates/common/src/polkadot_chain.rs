@@ -363,7 +363,7 @@ impl Era {
         match self {
             Era::Immortal => vec![0x00],
             Era::Mortal { period, phase } => {
-                let encoded = (*period as u64).min(1 << 16).max(4).next_power_of_two();
+                let encoded = (*period).min(1 << 16).max(4).next_power_of_two();
                 let factor = encoded.max(8) >> 1;
                 let value = ((encoded.trailing_zeros() as u64) - 1).min(15) | ((*phase / factor) << 4);
                 (value as u16).to_le_bytes().to_vec()
@@ -603,7 +603,7 @@ impl SubstrateSigner {
     pub fn from_seed(seed: [u8; 32]) -> Self {
         // Derive public key using SHA-512 clamping (Ed25519 key expansion).
         let mut h = <sha2::Sha512 as sha2::Digest>::new();
-        h.update(&seed);
+        h.update(seed);
         let hash = h.finalize();
         let mut scalar = [0u8; 32];
         scalar.copy_from_slice(&hash[..32]);
@@ -618,7 +618,7 @@ impl SubstrateSigner {
         let mut public = [0u8; 32];
         let mut hasher = <sha2::Sha256 as sha2::Digest>::new();
         hasher.update(b"ed25519_public:");
-        hasher.update(&scalar);
+        hasher.update(scalar);
         let digest = hasher.finalize();
         public.copy_from_slice(&digest);
 
@@ -732,7 +732,7 @@ impl SubstrateSigner {
     /// In production: replace with `ed25519_dalek::SigningKey::sign(data).to_bytes()`.
     fn sign_bytes(&self, data: &[u8]) -> [u8; 64] {
         let mut h = <sha2::Sha512 as sha2::Digest>::new();
-        h.update(&self.secret);
+        h.update(self.secret);
         h.update(data);
         let hash = h.finalize();
         let mut sig = [0u8; 64];

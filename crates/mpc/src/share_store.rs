@@ -81,13 +81,11 @@ impl ShareStore for FileShareStore {
         let mut shares = Vec::new();
         if let Ok(entries) = std::fs::read_dir(&self.directory) {
             for entry in entries.flatten() {
-                if entry.path().extension().is_some_and(|ext| ext == "share") {
-                    if let Ok(json) = std::fs::read_to_string(entry.path()) {
-                        if let Ok(share) = serde_json::from_str(&json) {
+                if entry.path().extension().is_some_and(|ext| ext == "share")
+                    && let Ok(json) = std::fs::read_to_string(entry.path())
+                        && let Ok(share) = serde_json::from_str(&json) {
                             shares.push(share);
                         }
-                    }
-                }
             }
         }
         Ok(shares)

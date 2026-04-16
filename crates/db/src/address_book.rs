@@ -226,8 +226,8 @@ impl AddressBookRow {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use custody_common::webhook::{AddressBookEntry, UpdateAddressLabelRequest};
+    
+    use custody_common::webhook::UpdateAddressLabelRequest;
 
     /// Verify the ILIKE escaping handles SQL wildcards in user input.
     #[test]

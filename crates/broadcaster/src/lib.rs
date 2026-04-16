@@ -39,7 +39,7 @@ pub trait Broadcaster: Send + Sync {
 /// (minimum bump to be accepted as a replacement transaction).
 pub fn fee_bump_min(original_max_fee: u128) -> u128 {
     // 12.5% = multiply by 9, divide by 8 (exact integer math, rounds up)
-    (original_max_fee * 9 + 7) / 8
+    (original_max_fee * 9).div_ceil(8)
 }
 
 #[cfg(test)]

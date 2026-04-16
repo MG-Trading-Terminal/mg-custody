@@ -6,7 +6,6 @@
 
 use chrono::{DateTime, Utc};
 use custody_common::safe_executor::{SafeManagedTx, SafeOperation, SafeSignature, SafeTxStatus, SafeWallet};
-use custody_common::Chain;
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -90,10 +89,10 @@ impl CustodyDb {
         .bind(&tx.to)
         .bind(tx.value.to_string())
         .bind(&tx.data)
-        .bind(&op_str)
+        .bind(op_str)
         .bind(&tx.safe_tx_hash)
         .bind(&sigs_json)
-        .bind(&status_str)
+        .bind(status_str)
         .bind(tx.created_at)
         .execute(&self.pool)
         .await?;
@@ -112,7 +111,7 @@ impl CustodyDb {
              WHERE id = $3",
         )
         .bind(&sigs_json)
-        .bind(&status_str)
+        .bind(status_str)
         .bind(tx.id)
         .execute(&self.pool)
         .await?;

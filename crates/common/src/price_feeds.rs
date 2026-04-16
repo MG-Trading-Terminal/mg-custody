@@ -45,11 +45,10 @@ pub async fn fetch_binance_prices(client: &reqwest::Client) -> Result<HashMap<St
     let mut prices = HashMap::new();
 
     for ticker in &tickers {
-        if let Some(&symbol) = target_pairs.get(ticker.symbol.as_str()) {
-            if let Ok(price) = ticker.price.parse::<Decimal>() {
+        if let Some(&symbol) = target_pairs.get(ticker.symbol.as_str())
+            && let Ok(price) = ticker.price.parse::<Decimal>() {
                 prices.insert(symbol.to_string(), price);
             }
-        }
     }
 
     // Stablecoins always $1
@@ -67,7 +66,7 @@ pub fn median_price(prices: &[Decimal]) -> Option<Decimal> {
     let mut sorted = prices.to_vec();
     sorted.sort();
     let mid = sorted.len() / 2;
-    if sorted.len() % 2 == 0 {
+    if sorted.len().is_multiple_of(2) {
         Some((sorted[mid - 1] + sorted[mid]) / Decimal::new(2, 0))
     } else {
         Some(sorted[mid])

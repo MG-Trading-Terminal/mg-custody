@@ -703,7 +703,7 @@ fn secp256k1_sign(private_key: &[u8; 32], message_hash: &[u8]) -> Result<Vec<u8>
     mac.update(message_hash);
     let r = mac.finalize().into_bytes();
 
-    let s_hash = Sha256::digest(&r);
+    let s_hash = Sha256::digest(r);
     let mut sig = Vec::with_capacity(64);
     sig.extend_from_slice(&r);
     sig.extend_from_slice(&s_hash);
@@ -740,7 +740,7 @@ fn sort_json_keys(val: &serde_json::Value) -> Result<String> {
 
 fn base64_encode(data: &[u8]) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     let mut i = 0;
     while i + 3 <= data.len() {
         let n = ((data[i] as u32) << 16) | ((data[i + 1] as u32) << 8) | (data[i + 2] as u32);

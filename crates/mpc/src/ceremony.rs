@@ -111,7 +111,7 @@ impl EmergencyFreeze {
         }
         let by = self.frozen_by.lock().ok()?.clone()?;
         let reason = self.reason.lock().ok()?.clone()?;
-        let at = self.frozen_at.lock().ok()?.clone()?;
+        let at = (*self.frozen_at.lock().ok()?)?;
         Some((by, reason, at))
     }
 }

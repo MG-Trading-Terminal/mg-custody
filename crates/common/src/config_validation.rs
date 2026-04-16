@@ -30,8 +30,8 @@ pub fn validate_config(config: &CustodyConfig) -> Result<Vec<String>> {
         "limits.max_daily_outflow_usd must be > max_hourly_outflow_usd");
 
     // Chains
-    if let Some(ref eth) = config.chains.ethereum {
-        if eth.enabled {
+    if let Some(ref eth) = config.chains.ethereum
+        && eth.enabled {
             ensure!(!eth.rpc_url.is_empty(), "chains.ethereum.rpc_url must not be empty when enabled");
             ensure!(eth.required_confirmations >= 1, "chains.ethereum.required_confirmations must be >= 1");
             if eth.required_confirmations < 12 {
@@ -44,10 +44,9 @@ pub fn validate_config(config: &CustodyConfig) -> Result<Vec<String>> {
                 warnings.push("chains.ethereum.max_gas_price_gwei=0 will block all withdrawals".into());
             }
         }
-    }
 
-    if let Some(ref btc) = config.chains.bitcoin {
-        if btc.enabled {
+    if let Some(ref btc) = config.chains.bitcoin
+        && btc.enabled {
             ensure!(!btc.rpc_url.is_empty(), "chains.bitcoin.rpc_url must not be empty when enabled");
             if btc.required_confirmations < 3 {
                 warnings.push(format!(
@@ -56,7 +55,6 @@ pub fn validate_config(config: &CustodyConfig) -> Result<Vec<String>> {
                 ));
             }
         }
-    }
 
     // Wallets
     ensure!(config.wallets.hot_max_pct <= 100, "wallets.hot_max_pct must be <= 100");

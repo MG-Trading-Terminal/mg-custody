@@ -56,7 +56,7 @@ pub fn derivation_path(chain: Chain, index: u32) -> Result<DerivationPath> {
 /// Returns both compressed and uncompressed forms of the public key.
 /// The extended private key is zeroized when dropped (handled by `bip32::XPrv`).
 pub fn derive_secp256k1_pubkey(seed: &SeedBytes, path: &DerivationPath) -> Result<Secp256k1PubKey> {
-    let xprv = XPrv::derive_from_path(&seed.0, path)
+    let xprv = XPrv::derive_from_path(seed.0, path)
         .context("BIP-32 key derivation failed")?;
 
     // Get the public key from the extended private key

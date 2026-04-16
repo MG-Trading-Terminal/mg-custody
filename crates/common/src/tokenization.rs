@@ -58,7 +58,7 @@ mod tests {
 
     #[test]
     fn token_operations() {
-        let ops = vec![TokenOperation::Mint, TokenOperation::Burn, TokenOperation::Pause];
+        let ops = [TokenOperation::Mint, TokenOperation::Burn, TokenOperation::Pause];
         assert_eq!(ops.len(), 3);
     }
 }

@@ -18,7 +18,7 @@ pub fn double_sha256(data: &[u8]) -> [u8; 32] {
 pub fn hash160(data: &[u8]) -> [u8; 20] {
     use sha2::Digest;
     let sha = sha2::Sha256::digest(data);
-    let ripe = ripemd::Ripemd160::digest(&sha);
+    let ripe = ripemd::Ripemd160::digest(sha);
     let mut hash = [0u8; 20];
     hash.copy_from_slice(&ripe);
     hash

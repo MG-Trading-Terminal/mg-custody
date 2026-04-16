@@ -4,7 +4,6 @@
 //! custody wallets to dApps. Uses the open WC v2 relay protocol.
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 /// WalletConnect session proposal.
 #[derive(Debug, Clone, Serialize, Deserialize)]

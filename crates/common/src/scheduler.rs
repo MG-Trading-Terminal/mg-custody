@@ -3,7 +3,6 @@
 //! Manages periodic tasks: OFAC refresh, reconciliation, sweep checks,
 //! chain health monitoring.
 
-use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 /// A scheduled background task.

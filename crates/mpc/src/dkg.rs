@@ -5,7 +5,6 @@
 //!
 //! Uses cggmp21::keygen with round_based message passing.
 
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

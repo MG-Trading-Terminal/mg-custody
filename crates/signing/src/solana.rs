@@ -5,7 +5,7 @@
 //!
 //! Transaction format: https://docs.solana.com/developing/programming-model/transactions
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use ed25519_dalek::{Signer, SigningKey};
 use sha2::{Digest, Sha256};
 

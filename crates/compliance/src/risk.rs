@@ -44,8 +44,8 @@ impl RiskAssessment {
         let mut reasons = Vec::new();
 
         // Check sanctions first (highest priority)
-        if let Some(ref s) = sanctions {
-            if s.is_sanctioned {
+        if let Some(ref s) = sanctions
+            && s.is_sanctioned {
                 overall_risk = RiskLevel::Severe;
                 blocked = true;
                 reasons.push(format!(
@@ -53,7 +53,6 @@ impl RiskAssessment {
                     s.matched_lists.join(", ")
                 ));
             }
-        }
 
         // Check screening results
         for result in &screenings {

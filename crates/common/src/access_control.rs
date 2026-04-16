@@ -56,11 +56,10 @@ pub enum PolicyAction { Allow, Deny, RequireMfa, RequireApproval }
 /// Evaluate an access request against a policy.
 pub fn evaluate_access(policy: &AccessPolicy, resource: Resource, action: Action, context: &AccessContext) -> PolicyAction {
     for rule in &policy.rules {
-        if rule.resource == resource && rule.action == action {
-            if evaluate_conditions(&rule.conditions, context) {
+        if rule.resource == resource && rule.action == action
+            && evaluate_conditions(&rule.conditions, context) {
                 return rule.effect;
             }
-        }
     }
     policy.default_action
 }

@@ -112,8 +112,8 @@ impl BitcoinScanner {
                 let addresses = output["scriptPubKey"]["address"].as_str();
                 let value_btc = output["value"].as_f64().unwrap_or(0.0);
 
-                if let Some(addr) = addresses {
-                    if self.address_cache.contains(addr) {
+                if let Some(addr) = addresses
+                    && self.address_cache.contains(addr) {
                         let amount_sats = (value_btc * 100_000_000.0).round() as u64;
                         let amount = Decimal::new(amount_sats as i64, 8);
 
@@ -141,7 +141,6 @@ impl BitcoinScanner {
                             source_memo: None,
                         });
                     }
-                }
             }
         }
 

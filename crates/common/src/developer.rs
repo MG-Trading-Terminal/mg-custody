@@ -266,8 +266,7 @@ pub fn sdk_methods() -> Vec<SdkMethod> {
         let method_name = ep.path
             .trim_start_matches("/v1/")
             .replace('/', "_")
-            .replace('{', "")
-            .replace('}', "");
+            .replace(['{', '}'], "");
         let method_name = format!("{}_{}", ep.method.to_lowercase(), method_name);
 
         SdkMethod {

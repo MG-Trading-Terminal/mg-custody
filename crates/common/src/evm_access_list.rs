@@ -37,7 +37,7 @@ pub fn estimate_access_list_savings(entries: &[AccessListEntry]) -> AccessListGa
         }
     }
 
-    let net = if savings > al_cost { savings - al_cost } else { 0 };
+    let net = savings.saturating_sub(al_cost);
 
     AccessListGas {
         access_list_cost: al_cost,
@@ -64,7 +64,7 @@ pub mod known_slots {
         let mut data = [0u8; 64];
         data[12..32].copy_from_slice(holder);
         // slot 0 for balances mapping
-        let hash = Keccak256::digest(&data);
+        let hash = Keccak256::digest(data);
         format!("0x{}", hex::encode(hash))
     }
 
@@ -75,12 +75,12 @@ pub mod known_slots {
         let mut inner = [0u8; 64];
         inner[12..32].copy_from_slice(owner);
         inner[63] = 1; // slot 1
-        let inner_hash = Keccak256::digest(&inner);
+        let inner_hash = Keccak256::digest(inner);
 
         let mut outer = [0u8; 64];
         outer[12..32].copy_from_slice(spender);
         outer[32..64].copy_from_slice(&inner_hash);
-        let hash = Keccak256::digest(&outer);
+        let hash = Keccak256::digest(outer);
         format!("0x{}", hex::encode(hash))
     }
 }

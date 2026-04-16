@@ -105,8 +105,8 @@ pub fn decode_revert_reason(data: &str) -> Option<String> {
     }
 
     // Panic(uint256) selector = 0x4e487b71
-    if &hex[..8] == "4e487b71" {
-        if hex.len() >= 72 {
+    if &hex[..8] == "4e487b71"
+        && hex.len() >= 72 {
             let code = u64::from_str_radix(hex[8..72].trim_start_matches('0'), 16).unwrap_or(0);
             let reason = match code {
                 0x01 => "Assertion failed",
@@ -119,7 +119,6 @@ pub fn decode_revert_reason(data: &str) -> Option<String> {
             };
             return Some(format!("Panic({code:#x}): {reason}"));
         }
-    }
 
     None
 }

@@ -174,17 +174,15 @@ impl AlertDispatcher {
             return Ok(());
         }
 
-        if let Some(ref tg) = self.telegram {
-            if let Err(e) = tg.send(alert).await {
+        if let Some(ref tg) = self.telegram
+            && let Err(e) = tg.send(alert).await {
                 tracing::error!(error = %e, "Telegram alert failed");
             }
-        }
 
-        if let Some(ref slack) = self.slack {
-            if let Err(e) = slack.send(alert).await {
+        if let Some(ref slack) = self.slack
+            && let Err(e) = slack.send(alert).await {
                 tracing::error!(error = %e, "Slack alert failed");
             }
-        }
 
         tracing::info!(
             severity = ?alert.severity,

@@ -143,12 +143,11 @@ pub async fn fetch_coingecko_prices(
             // SECURITY: reject zero/negative/NaN/Inf prices. A zero price would
             // make the circuit breaker see $0 for any withdrawal amount,
             // effectively bypassing per-tx and hourly outflow limits.
-            if price.usd.is_finite() && price.usd > 0.0 {
-                if let Some(decimal_price) = Decimal::from_f64_retain(price.usd) {
+            if price.usd.is_finite() && price.usd > 0.0
+                && let Some(decimal_price) = Decimal::from_f64_retain(price.usd) {
                     prices.insert(symbol.to_string(), decimal_price);
                 }
                 // If from_f64_retain fails, skip this price (stale cache is safer than zero)
-            }
         }
     }
 

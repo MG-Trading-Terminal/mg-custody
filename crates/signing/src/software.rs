@@ -45,7 +45,7 @@ impl SoftwareSigningBackend {
         let path: bip32::DerivationPath = path_str.parse()
             .map_err(|e| CustodyError::SigningError(format!("Bad path: {e}")))?;
 
-        let xprv = XPrv::derive_from_path(&self.seed, &path)
+        let xprv = XPrv::derive_from_path(self.seed, &path)
             .map_err(|e| CustodyError::SigningError(format!("BIP-32 derivation: {e}")))?;
 
         let key_bytes = xprv.to_bytes();

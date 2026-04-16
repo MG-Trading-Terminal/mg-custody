@@ -75,11 +75,7 @@ impl PresigningCache {
         cache.retain(|p| p.expires_at > now);
 
         // Find and remove first matching
-        if let Some(pos) = cache.iter().position(|p| p.key_id == key_id) {
-            Some(cache.remove(pos).unwrap())
-        } else {
-            None
-        }
+        cache.iter().position(|p| p.key_id == key_id).map(|pos| cache.remove(pos).unwrap())
     }
 
     /// Number of available presignatures for a key.

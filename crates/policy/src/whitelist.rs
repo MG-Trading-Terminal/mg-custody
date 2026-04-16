@@ -14,18 +14,17 @@ use uuid::Uuid;
 /// Address category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum AddressCategory {
     /// Our own wallets (hot, warm, cold, fee).
     Internal,
     /// Third-party addresses (exchange counterparties, users).
+    #[default]
     External,
     /// Smart contract addresses (DeFi protocols).
     Contract,
 }
 
-impl Default for AddressCategory {
-    fn default() -> Self { Self::External }
-}
 
 /// A whitelisted address entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,11 +72,10 @@ impl Whitelist {
                 if entry.used && entry.one_time {
                     return false;
                 }
-                if let Some(expires) = entry.expires_at {
-                    if Utc::now() > expires {
+                if let Some(expires) = entry.expires_at
+                    && Utc::now() > expires {
                         return false;
                     }
-                }
                 true
             }
             None => false,
@@ -87,12 +85,11 @@ impl Whitelist {
     /// Mark a one-time address as used.
     pub fn mark_used(&mut self, chain: Chain, address: &str) -> bool {
         let key = format!("{}:{}", chain.as_str(), address.to_lowercase());
-        if let Some(entry) = self.entries.get_mut(&key) {
-            if entry.one_time {
+        if let Some(entry) = self.entries.get_mut(&key)
+            && entry.one_time {
                 entry.used = true;
                 return true;
             }
-        }
         false
     }
 

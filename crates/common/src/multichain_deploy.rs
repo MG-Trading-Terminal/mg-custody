@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn sdk_lang_all() {
-        let langs = vec![SdkLang::Rust, SdkLang::Python, SdkLang::TypeScript, SdkLang::Go, SdkLang::Java, SdkLang::CSharp, SdkLang::Ruby];
+        let langs = [SdkLang::Rust, SdkLang::Python, SdkLang::TypeScript, SdkLang::Go, SdkLang::Java, SdkLang::CSharp, SdkLang::Ruby];
         assert_eq!(langs.len(), 7);
     }
 

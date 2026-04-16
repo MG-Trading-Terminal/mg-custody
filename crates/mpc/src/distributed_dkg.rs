@@ -80,7 +80,7 @@ fn generate_commitment(session_id: Uuid, party_idx: u16) -> Vec<u8> {
     use sha2::Digest;
     let mut hasher = sha2::Sha256::new();
     hasher.update(session_id.as_bytes());
-    hasher.update(&party_idx.to_le_bytes());
+    hasher.update(party_idx.to_le_bytes());
     hasher.update(b"commitment");
     hasher.finalize().to_vec()
 }
@@ -89,7 +89,7 @@ fn generate_share(session_id: Uuid, party_idx: u16, _round1: &[MpcMessage]) -> V
     use sha2::Digest;
     let mut hasher = sha2::Sha256::new();
     hasher.update(session_id.as_bytes());
-    hasher.update(&party_idx.to_le_bytes());
+    hasher.update(party_idx.to_le_bytes());
     hasher.update(b"share");
     hasher.finalize().to_vec()
 }

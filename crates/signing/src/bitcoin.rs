@@ -6,7 +6,6 @@
 use anyhow::{Context, Result};
 use bitcoin::absolute::LockTime;
 use bitcoin::consensus::Encodable;
-use bitcoin::hashes::Hash;
 use bitcoin::transaction::Version;
 use bitcoin::{
     Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness,

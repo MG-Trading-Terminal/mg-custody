@@ -99,36 +99,30 @@ impl PolicyCondition {
         destination_type: &DestinationType,
         initiator_role: &Role,
     ) -> bool {
-        if let Some(ref c) = self.chain {
-            if *c != chain {
+        if let Some(ref c) = self.chain
+            && *c != chain {
                 return false;
             }
-        }
-        if let Some(ref a) = self.asset {
-            if a.as_str() != asset.as_str() {
+        if let Some(ref a) = self.asset
+            && a.as_str() != asset.as_str() {
                 return false;
             }
-        }
-        if let Some(min) = self.min_amount_usd {
-            if amount_usd < min {
+        if let Some(min) = self.min_amount_usd
+            && amount_usd < min {
                 return false;
             }
-        }
-        if let Some(max) = self.max_amount_usd {
-            if amount_usd >= max {
+        if let Some(max) = self.max_amount_usd
+            && amount_usd >= max {
                 return false;
             }
-        }
-        if let Some(ref dt) = self.destination_type {
-            if *dt != DestinationType::Any && dt != destination_type {
+        if let Some(ref dt) = self.destination_type
+            && *dt != DestinationType::Any && dt != destination_type {
                 return false;
             }
-        }
-        if let Some(ref role) = self.initiator_role {
-            if !initiator_role.has_at_least(role) {
+        if let Some(ref role) = self.initiator_role
+            && !initiator_role.has_at_least(role) {
                 return false;
             }
-        }
         true
     }
 }

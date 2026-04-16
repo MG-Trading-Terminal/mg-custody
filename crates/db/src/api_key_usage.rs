@@ -221,11 +221,9 @@ mod tests {
     #[test]
     fn usage_aggregation_example() {
         // Simulate daily aggregation logic used in the API handler.
-        let usages = vec![
-            DailyUsage { key_id: Uuid::nil(), date: NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(), request_count: 100, last_endpoint: None, last_ip: None },
+        let usages = [DailyUsage { key_id: Uuid::nil(), date: NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(), request_count: 100, last_endpoint: None, last_ip: None },
             DailyUsage { key_id: Uuid::nil(), date: NaiveDate::from_ymd_opt(2026, 3, 2).unwrap(), request_count: 200, last_endpoint: None, last_ip: None },
-            DailyUsage { key_id: Uuid::nil(), date: NaiveDate::from_ymd_opt(2026, 3, 3).unwrap(), request_count: 50,  last_endpoint: None, last_ip: None },
-        ];
+            DailyUsage { key_id: Uuid::nil(), date: NaiveDate::from_ymd_opt(2026, 3, 3).unwrap(), request_count: 50,  last_endpoint: None, last_ip: None }];
         let total: i32 = usages.iter().map(|u| u.request_count).sum();
         assert_eq!(total, 350);
     }

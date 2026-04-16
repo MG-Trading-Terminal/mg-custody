@@ -4,7 +4,7 @@
 //! when the primary endpoint fails. Tracks latency and error rates.
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// An RPC endpoint with health tracking.
 #[derive(Debug)]

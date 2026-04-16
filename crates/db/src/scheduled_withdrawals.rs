@@ -5,7 +5,6 @@
 
 use chrono::{DateTime, Utc};
 use custody_common::scheduled_withdrawal::{ScheduledWithdrawal, WithdrawalSchedule};
-use custody_common::Chain;
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -180,7 +179,7 @@ struct SwRow {
 
 fn row_to_sw(row: SwRow) -> anyhow::Result<ScheduledWithdrawal> {
     use crate::addresses::chain_from_str;
-    use chrono::Weekday;
+    
 
     let schedule = decode_schedule(&row.schedule_type, &row.schedule_config)?;
     let amount = Decimal::from_str(&row.amount)
@@ -230,7 +229,7 @@ fn decode_schedule(
     schedule_type: &str,
     config: &serde_json::Value,
 ) -> anyhow::Result<WithdrawalSchedule> {
-    use chrono::Weekday;
+    
 
     match schedule_type {
         "once" => {
