@@ -1,0 +1,79 @@
+# Custody Service — Testnet Configuration
+#
+# Usage: CUSTODY_CONFIG=config/testnet.toml cargo run --release --bin custody
+# Or overlay: set individual values via env vars (CUSTODY_CHAINS__ETHEREUM__RPC_URL=...)
+#
+# All RPC endpoints are public testnets. No API keys required for basic operation.
+# For rate-limited access, set ALCHEMY_KEY or INFURA_KEY env vars.
+
+[api]
+bind = "0.0.0.0:8443"
+
+[database]
+url = "postgres://localhost:5432/custody_testnet"
+max_connections = 10
+
+[exchange]
+webhook_url = "http://localhost:8080/internal/custody/events"
+
+[key_manager]
+backend = "software"
+
+[limits]
+# Lower limits for testnet — catch bugs faster
+max_single_withdrawal_usd = 10000
+max_hourly_outflow_usd = 50000
+max_daily_outflow_usd = 100000
+auto_approve_threshold_usd = 100
+
+[wallets]
+hot_max_pct = 5
+warm_max_pct = 15
+
+# ── Ethereum Sepolia ─────────────────────────────────────────────
+[chains.ethereum]
+enabled = true
+rpc_url = "https://ethereum-sepolia-rpc.publicnode.com"
+# Alternatives (higher rate limits with API key):
+#   https://eth-sepolia.g.alchemy.com/v2/${ALCHEMY_KEY}
+#   https://sepolia.infura.io/v3/${INFURA_KEY}
+ws_url = ""
+required_confirmations = 3   # Faster for testing (mainnet: 12)
+max_gas_price_gwei = 100
+
+[chains.ethereum.tokens]
+# Sepolia USDT (unofficial test contract — for flow testing only)
+"0x7169D38820dfd117C3FA1f22a697dBA58d90BA06" = { symbol = "USDT", decimals = 6 }
+# Sepolia USDC (Circle test)
+"0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238" = { symbol = "USDC", decimals = 6 }
+
+# ── Bitcoin Signet ───────────────────────────────────────────────
+[chains.bitcoin]
+enabled = true
+# Bitcoin Signet (BIP-325) — deterministic block production, more reliable than testnet3
+rpc_url = "http://localhost:38332"
+# Public Signet explorers: https://mempool.space/signet
+# Faucet: https://signetfaucet.com/
+required_confirmations = 1   # Fast for testing (mainnet: 3)
+
+# ── Tron Nile Testnet ───────────────────────────────────────────
+[chains.tron]
+enabled = true
+api_url = "https://nile.trongrid.io"
+# Faucet: https://nileex.io/join/getJoinPage
+required_confirmations = 5   # Faster for testing (mainnet: 20)
+
+[chains.tron.tokens]
+# Nile USDT test contract
+"TXLAQ63Xg1NAzckPwKHvzw7CSEmLMEqcdj" = { symbol = "USDT", decimals = 6 }
+
+# ── Solana Devnet ────────────────────────────────────────────────
+[chains.solana]
+enabled = true
+rpc_url = "https://api.devnet.solana.com"
+# Faucet: solana airdrop 2 --url devnet
+commitment = "finalized"
+
+[chains.solana.tokens]
+# Devnet doesn't have canonical USDT/USDC mints.
+# For testing: create SPL token via `spl-token create-token --url devnet`
