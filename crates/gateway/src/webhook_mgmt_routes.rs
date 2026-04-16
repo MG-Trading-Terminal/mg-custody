@@ -57,6 +57,8 @@ pub fn webhook_mgmt_router() -> Router<AppState> {
         .route("/v1/health/perf", get(perf_health))
         // Audit log integrity check (Feature 5b)
         .route("/v1/admin/audit/integrity", get(audit_integrity_check))
+        // Self-registration (public — no auth)
+        .route("/v1/auth/register", post(register_user))
         // Backup management
         .route("/v1/admin/backup/mnemonic", get(show_mnemonic))
         .route("/v1/admin/backup/verify-mnemonic", post(verify_mnemonic))
@@ -1066,6 +1068,66 @@ async fn bulk_import_tokens(
 
     Ok(Json(serde_json::to_value(result)
         .map_err(|e| ApiError::internal(&e.to_string()))?))
+}
+
+// ---------------------------------------------------------------------------
+// Self-registration (public)
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct RegisterRequest {
+    email: String,
+    password: String,
+    #[serde(default)]
+    name: Option<String>,
+}
+
+async fn register_user(
+    State(state): State<AppState>,
+    Json(req): Json<RegisterRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if req.email.is_empty() || !req.email.contains('@') {
+        return Err(ApiError::bad_request("Valid email required"));
+    }
+    if req.password.len() < 8 {
+        return Err(ApiError::bad_request("Password must be at least 8 characters"));
+    }
+
+    // Find default workspace
+    let ws_id: Option<(Uuid,)> = sqlx::query_as(
+        "SELECT id FROM workspaces WHERE enabled = true ORDER BY created_at LIMIT 1"
+    ).fetch_optional(&state.db.pool).await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+
+    let workspace_id = ws_id.map(|r| r.0).unwrap_or(Uuid::nil());
+    let user_id = Uuid::new_v4();
+    let password_hash = crate::auth_routes::hash_password(&req.password);
+
+    let result = sqlx::query(
+        "INSERT INTO workspace_users (id, workspace_id, email, role, password_hash, enabled, created_at)
+         VALUES ($1, $2, $3, 'viewer', $4, true, NOW())
+         ON CONFLICT (workspace_id, email) DO NOTHING"
+    )
+    .bind(user_id)
+    .bind(workspace_id)
+    .bind(&req.email)
+    .bind(&password_hash)
+    .execute(&state.db.pool)
+    .await
+    .map_err(|e| ApiError::internal(&e.to_string()))?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::conflict("An account with this email already exists"));
+    }
+
+    tracing::info!(email = %req.email, "New user registered");
+
+    Ok(Json(serde_json::json!({
+        "user_id": user_id,
+        "email": req.email,
+        "role": "viewer",
+        "message": "Account created. You can now sign in."
+    })))
 }
 
 // ---------------------------------------------------------------------------

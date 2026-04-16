@@ -55,6 +55,7 @@ impl RbacState {
                 "/v1/auth/sessions/verify-2fa".into(), // 2FA completion is pre-auth (uses pending token)
                 "/v1/auth/password-reset/request".into(), // no auth needed to request a reset
                 "/v1/auth/password-reset/confirm".into(), // no auth needed to confirm a reset
+                "/v1/auth/register".into(), // self-registration is pre-auth
             ],
         }
     }

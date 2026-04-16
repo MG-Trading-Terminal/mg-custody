@@ -3,10 +3,14 @@
 	import type { Locale } from '$lib/i18n';
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
+	import { page } from '$app/stores';
 
 	let { children } = $props();
 
 	let sidebarOpen = $state(false);
+
+	// Hide sidebar on login/public pages
+	let isPublicPage = $derived($page.url.pathname.startsWith('/login'));
 
 	// ---------------------------------------------------------------------------
 	// User session — role determines which nav items are visible
@@ -132,6 +136,12 @@
 	></div>
 {/if}
 
+{#if isPublicPage}
+	<!-- Public pages (login) — no sidebar, just content -->
+	<div class="public-page">
+		{@render children()}
+	</div>
+{:else}
 <div class="app">
 	<nav class="sidebar" class:open={sidebarOpen}>
 		<div class="logo">
@@ -247,8 +257,12 @@
 		</main>
 	</div>
 </div>
+{/if}
 
 <style>
+	.public-page {
+		min-height: 100vh;
+	}
 	/* ---------------------------------------------------------------------------
 	   CSS custom properties — dark (default) and light palettes.
 	   Applied via class on <html>: dark = no class, light = class="light".
