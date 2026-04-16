@@ -276,7 +276,7 @@ mod tests {
 
         let (_, pubkey) = derive_tron_keypair(&seed, 0).unwrap();
         use k256::ecdsa::signature::hazmat::PrehashVerifier;
-        let verifying_key = VerifyingKey::from_sec1_bytes(&pubkey).unwrap();
+        let verifying_key = k256::ecdsa::VerifyingKey::from_sec1_bytes(&pubkey).unwrap();
         assert!(verifying_key.verify_prehash(&tx_hash, &r).is_ok(), "Signature verification failed!");
     }
 

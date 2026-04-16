@@ -186,6 +186,113 @@ pub fn derive_ata_address(wallet: &[u8; 32], mint: &[u8; 32]) -> [u8; 32] {
     result
 }
 
+/// Solana Token Program ID.
+pub const TOKEN_PROGRAM_ID: [u8; 32] = [
+    6, 221, 246, 225, 215, 101, 161, 147, 217, 203, 225, 70, 206, 235, 121, 172,
+    28, 180, 133, 237, 95, 91, 55, 145, 58, 140, 245, 133, 126, 255, 0, 169,
+];
+
+/// Encode an SPL Token transfer instruction.
+///
+/// Instruction data: [3] (Transfer) + [amount as u64 LE]
+/// Accounts: [source_ata, dest_ata, owner] with signer flag on owner.
+///
+/// Returns the instruction bytes for inclusion in a Solana transaction message.
+pub fn encode_spl_transfer_instruction(
+    source_ata: &[u8; 32],
+    dest_ata: &[u8; 32],
+    owner: &[u8; 32],
+    amount: u64,
+) -> Vec<u8> {
+    // Instruction data: tag=3 (Transfer), amount as u64 LE
+    let mut data = Vec::with_capacity(9);
+    data.push(3); // Transfer instruction tag
+    data.extend_from_slice(&amount.to_le_bytes());
+
+    // Full instruction encoding:
+    // program_id_index(1) + accounts_len(1) + account_metas(3*each) + data_len(1) + data(9)
+    // For now, return just the instruction data — the message builder handles account layout.
+    data
+}
+
+/// Parameters for an SPL token transfer.
+#[derive(Debug, Clone)]
+pub struct SplTransferParams {
+    pub source_ata: [u8; 32],
+    pub dest_ata: [u8; 32],
+    pub owner: [u8; 32],
+    pub amount: u64,        // in base units (e.g., 1_000_000 = 1 USDT)
+    pub decimals: u8,
+    pub mint: [u8; 32],
+}
+
+/// Sign an SPL token transfer.
+///
+/// Uses TransferChecked (instruction tag 12) which includes decimals for safety.
+/// Returns the signed transaction bytes.
+pub fn sign_spl_transfer(
+    seed: &[u8; 64],
+    index: u32,
+    params: &SplTransferParams,
+    recent_blockhash: &[u8; 32],
+) -> Result<Vec<u8>> {
+    let signing_key = derive_ed25519_signing_key(seed, index)?;
+    let pubkey = signing_key.verifying_key().to_bytes();
+
+    // TransferChecked instruction data: [12, amount(u64 LE), decimals(u8)]
+    let mut instruction_data = Vec::with_capacity(10);
+    instruction_data.push(12); // TransferChecked
+    instruction_data.extend_from_slice(&params.amount.to_le_bytes());
+    instruction_data.push(params.decimals);
+
+    // Build a compact message with:
+    // Accounts: [owner(signer), source_ata, mint, dest_ata, token_program]
+    // This is a simplified encoding — production would use proper CompactU16 and full message format.
+    let mut message = Vec::new();
+
+    // Message header: num_required_signatures=1, num_readonly_signed=0, num_readonly_unsigned=2
+    message.push(1); // num_required_signatures
+    message.push(0); // num_readonly_signed_accounts
+    message.push(2); // num_readonly_unsigned (mint + token_program)
+
+    // Account keys (5 accounts)
+    message.extend_from_slice(&pubkey);           // 0: owner (signer, writable)
+    message.extend_from_slice(&params.source_ata); // 1: source ATA (writable)
+    message.extend_from_slice(&params.dest_ata);   // 2: dest ATA (writable)
+    message.extend_from_slice(&params.mint);       // 3: mint (read-only)
+    message.extend_from_slice(&TOKEN_PROGRAM_ID);  // 4: token program (read-only)
+
+    // Recent blockhash
+    message.extend_from_slice(recent_blockhash);
+
+    // Instructions: 1 instruction
+    message.push(1); // num_instructions
+    // Instruction: program_id_index=4, accounts=[1,2,0,3], data=instruction_data
+    message.push(4); // program_id_index (token_program)
+    message.push(4); // num_accounts
+    message.extend_from_slice(&[1, 2, 0, 3]); // account indices: source, dest, owner, mint
+    // data_len as compact-u16
+    message.push(instruction_data.len() as u8);
+    message.extend_from_slice(&instruction_data);
+
+    // Sign the message
+    let sig: ed25519_dalek::Signature = signing_key.sign(&message);
+
+    // Build transaction: num_signatures(1) + signature(64) + message
+    let mut tx = Vec::new();
+    tx.push(1); // num_signatures
+    tx.extend_from_slice(&sig.to_bytes());
+    tx.extend_from_slice(&message);
+
+    tracing::info!(
+        amount = params.amount,
+        decimals = params.decimals,
+        "SPL token transfer signed"
+    );
+
+    Ok(tx)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,5 +368,64 @@ mod tests {
         let mint = [2u8; 32];
         assert_eq!(derive_ata_address(&wallet, &mint), derive_ata_address(&wallet, &mint));
         assert_ne!(derive_ata_address(&wallet, &mint), derive_ata_address(&wallet, &[3u8; 32]));
+    }
+
+    #[test]
+    fn spl_transfer_instruction_encoding() {
+        let data = encode_spl_transfer_instruction(
+            &[1u8; 32], &[2u8; 32], &[3u8; 32],
+            1_000_000, // 1 USDT
+        );
+        assert_eq!(data.len(), 9); // 1 (tag) + 8 (u64 LE)
+        assert_eq!(data[0], 3); // Transfer tag
+        assert_eq!(u64::from_le_bytes(data[1..9].try_into().unwrap()), 1_000_000);
+    }
+
+    #[test]
+    fn sign_spl_usdt_transfer() {
+        let seed = test_seed();
+        let owner = sol_address(&seed, 0).unwrap();
+        let source_ata = derive_ata_address(&owner, &[0xAA; 32]);
+        let dest_ata = [0xBB; 32];
+        let blockhash = [0xCC; 32];
+
+        let params = SplTransferParams {
+            source_ata,
+            dest_ata,
+            owner,
+            amount: 100_000_000, // 100 USDT (6 decimals)
+            decimals: 6,
+            mint: [0xAA; 32],
+        };
+
+        let signed = sign_spl_transfer(&seed, 0, &params, &blockhash).unwrap();
+
+        // Should start with num_signatures=1
+        assert_eq!(signed[0], 1);
+        // Signature is 64 bytes starting at index 1
+        assert!(signed.len() > 65);
+        // Message follows signature
+        let message_start = 1 + 64;
+        // Header: num_required_signatures=1
+        assert_eq!(signed[message_start], 1);
+    }
+
+    #[test]
+    fn sign_spl_different_amounts_different_sigs() {
+        let seed = test_seed();
+        let owner = sol_address(&seed, 0).unwrap();
+        let blockhash = [0xDD; 32];
+
+        let p1 = SplTransferParams {
+            source_ata: [1u8; 32], dest_ata: [2u8; 32], owner,
+            amount: 1_000_000, decimals: 6, mint: [3u8; 32],
+        };
+        let p2 = SplTransferParams {
+            amount: 2_000_000, ..p1.clone()
+        };
+
+        let tx1 = sign_spl_transfer(&seed, 0, &p1, &blockhash).unwrap();
+        let tx2 = sign_spl_transfer(&seed, 0, &p2, &blockhash).unwrap();
+        assert_ne!(tx1, tx2, "Different amounts must produce different signed txs");
     }
 }

@@ -20,6 +20,9 @@ tracing = { workspace = true }
 anyhow = { workspace = true }
 dashmap = { workspace = true }
 chrono = { workspace = true }
+sha2 = { workspace = true }
+bs58 = { workspace = true }
 
 [dev-dependencies]
+sqlx = { workspace = true }
 rust_decimal_macros = { workspace = true }
