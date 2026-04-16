@@ -97,6 +97,7 @@
 		{ href: '/audit',      key: 'nav.audit',       icon: 'L' },
 		{ href: '/webhooks',   key: 'nav.webhooks',   icon: 'W' },
 		{ href: '/derivation', key: 'nav.derivation', icon: 'D' },
+		{ href: '/backup',     key: 'nav.backup',     icon: 'B' },
 		{ href: '/emergency',  key: 'nav.emergency',  icon: '!' },
 		{ href: '/settings',   key: 'nav.settings',   icon: 'S' },
 	];

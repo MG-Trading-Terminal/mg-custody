@@ -57,6 +57,10 @@ pub fn webhook_mgmt_router() -> Router<AppState> {
         .route("/v1/health/perf", get(perf_health))
         // Audit log integrity check (Feature 5b)
         .route("/v1/admin/audit/integrity", get(audit_integrity_check))
+        // Backup management
+        .route("/v1/admin/backup/mnemonic", get(show_mnemonic))
+        .route("/v1/admin/backup/verify-mnemonic", post(verify_mnemonic))
+        .route("/v1/admin/backup/status", get(backup_status_real))
         // Token prices (dashboard)
         .route("/v1/prices", get(token_prices))
         // Bulk token import from CoinGecko
@@ -1062,6 +1066,81 @@ async fn bulk_import_tokens(
 
     Ok(Json(serde_json::to_value(result)
         .map_err(|e| ApiError::internal(&e.to_string()))?))
+}
+
+// ---------------------------------------------------------------------------
+// Backup management endpoints
+// ---------------------------------------------------------------------------
+
+/// Show the 24-word mnemonic for the current seed. OWNER ONLY.
+/// WARNING: This exposes the master key — use only in secure environment.
+async fn show_mnemonic(
+    _auth: RequireOwner,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let seed_bytes = state.seed.0;
+    let mut entropy = [0u8; 32];
+    entropy.copy_from_slice(&seed_bytes[..32]);
+
+    let phrase = custody_signing::mnemonic::entropy_to_mnemonic(&entropy)
+        .map_err(|e| ApiError::internal(&format!("Mnemonic generation failed: {e}")))?;
+
+    // Derive first address for verification
+    let eth_addr = custody_signing::ethereum::eth_address(&seed_bytes, 0)
+        .map(|a| format!("{a:#x}"))
+        .unwrap_or_default();
+
+    // Log this security-sensitive operation
+    tracing::warn!(event = "mnemonic_viewed", "Owner viewed recovery mnemonic");
+
+    Ok(Json(serde_json::json!({
+        "mnemonic": phrase,
+        "word_count": 24,
+        "verification_address": eth_addr,
+        "warning": "NEVER share this phrase. Anyone with these words can access ALL funds."
+    })))
+}
+
+/// Verify a mnemonic phrase matches the current seed.
+async fn verify_mnemonic(
+    _auth: RequireOwner,
+    State(state): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let phrase = body["mnemonic"].as_str()
+        .ok_or_else(|| ApiError::bad_request("mnemonic field required"))?;
+
+    let restored_seed = custody_signing::mnemonic::mnemonic_to_seed(phrase, "")
+        .map_err(|e| ApiError::bad_request(&format!("Invalid mnemonic: {e}")))?;
+
+    // Compare first 32 bytes (entropy portion)
+    let matches = restored_seed[..32] == state.seed.0[..32];
+
+    Ok(Json(serde_json::json!({
+        "valid": matches,
+        "message": if matches { "Mnemonic matches current seed" } else { "Mnemonic does NOT match" }
+    })))
+}
+
+/// Real backup status (not mock).
+async fn backup_status_real(
+    _auth: RequireAdmin,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let eth_addr = custody_signing::ethereum::eth_address(&state.seed.0, 0)
+        .map(|a| format!("{a:#x}"))
+        .unwrap_or_default();
+
+    Ok(Json(serde_json::json!({
+        "seed_loaded": true,
+        "first_eth_address": eth_addr,
+        "backup_methods": [
+            {"method": "mnemonic", "description": "24-word BIP-39 recovery phrase", "status": "available"},
+            {"method": "shamir", "description": "3-of-5 Shamir secret sharing", "status": "available"},
+            {"method": "encrypted_file", "description": "AES-256-GCM encrypted seed file", "status": "active"}
+        ],
+        "recommendation": "Use ALL three methods: mnemonic for personal backup, Shamir for organizational, encrypted file for hot storage."
+    })))
 }
 
 // ---------------------------------------------------------------------------
