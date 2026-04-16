@@ -230,6 +230,56 @@ pub fn all_tokens() -> Vec<TokenEntry> {
     tokens.push(erc20("QI", "BENQI", "0x8729438EB15e2C8B576fCc6AeCdA6A148776C0F5", 18, false, "benqi"));
     tokens.push(erc20("GMX-AVAX", "GMX", "0x62edc0692BD897D2295872a9FFCac5425011c661", 18, false, "gmx"));
 
+    // --- Ethereum ERC-20 (batch 8 — infrastructure + payments) ---
+    tokens.push(erc20("USDS", "Sky Dollar", "0xdC035D45d973E3EC169d2276DDab16f1e407384F", 18, true, "usds"));
+    tokens.push(erc20("sUSD", "Synthetix USD", "0x57Ab1ec28D129707052df4dF418D58a2D46d5f51", 18, true, "susd"));
+    tokens.push(erc20("MIM", "Magic Internet Money", "0x99D8a9C45b2ecA8864373A26D1459e3Dff1e17F3", 18, true, "magic-internet-money"));
+    tokens.push(erc20("RAI", "Rai Reflex Index", "0x03ab458634910AaD20eF5f1C8ee96F1D6ac54919", 18, true, "rai"));
+    tokens.push(erc20("XAUT", "Tether Gold", "0x68749665FF8D2d112Fa859AA293F07A622782F38", 6, false, "tether-gold"));
+    tokens.push(erc20("PAXG", "PAX Gold", "0x45804880De22913dAFE09f4980848ECE6EcbAf78", 18, false, "pax-gold"));
+    tokens.push(erc20("EURT", "Tether EURt", "0xC581b735A1688071A1746c968e0798D642EDE491", 6, true, "tether-eurt"));
+    tokens.push(erc20("EURS", "STASIS EURO", "0xdB25f211AB05b1c97D595516F45D8433d348261a", 2, true, "stasis-eurs"));
+    tokens.push(erc20("AGEUR", "agEUR", "0x1a7e4e63778B4f12a199C062f3eFdD288afCBce8", 18, true, "ageur"));
+    tokens.push(erc20("XSGD", "StraitsX SGD", "0x70e8dE73cE538DA2bEEd35d14187F6959a8ecA96", 6, true, "xsgd"));
+    tokens.push(erc20("GYEN", "GMO JPY", "0xC08512927D12348F6620a698105e1BAac6EcD911", 6, true, "gyen"));
+
+    // --- Ethereum ERC-20 (batch 9 — RWA + Institutional) ---
+    tokens.push(erc20("ONDO-TOKEN", "Ondo Finance", "0xfAbA6f8e4a5E8Ab82F62fe7C39859FA577269BE3", 18, false, "ondo-finance"));
+    tokens.push(erc20("MPL-MAPLE", "Maple Finance", "0x33349B282065b0284d756F0577FB39c158F935e6", 18, false, "maple"));
+    tokens.push(erc20("CFG", "Centrifuge", "0xc221b7E65FcE80ABFe0C6fBC734796B9C4f07CeA", 18, false, "centrifuge"));
+    tokens.push(erc20("GFI", "Goldfinch", "0xdab396cCF3d84Cf2D07C4454e10C8A6F5b008D2b", 18, false, "goldfinch"));
+    tokens.push(erc20("TRU", "TrueFi", "0x4C19596f5aAfF459fA38B0f7eD92F11AE6543784", 8, false, "truefi"));
+    tokens.push(erc20("OUSG", "Ondo US Govt Bond", "0x1B19C19393e2d034D8Ff31ff34c81252FcBbee92", 18, false, "ondo-us-dollar-yield"));
+    tokens.push(erc20("BUIDL", "BlackRock USD Institutional", "0x7712c34205737192402172409a8F7ccef8aA2AEc", 6, false, "blackrock-usd-institutional-digital-liquidity-fund"));
+
+    // --- Ethereum ERC-20 (batch 10 — more top 200) ---
+    tokens.push(erc20("AIOZ", "AIOZ Network", "0x626E8036dEB333b408Be468F951bdB42433cBF18", 18, false, "aioz-network"));
+    tokens.push(erc20("COTI", "COTI", "0xDDB3422497E61e13543BeA06989C0789117555c5", 18, false, "coti"));
+    tokens.push(erc20("CTSI", "Cartesi", "0x491604c0FDF08347Dd1fa4Ee062a822A5DD06B5D", 18, false, "cartesi"));
+    tokens.push(erc20("NMR", "Numeraire", "0x1776e1F26f98b1A5dF9cD347953a26dd3Cb46671", 18, false, "numeraire"));
+    tokens.push(erc20("REQ", "Request", "0x8f8221aFbB33998d8584A2B05749bA73c37a938a", 18, false, "request-network"));
+    tokens.push(erc20("POWR", "Powerledger", "0x595832F8FC6BF59c85C527fEC3740A1b7a361269", 6, false, "power-ledger"));
+    tokens.push(erc20("OGN", "Origin Protocol", "0x8207c1FfC5B6804F6024322CcF34F29c3541Ae26", 18, false, "origin-protocol"));
+    tokens.push(erc20("MLN", "Enzyme", "0xec67005c4E498Ec7f55E092bd1d35cbC47C91892", 18, false, "melon"));
+    tokens.push(erc20("AUDIO", "Audius", "0x18aAA7115705e8be94bfFEBDE57Af9BFc265B998", 18, false, "audius"));
+    tokens.push(erc20("LPT", "Livepeer", "0x58b6A8A3302369DAEc383334672404Ee733aB239", 18, false, "livepeer"));
+    tokens.push(erc20("ACH", "Alchemy Pay", "0xEd04915c23f00A313a544955524EB7DBD823143d", 8, false, "alchemy-pay"));
+    tokens.push(erc20("POND", "Marlin", "0x57B946008913B82E4dF85f501cbAeD910e58D26C", 18, false, "marlin"));
+    tokens.push(erc20("HIGH", "Highstreet", "0x71Ab77b7dbB4fa7e017BC15090b2163221420282", 18, false, "highstreet"));
+    tokens.push(erc20("BTRST", "Braintrust", "0x799ebfABE77a6E34311eeEe9825190B9ECe32824", 18, false, "braintrust"));
+    tokens.push(erc20("RAD", "Radicle", "0x31c8EAcBFFdD875c74b94b077895Bd78CF1E64A3", 18, false, "radicle"));
+    tokens.push(erc20("REN", "Ren", "0x408e41876cCCDC0F92210600ef50372656052a38", 18, false, "republic-protocol"));
+    tokens.push(erc20("KNC", "Kyber Network Crystal", "0xdeFA4e8a7bcBA345F687a2f1456F5Edd9CE97202", 18, false, "kyber-network-crystal"));
+    tokens.push(erc20("SNT", "Status", "0x744d70FDBE2Ba4CF95131626614a1763DF805B9E", 18, false, "status"));
+    tokens.push(erc20("LOOKS", "LooksRare", "0xf4d2888d29D722226FafA5d9B24F9164c092421E", 18, false, "looksrare"));
+    tokens.push(erc20("X2Y2", "X2Y2", "0x1E4EDE388cbc9F4b5c79681B7f94d36a11ABEBC9", 18, false, "x2y2"));
+
+    // --- Solana SPL (batch 5 — more ecosystem tokens) ---
+    tokens.push(spl("MEAN", "Meanfi", "MEANeD3XDdUmNMsRGjASkSWdC8prLYsoRJ61pPeHctD", 6, false, "meanfi"));
+    tokens.push(spl("MNGO-V2", "Mango V2", "MangoCzJ36AjZyKwVj3VnYU4GTonjfVEnJmvvWaxLac", 6, false, "mango-markets"));
+    tokens.push(spl("HAWK", "Hawksight", "HAWKk5idFpAFtVjVgxjPKPHTvWYnBPc5MYxkiGJ7ai39", 6, false, "hawksight"));
+    tokens.push(spl("CHILLGUY", "Just a chill guy", "Df6yfrKC8kZE3P82g4d3GhezfLVMAiIE3EY4Gp4gN1gN", 6, false, "just-a-chill-guy"));
+
     // --- Tron TRC-20 (batch 2) ---
     tokens.push(trc20("TUSD", "TrueUSD", "TUpMhErZL2fhh4sVNULAbNKLokS4GjC1F4", 18, true, "true-usd"));
     tokens.push(trc20("USDJ", "JUST Stablecoin", "TMwFHYXLJaRUPeW6421aqXL4ZEzPRFGkGT", 18, true, "just-stablecoin"));
@@ -380,7 +430,7 @@ mod tests {
     #[test]
     fn total_token_count() {
         let tokens = all_tokens();
-        assert!(tokens.len() >= 220, "Should have 220+ tokens, got {}", tokens.len());
+        assert!(tokens.len() >= 260, "Should have 260+ tokens, got {}", tokens.len());
     }
 
     #[test]
