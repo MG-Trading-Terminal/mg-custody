@@ -37,10 +37,7 @@ pub fn governance_router() -> Router<AppState> {
         // Transaction notes
         .route("/v1/transactions/{id}/notes", get(list_transaction_notes))
         .route("/v1/transactions/{id}/notes", post(create_transaction_note))
-        // Staking
-        .route("/v1/staking/positions", get(list_staking_positions))
-        .route("/v1/staking/stake", post(stake))
-        .route("/v1/staking/unstake", post(unstake))
+        // Staking routes moved to staking_routes.rs to avoid overlap
 }
 
 // ---------------------------------------------------------------------------
