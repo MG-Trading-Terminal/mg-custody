@@ -179,6 +179,57 @@ pub fn all_tokens() -> Vec<TokenEntry> {
     tokens.push(spl("FARTCOIN", "Fartcoin", "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump", 6, false, "fartcoin"));
     tokens.push(spl("GOAT", "Goatseus Maximus", "CzLSujWBLFsSjncfkh59rUFqvafWcY5tzedWJSuypump", 6, false, "goatseus-maximus"));
 
+    // === CROSS-CHAIN TOKENS (same token, different chains) ===
+
+    // --- Arbitrum tokens ---
+    fn arb(symbol: &str, name: &str, addr: &str, decimals: u8, stable: bool, cg_id: &str) -> TokenEntry {
+        TokenEntry { symbol: symbol.into(), name: name.into(), chain: Chain::Ethereum, // Uses Ethereum chain (Arbitrum is EVM)
+            contract_address: Some(addr.into()), decimals, token_type: TokenType::Erc20,
+            coingecko_id: Some(cg_id.into()), is_stablecoin: stable, verified: true }
+    }
+    tokens.push(arb("ARB", "Arbitrum", "0x912CE59144191C1204E64559FE8253a0e49E6548", 18, false, "arbitrum"));
+    tokens.push(arb("GMX", "GMX", "0xfc5A1A6EB076a2C7aD06eD22C90d7E710E35ad0a", 18, false, "gmx"));
+    tokens.push(arb("MAGIC", "Magic", "0x539bdE0d7Dbd336b79148AA742883198BBF60342", 18, false, "magic"));
+    tokens.push(arb("RDNT", "Radiant Capital", "0x3082CC23568eA640225c2467653dB90e9250AaA0", 18, false, "radiant-capital"));
+    tokens.push(arb("GNS", "Gains Network", "0x18c11FD286C5EC11c3b683Caa813B77f5163A122", 18, false, "gains-network"));
+    tokens.push(arb("GRAIL", "Camelot", "0x3d9907F9a368ad0a51Be60f7Da3b97cf940982D8", 18, false, "camelot-token"));
+    tokens.push(arb("PENDLE", "Pendle", "0x0c880f6761F1af8d9Aa9C466984b80DAb9a8c9e8", 18, false, "pendle"));
+    tokens.push(arb("STG", "Stargate", "0x6694340fc020c5E6B96567843da2df01b2CE1eb6", 18, false, "stargate-finance"));
+
+    // --- Polygon tokens ---
+    tokens.push(erc20("MATIC-POL", "Polygon", "0x0000000000000000000000000000000000001010", 18, false, "matic-network"));
+    tokens.push(erc20("QUICK", "QuickSwap", "0xB5C064F955D8e7F38fE0460C556a72987494eE17", 18, false, "quickswap"));
+    tokens.push(erc20("AAVEGOTCHI", "Aavegotchi", "0x385Eeac5cB85A38A9a07A70c73e0a3271CfB54A7", 18, false, "aavegotchi"));
+
+    // --- BSC BEP-20 tokens ---
+    tokens.push(erc20("CAKE-BSC", "PancakeSwap", "0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82", 18, false, "pancakeswap-token"));
+    tokens.push(erc20("XVS", "Venus", "0xcF6BB5389c92Bdda8a3747Ddb454cB7a64626C63", 18, false, "venus"));
+    tokens.push(erc20("BAKE", "BakeryToken", "0xE02dF9e3e622DeBdD69fb838bB799E3F168902c5", 18, false, "bakerytoken"));
+    tokens.push(erc20("ALPACA", "Alpaca Finance", "0x8F0528cE5eF7B51152A59745bEfDD91D97091d2F", 18, false, "alpaca-finance"));
+    tokens.push(erc20("BABY", "BabySwap", "0x53E562b9B7E5E94b81f10e96Ee70Ad06df3D2657", 18, false, "babyswap"));
+    tokens.push(erc20("BIFI", "Beefy.Finance", "0xCa3F508B8e4Dd382eE878A314789373D80A5190A", 18, false, "beefy-finance"));
+    tokens.push(erc20("TWT", "Trust Wallet", "0x4B0F1812e5Df2A09796481Ff14017e6005508003", 18, false, "trust-wallet-token"));
+    tokens.push(erc20("SFP", "SafePal", "0xD41FDb03Ba84762dD66a0af1a6C8540FF1ba5dfb", 18, false, "safepal"));
+    tokens.push(erc20("C98", "Coin98", "0xaEC945e04baF28b135Fa7c640f624f8D90F1C3a6", 18, false, "coin98"));
+
+    // --- Base tokens ---
+    tokens.push(erc20("AERO", "Aerodrome", "0x940181a94A35A4569E4529A3CDfB74e38FD98631", 18, false, "aerodrome-finance"));
+    tokens.push(erc20("BRETT", "Brett", "0x532f27101965dd16442E59d40670FaF5eBB142E4", 18, false, "brett"));
+    tokens.push(erc20("DEGEN", "Degen", "0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed", 18, false, "degen-base"));
+    tokens.push(erc20("TOSHI", "Toshi", "0xAC1Bd2486aAf3B5C0fc3Fd868558b082a531B2B4", 18, false, "toshi-base"));
+    tokens.push(erc20("HIGHER", "Higher", "0x0578d8A44db98B23BF096A382e016e29a5Ce0ffe", 18, false, "higher"));
+
+    // --- Optimism tokens ---
+    tokens.push(erc20("OP-TOKEN", "Optimism", "0x4200000000000000000000000000000000000042", 18, false, "optimism"));
+    tokens.push(erc20("VELO", "Velodrome", "0x9560e827aF36c94D2Ac33a39bCE1Fe78631088Db", 18, false, "velodrome-finance"));
+    tokens.push(erc20("SNX-OP", "Synthetix", "0x8700dAec35aF8Ff88c16BdF0418774CB3D7599B4", 18, false, "havven"));
+
+    // --- Avalanche tokens ---
+    tokens.push(erc20("JOE", "Trader Joe", "0x6e84a6216eA6dACC71eE8E6b0a5B7322EEbC0fDd", 18, false, "joe"));
+    tokens.push(erc20("PNG", "Pangolin", "0x60781C2586D68229fde47564546784ab3fACA982", 18, false, "pangolin"));
+    tokens.push(erc20("QI", "BENQI", "0x8729438EB15e2C8B576fCc6AeCdA6A148776C0F5", 18, false, "benqi"));
+    tokens.push(erc20("GMX-AVAX", "GMX", "0x62edc0692BD897D2295872a9FFCac5425011c661", 18, false, "gmx"));
+
     // --- Tron TRC-20 (batch 2) ---
     tokens.push(trc20("TUSD", "TrueUSD", "TUpMhErZL2fhh4sVNULAbNKLokS4GjC1F4", 18, true, "true-usd"));
     tokens.push(trc20("USDJ", "JUST Stablecoin", "TMwFHYXLJaRUPeW6421aqXL4ZEzPRFGkGT", 18, true, "just-stablecoin"));
@@ -329,7 +380,7 @@ mod tests {
     #[test]
     fn total_token_count() {
         let tokens = all_tokens();
-        assert!(tokens.len() >= 190, "Should have 190+ tokens, got {}", tokens.len());
+        assert!(tokens.len() >= 220, "Should have 220+ tokens, got {}", tokens.len());
     }
 
     #[test]
