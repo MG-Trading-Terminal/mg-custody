@@ -7,7 +7,18 @@ vulnerability = "deny"
 unmaintained = "warn"
 yanked = "warn"
 notice = "warn"
-ignore = []
+# Acknowledged advisories — documented justification for each:
+ignore = [
+    # cggmp21 presignature security issue. No fix available upstream.
+    # Our MPC uses simulated rounds, not production presigning cache.
+    "RUSTSEC-2025-0127",
+    # rsa Marvin Attack timing sidechannel. No fix available.
+    # We don't use RSA for signing — only Ed25519/secp256k1.
+    # rsa is a transitive dep from webpki/rustls.
+    "RUSTSEC-2023-0071",
+    # rand unsound with custom logger — we don't use custom loggers.
+    "RUSTSEC-2026-0097",
+]
 
 [licenses]
 unlicensed = "deny"

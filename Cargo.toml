@@ -105,7 +105,8 @@ toml = "0.8"
 # Observability
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-prometheus = "0.13"
+# default-features = false drops protobuf dependency (RUSTSEC-2024-0437)
+prometheus = { version = "0.13", default-features = false }
 
 # Error handling
 anyhow = "1"
