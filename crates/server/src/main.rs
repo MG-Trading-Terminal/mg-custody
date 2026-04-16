@@ -118,7 +118,12 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
 
-            CustodyDb::new(pool)
+            let db = CustodyDb::new(pool);
+
+            // ── First-run bootstrap: create default workspace + admin if DB is empty
+            bootstrap_first_admin(&db).await;
+
+            db
         }
         Err(e) => {
             tracing::error!(error = %e, "Failed to connect to PostgreSQL");
@@ -1082,4 +1087,102 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Custody service stopped cleanly");
     Ok(())
+}
+
+// ═══════════════════════════════════════════════════════════════
+// First-run bootstrap
+// ═══════════════════════════════════════════════════════════════
+
+/// Create default workspace + admin user on first run if the DB has no users.
+///
+/// Reads from environment variables:
+///   CUSTODY_ADMIN_EMAIL    (default: admin@custody.local)
+///   CUSTODY_ADMIN_PASSWORD (default: randomly generated, printed to stdout)
+///
+/// This runs ONCE — subsequent starts skip if any workspace_user exists.
+async fn bootstrap_first_admin(db: &custody_db::CustodyDb) {
+    // Check if any users exist
+    let has_users: bool = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM workspace_users LIMIT 1)"
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap_or(false);
+
+    if has_users {
+        return; // Not first run — skip bootstrap
+    }
+
+    tracing::info!("═══ FIRST RUN DETECTED — bootstrapping admin account ═══");
+
+    let admin_email = std::env::var("CUSTODY_ADMIN_EMAIL")
+        .unwrap_or_else(|_| "admin@custody.local".into());
+
+    let admin_password = std::env::var("CUSTODY_ADMIN_PASSWORD")
+        .unwrap_or_else(|_| {
+            // Generate random password
+            use rand::Rng;
+            let mut rng = rand::thread_rng();
+            let password: String = (0..24)
+                .map(|_| {
+                    let idx = rng.gen_range(0..62);
+                    let c = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[idx];
+                    c as char
+                })
+                .collect();
+            password
+        });
+
+    let workspace_id = uuid::Uuid::new_v4();
+    let user_id = uuid::Uuid::new_v4();
+    let password_hash = custody_gateway::auth_routes::hash_password(&admin_password);
+    let now = chrono::Utc::now();
+
+    // Create default workspace
+    let ws_result = sqlx::query(
+        "INSERT INTO workspaces (id, name, environment, owner_email, enabled, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, true, $5, $5)
+         ON CONFLICT DO NOTHING"
+    )
+    .bind(workspace_id)
+    .bind("Default")
+    .bind("mainnet")
+    .bind(&admin_email)
+    .bind(now)
+    .execute(&db.pool)
+    .await;
+
+    if let Err(e) = ws_result {
+        tracing::warn!(error = %e, "Failed to create default workspace (may already exist)");
+    }
+
+    // Create admin user
+    let user_result = sqlx::query(
+        "INSERT INTO workspace_users (id, workspace_id, email, role, password_hash, enabled, created_at)
+         VALUES ($1, $2, $3, 'owner', $4, true, $5)
+         ON CONFLICT (workspace_id, email) DO NOTHING"
+    )
+    .bind(user_id)
+    .bind(workspace_id)
+    .bind(&admin_email)
+    .bind(&password_hash)
+    .bind(now)
+    .execute(&db.pool)
+    .await;
+
+    match user_result {
+        Ok(_) => {
+            tracing::info!("═══════════════════════════════════════════════════");
+            tracing::info!("  Admin account created successfully!");
+            tracing::info!("  Email:    {}", admin_email);
+            tracing::info!("  Password: {}", admin_password);
+            tracing::info!("  Role:     owner");
+            tracing::info!("═══════════════════════════════════════════════════");
+            tracing::warn!("  SAVE THIS PASSWORD — it will not be shown again!");
+            tracing::info!("═══════════════════════════════════════════════════");
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to create admin user");
+        }
+    }
 }

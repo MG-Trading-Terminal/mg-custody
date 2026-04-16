@@ -57,6 +57,89 @@ async fn main() -> anyhow::Result<()> {
 
         "unfreeze" => println!("Freeze lifted."),
 
+        "bootstrap" => {
+            let email = args.get(2).map(|s| s.as_str()).unwrap_or("admin@custody.local");
+            let password = args.get(3).cloned().unwrap_or_else(|| {
+                use rand::Rng;
+                let mut rng = rand::thread_rng();
+                (0..24).map(|_| {
+                    let idx = rng.gen_range(0..62);
+                    b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[idx] as char
+                }).collect()
+            });
+
+            let pool = sqlx::PgPool::connect(&db_url).await?;
+
+            // Run migrations
+            let migration = include_str!("../../db/migrations/001_initial_schema.sql");
+            let _ = sqlx::raw_sql(migration).execute(&pool).await;
+            let migration6 = include_str!("../../db/migrations/006_platform.sql");
+            let _ = sqlx::raw_sql(migration6).execute(&pool).await;
+            let migration11 = include_str!("../../db/migrations/011_sessions.sql");
+            let _ = sqlx::raw_sql(migration11).execute(&pool).await;
+
+            let workspace_id = uuid::Uuid::new_v4();
+            let user_id = uuid::Uuid::new_v4();
+            let password_hash = custody_gateway::auth_routes::hash_password(&password);
+            let now = chrono::Utc::now();
+
+            sqlx::query(
+                "INSERT INTO workspaces (id, name, environment, owner_email, enabled, created_at, updated_at)
+                 VALUES ($1, 'Default', 'mainnet', $2, true, $3, $3)
+                 ON CONFLICT DO NOTHING"
+            )
+            .bind(workspace_id).bind(email).bind(now)
+            .execute(&pool).await?;
+
+            sqlx::query(
+                "INSERT INTO workspace_users (id, workspace_id, email, role, password_hash, enabled, created_at)
+                 VALUES ($1, $2, $3, 'owner', $4, true, $5)
+                 ON CONFLICT (workspace_id, email) DO NOTHING"
+            )
+            .bind(user_id).bind(workspace_id).bind(email).bind(&password_hash).bind(now)
+            .execute(&pool).await?;
+
+            println!("══════════════════════════════════════");
+            println!("  Admin account created:");
+            println!("  Email:    {email}");
+            println!("  Password: {password}");
+            println!("  Role:     owner");
+            println!("══════════════════════════════════════");
+            println!("  SAVE THIS PASSWORD!");
+        }
+
+        "create-user" => {
+            if args.len() < 5 {
+                eprintln!("Usage: custody-admin create-user <email> <password> <role>");
+                eprintln!("  Roles: viewer, editor, signer, admin, owner");
+                return Ok(());
+            }
+            let email = &args[2];
+            let password = &args[3];
+            let role = &args[4];
+
+            let pool = sqlx::PgPool::connect(&db_url).await?;
+
+            // Find first workspace
+            let ws_id: Option<(uuid::Uuid,)> = sqlx::query_as(
+                "SELECT id FROM workspaces WHERE enabled = true ORDER BY created_at LIMIT 1"
+            ).fetch_optional(&pool).await?;
+
+            let workspace_id = ws_id.map(|r| r.0).unwrap_or(uuid::Uuid::nil());
+            let user_id = uuid::Uuid::new_v4();
+            let password_hash = custody_gateway::auth_routes::hash_password(password);
+
+            sqlx::query(
+                "INSERT INTO workspace_users (id, workspace_id, email, role, password_hash, enabled, created_at)
+                 VALUES ($1, $2, $3, $4, $5, true, NOW())
+                 ON CONFLICT (workspace_id, email) DO NOTHING"
+            )
+            .bind(user_id).bind(workspace_id).bind(email).bind(role).bind(&password_hash)
+            .execute(&pool).await?;
+
+            println!("User created: {email} (role: {role})");
+        }
+
         _ => print_usage(),
     }
 
@@ -65,8 +148,10 @@ async fn main() -> anyhow::Result<()> {
 
 fn print_usage() {
     eprintln!("Usage: custody-admin <command>");
-    eprintln!("  status                             Show system status");
+    eprintln!("  status                                  Show system status");
+    eprintln!("  bootstrap [email] [password]             Create first admin (auto-generates password if omitted)");
+    eprintln!("  create-user <email> <password> <role>    Create additional user");
     eprintln!("  rescan --chain <chain> --from-block <n>  Rescan deposits");
-    eprintln!("  freeze --reason <reason>           Emergency freeze");
-    eprintln!("  unfreeze                           Lift freeze");
+    eprintln!("  freeze --reason <reason>                 Emergency freeze");
+    eprintln!("  unfreeze                                 Lift freeze");
 }
