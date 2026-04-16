@@ -59,6 +59,8 @@ pub fn webhook_mgmt_router() -> Router<AppState> {
         .route("/v1/admin/audit/integrity", get(audit_integrity_check))
         // Token prices (dashboard)
         .route("/v1/prices", get(token_prices))
+        // Bulk token import from CoinGecko
+        .route("/v1/admin/tokens/bulk-import", post(bulk_import_tokens))
         // Circuit breaker status (dashboard Policies page)
         .route("/v1/circuit-breaker/status", get(circuit_breaker_status))
         // Policy rules list (dashboard Policies page)
@@ -975,6 +977,91 @@ mod tests {
         });
         assert!(!status["is_tripped"].as_bool().unwrap());
     }
+}
+
+// ---------------------------------------------------------------------------
+// Bulk token import from CoinGecko
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct BulkImportRequest {
+    /// Number of top tokens to fetch (default: 250, max: 500)
+    #[serde(default = "default_import_count")]
+    count: u32,
+}
+
+fn default_import_count() -> u32 { 250 }
+
+async fn bulk_import_tokens(
+    _auth: RequireAdmin,
+    State(state): State<AppState>,
+    Json(req): Json<BulkImportRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    use custody_common::coingecko_import::{fetch_top_tokens, resolve_tokens, BulkImportResult};
+
+    let count = req.count.min(500); // Cap at 500
+    let client = reqwest::Client::new();
+
+    // Step 1: Fetch from CoinGecko
+    let entries = fetch_top_tokens(&client, count).await
+        .map_err(|e| ApiError::internal(&format!("CoinGecko fetch failed: {e}")))?;
+
+    // Step 2: Resolve to per-chain tokens
+    let resolved = resolve_tokens(&entries);
+
+    // Step 3: Import each into DB (skip duplicates)
+    let mut imported = 0u32;
+    let mut skipped = 0u32;
+    let mut errors = Vec::new();
+
+    for token in &resolved {
+        let insert_result = sqlx::query(
+            "INSERT INTO managed_assets (id, symbol, chain, contract_address, decimals, is_native, enabled, added_at, display_name, coingecko_id, logo_url, is_stablecoin)
+             VALUES ($1, $2, $3, $4, $5, false, true, NOW(), $6, $7, $8, $9)
+             ON CONFLICT (symbol, chain) DO UPDATE SET
+                coingecko_id = EXCLUDED.coingecko_id,
+                logo_url = EXCLUDED.logo_url,
+                display_name = EXCLUDED.display_name,
+                is_stablecoin = EXCLUDED.is_stablecoin"
+        )
+        .bind(Uuid::new_v4())
+        .bind(&token.symbol)
+        .bind(&token.chain)
+        .bind(&token.contract_address)
+        .bind(token.decimals as i32)
+        .bind(&token.name)
+        .bind(&token.coingecko_id)
+        .bind(&token.logo_url)
+        .bind(token.is_stablecoin)
+        .execute(&state.db.pool)
+        .await;
+
+        match insert_result {
+            Ok(r) if r.rows_affected() > 0 => imported += 1,
+            Ok(_) => skipped += 1,
+            Err(e) => errors.push(format!("{} on {}: {}", token.symbol, token.chain, e)),
+        }
+    }
+
+    let result = BulkImportResult {
+        fetched: entries.len(),
+        resolved: resolved.len(),
+        imported: imported as usize,
+        skipped_duplicate: skipped as usize,
+        errors: errors.clone(),
+    };
+
+    tracing::info!(
+        fetched = result.fetched,
+        resolved = result.resolved,
+        imported = result.imported,
+        skipped = result.skipped_duplicate,
+        errors = errors.len(),
+        "Bulk token import completed"
+    );
+
+    Ok(Json(serde_json::to_value(result)
+        .map_err(|e| ApiError::internal(&e.to_string()))?))
 }
 
 // ---------------------------------------------------------------------------

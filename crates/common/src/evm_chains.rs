@@ -570,6 +570,177 @@ pub fn default_evm_chains() -> Vec<EvmChainDef> {
             enabled: true,
             testnet: false,
         },
+        EvmChainDef {
+            id: "polygon_zkevm".into(),
+            name: "Polygon zkEVM".into(),
+            chain_id: 1101,
+            rpc_url: "https://zkevm-rpc.com".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://zkevm.polygonscan.com".into()),
+            required_confirmations: 12,
+            block_time_secs: 5,
+            native_token: "ETH".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0x1E4a5963aBFD975d8c9021ce480b42188849D41d".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0x1E4a5963aBFD975d8c9021ce480b42188849D41d".into(), decimals: 6,
+                }),
+                ("0xA8CE8aee21bC2A48a5EF670afCc9274C7bbbC035".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0xA8CE8aee21bC2A48a5EF670afCc9274C7bbbC035".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "aurora".into(),
+            name: "Aurora (NEAR EVM)".into(),
+            chain_id: 1313161554,
+            rpc_url: "https://mainnet.aurora.dev".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://explorer.aurora.dev".into()),
+            required_confirmations: 12,
+            block_time_secs: 1,
+            native_token: "ETH".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0x4988a896b1227218e4A686fdE5EabdcAbd91571f".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0x4988a896b1227218e4A686fdE5EabdcAbd91571f".into(), decimals: 6,
+                }),
+                ("0xB12BFcA5A55806AaF64E99521918A4bf0fC40802".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0xB12BFcA5A55806AaF64E99521918A4bf0fC40802".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "klaytn".into(),
+            name: "Klaytn".into(),
+            chain_id: 8217,
+            rpc_url: "https://public-en-cypress.klaytn.net".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://klaytnscope.com".into()),
+            required_confirmations: 12,
+            block_time_secs: 1,
+            native_token: "KLAY".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0xceE8FAF64bB97a73bb51E115Aa89C17FfA8dD167".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0xceE8FAF64bB97a73bb51E115Aa89C17FfA8dD167".into(), decimals: 6,
+                }),
+                ("0x6270B58BE569a7c0b8f47594F191631Ae5b2C86C".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0x6270B58BE569a7c0b8f47594F191631Ae5b2C86C".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "filecoin".into(),
+            name: "Filecoin EVM".into(),
+            chain_id: 314,
+            rpc_url: "https://api.node.glif.io/rpc/v1".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://filfox.info".into()),
+            required_confirmations: 12,
+            block_time_secs: 30,
+            native_token: "FIL".into(),
+            native_decimals: 18,
+            tokens: HashMap::new(),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "mode".into(),
+            name: "Mode".into(),
+            chain_id: 34443,
+            rpc_url: "https://mainnet.mode.network".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://explorer.mode.network".into()),
+            required_confirmations: 12,
+            block_time_secs: 2,
+            native_token: "ETH".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0xd988097fb8612cc24eeC14542bC03424c656005f".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0xd988097fb8612cc24eeC14542bC03424c656005f".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "zetachain".into(),
+            name: "ZetaChain".into(),
+            chain_id: 7000,
+            rpc_url: "https://zetachain-evm.blockpi.network/v1/rpc/public".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://explorer.zetachain.com".into()),
+            required_confirmations: 12,
+            block_time_secs: 5,
+            native_token: "ZETA".into(),
+            native_decimals: 18,
+            tokens: HashMap::new(),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "core".into(),
+            name: "Core".into(),
+            chain_id: 1116,
+            rpc_url: "https://rpc.coredao.org".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://scan.coredao.org".into()),
+            required_confirmations: 12,
+            block_time_secs: 3,
+            native_token: "CORE".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0x900101d06A7426441Ae63e9AB3B9b0F63Be145F1".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0x900101d06A7426441Ae63e9AB3B9b0F63Be145F1".into(), decimals: 6,
+                }),
+                ("0xa4151B2B3e269645b82e46271060C0aBD22309E8".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0xa4151B2B3e269645b82e46271060C0aBD22309E8".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "flare".into(),
+            name: "Flare".into(),
+            chain_id: 14,
+            rpc_url: "https://flare-api.flare.network/ext/C/rpc".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://flare-explorer.flare.network".into()),
+            required_confirmations: 12,
+            block_time_secs: 3,
+            native_token: "FLR".into(),
+            native_decimals: 18,
+            tokens: HashMap::new(),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "rootstock".into(),
+            name: "Rootstock (Bitcoin sidechain)".into(),
+            chain_id: 30,
+            rpc_url: "https://public-node.rsk.co".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://explorer.rsk.co".into()),
+            required_confirmations: 12,
+            block_time_secs: 30,
+            native_token: "RBTC".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0xEf213441a85DF4d7acBdAe0Cf78004E1e486BB96".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0xEf213441a85DF4d7acBdAe0Cf78004E1e486BB96".into(), decimals: 18,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
         // Testnets
         EvmChainDef {
             id: "sepolia".into(),
@@ -636,8 +807,8 @@ mod tests {
         for chain in registry.enabled_chains() {
             for token in chain.tokens.values() {
                 if token.symbol == "USDT" {
-                    // BSC and opBNB USDT are 18 decimals, all others are 6
-                    if chain.id == "bsc" || chain.id == "opbnb" {
+                    // BSC, opBNB, Rootstock USDT are 18 decimals, all others are 6
+                    if chain.id == "bsc" || chain.id == "opbnb" || chain.id == "rootstock" {
                         assert_eq!(token.decimals, 18, "BSC USDT should be 18 decimals");
                     } else {
                         assert_eq!(token.decimals, 6, "USDT should be 6 decimals on {}", chain.id);
