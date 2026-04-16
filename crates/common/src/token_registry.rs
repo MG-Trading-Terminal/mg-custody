@@ -98,9 +98,94 @@ impl TokenRegistry {
         self.tokens.is_empty()
     }
 
+    /// Load tokens from TOML files in a directory.
+    /// Each file is named `{chain}.toml` with `[[tokens]]` entries.
+    /// Returns the number of tokens loaded.
+    pub fn load_from_toml_dir(&mut self, dir: &std::path::Path) -> usize {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!(dir = %dir.display(), error = %e, "Token TOML dir not found");
+                return 0;
+            }
+        };
+
+        let mut loaded = 0usize;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("toml") { continue; }
+
+            let chain_name = path.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+
+            let chain = Chain::parse_str(&chain_name);
+
+            let content = match std::fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::error!(path = %path.display(), error = %e, "Failed to read token TOML");
+                    continue;
+                }
+            };
+
+            // Parse TOML: [[tokens]] array
+            let parsed: Result<TomlTokenFile, _> = toml::from_str(&content);
+            match parsed {
+                Ok(file) => {
+                    let count = file.tokens.len();
+                    for token in file.tokens {
+                        self.register(TokenInfo {
+                            symbol: token.symbol.to_uppercase(),
+                            chain,
+                            contract_address: Some(token.address),
+                            decimals: token.decimals,
+                            is_native: false,
+                        });
+                        loaded += 1;
+                    }
+                    tracing::info!(
+                        chain = %chain_name,
+                        tokens = count,
+                        "Loaded token TOML"
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(path = %path.display(), error = %e, "Failed to parse token TOML");
+                }
+            }
+        }
+
+        tracing::info!(total = loaded, dir = %dir.display(), "Token TOML registry loaded");
+        loaded
+    }
+
     fn key(symbol: &str, chain: Chain) -> String {
         format!("{}:{}", symbol.to_uppercase(), chain.as_str())
     }
+}
+
+/// TOML file format for token entries.
+#[derive(Debug, serde::Deserialize)]
+struct TomlTokenFile {
+    #[serde(default)]
+    tokens: Vec<TomlTokenEntry>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct TomlTokenEntry {
+    symbol: String,
+    #[allow(dead_code)]
+    name: String,
+    address: String,
+    decimals: u8,
+    #[serde(default)]
+    #[allow(dead_code)]
+    stablecoin: bool,
+    #[serde(default)]
+    #[allow(dead_code)]
+    coingecko_id: Option<String>,
 }
 
 impl Default for TokenRegistry {

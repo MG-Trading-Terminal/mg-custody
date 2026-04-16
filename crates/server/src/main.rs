@@ -134,6 +134,19 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    // ─── Token Registry — load from TOML files ─────────────────────
+    {
+        let mut registry = custody_common::token_registry::TokenRegistry::with_defaults();
+        let token_dir = std::path::Path::new("config/tokens");
+        let loaded = registry.load_from_toml_dir(token_dir);
+        tracing::info!(
+            hardcoded = registry.len() - loaded,
+            from_toml = loaded,
+            total = registry.len(),
+            "Token registry initialized"
+        );
+    }
+
     // ─── Seed (dev mode) ─────────────────────────────────────────────
     // Load seed from encrypted file or use test seed
     let seed_arr = if let Ok(seed_file) = std::env::var("CUSTODY_SEED_FILE") {
