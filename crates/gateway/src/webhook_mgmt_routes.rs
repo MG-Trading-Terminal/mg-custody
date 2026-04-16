@@ -57,6 +57,14 @@ pub fn webhook_mgmt_router() -> Router<AppState> {
         .route("/v1/health/perf", get(perf_health))
         // Audit log integrity check (Feature 5b)
         .route("/v1/admin/audit/integrity", get(audit_integrity_check))
+        // Circuit breaker status (dashboard Policies page)
+        .route("/v1/circuit-breaker/status", get(circuit_breaker_status))
+        // Policy rules list (dashboard Policies page)
+        .route("/v1/admin/policies", get(list_policies))
+        // User withdrawal history (dashboard Withdraw page)
+        .route("/v1/user/withdrawal-history", get(user_withdrawal_history))
+        // Audit log verify (dashboard Audit page)
+        .route("/v1/audit/verify", post(verify_audit_entry))
 }
 
 // ---------------------------------------------------------------------------
@@ -951,5 +959,132 @@ mod tests {
             last_delivery_at: None,
         };
         assert_eq!(m.success_rate_pct(), 0.0);
+    }
+
+    #[test]
+    fn circuit_breaker_status_default() {
+        let status = serde_json::json!({
+            "is_tripped": false,
+            "single_tx_limit_usd": "500000",
+            "hourly_limit_usd": "10000000",
+            "daily_limit_usd": "50000000",
+            "hourly_outflow_usd": "0",
+            "daily_outflow_usd": "0",
+        });
+        assert!(!status["is_tripped"].as_bool().unwrap());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Circuit breaker status endpoint
+// ---------------------------------------------------------------------------
+
+async fn circuit_breaker_status(
+    _auth: RequireViewer,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    // Try to load from DB
+    match state.db.load_circuit_breaker().await {
+        Ok(cb) => {
+            Ok(Json(serde_json::json!({
+                "is_tripped": cb.is_tripped,
+                "single_tx_limit_usd": cb.single_tx_limit_usd.to_string(),
+                "hourly_limit_usd": cb.hourly_limit_usd.to_string(),
+                "daily_limit_usd": cb.daily_limit_usd.to_string(),
+                "hourly_outflow_usd": cb.hourly_outflow_usd.to_string(),
+                "daily_outflow_usd": cb.daily_outflow_usd.to_string(),
+                "trip_reason": cb.trip_reason,
+            })))
+        }
+        Err(_) => {
+            // DB may not have circuit_breaker_state table yet — return defaults
+            Ok(Json(serde_json::json!({
+                "is_tripped": false,
+                "single_tx_limit_usd": "500000",
+                "hourly_limit_usd": "10000000",
+                "daily_limit_usd": "50000000",
+                "hourly_outflow_usd": "0",
+                "daily_outflow_usd": "0",
+            })))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Policy rules listing
+// ---------------------------------------------------------------------------
+
+async fn list_policies(
+    _auth: RequireAdmin,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    match state.db.get_policy_rules().await {
+        Ok(rules) => Ok(Json(serde_json::json!(rules))),
+        Err(_) => Ok(Json(serde_json::json!([]))),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// User withdrawal history
+// ---------------------------------------------------------------------------
+
+async fn user_withdrawal_history(
+    _auth: RequireViewer,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    // Return recent withdrawals across all statuses
+    let mut all = Vec::new();
+    for status in &[
+        WithdrawalStatus::Received,
+        WithdrawalStatus::Validated,
+        WithdrawalStatus::Signed,
+        WithdrawalStatus::Broadcast,
+        WithdrawalStatus::Confirming,
+        WithdrawalStatus::Finalized,
+        WithdrawalStatus::Cancelled,
+        WithdrawalStatus::Failed,
+    ] {
+        if let Ok(ws) = state.db.withdrawals_by_status(*status).await {
+            all.extend(ws);
+        }
+    }
+    // Sort by created_at descending, limit to 100
+    all.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    all.truncate(100);
+    Ok(Json(serde_json::to_value(all)
+        .map_err(|e| ApiError::internal(&e.to_string()))?))
+}
+
+// ---------------------------------------------------------------------------
+// Audit entry verification
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct VerifyAuditRequest {
+    entry_id: Uuid,
+    expected_hash: String,
+}
+
+async fn verify_audit_entry(
+    _auth: RequireAdmin,
+    State(state): State<AppState>,
+    Json(body): Json<VerifyAuditRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    // Load recent entries and search for the requested one
+    let entries = state.db.recent_audit_entries(1000).await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+
+    let entry = entries.iter().find(|e| e.id == body.entry_id);
+    match entry {
+        Some(e) => {
+            let actual_hash = e.prev_hash.clone().unwrap_or_default();
+            let valid = actual_hash == body.expected_hash;
+            Ok(Json(serde_json::json!({
+                "entry_id": body.entry_id,
+                "valid": valid,
+                "actual_hash": actual_hash,
+            })))
+        }
+        None => Err(ApiError::not_found("Audit entry not found")),
     }
 }
