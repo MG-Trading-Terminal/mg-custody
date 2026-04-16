@@ -162,7 +162,13 @@ impl EvmScanner {
                 if let Some(user_id) = self.address_cache.lookup(&to_hex) {
                     let value = tx_detail.value();
                     if value > U256::ZERO {
-                        let amount = uint256_to_decimal(value, self.native_decimals);
+                        let amount = match uint256_to_decimal(value, self.native_decimals) {
+                            Ok(a) => a,
+                            Err(e) => {
+                                tracing::warn!(tx_hash = %tx_hash, "Skipping deposit: {e}");
+                                continue;
+                            }
+                        };
                         let deposit = Deposit {
                             id: Uuid::new_v4(),
                             user_id,
@@ -235,7 +241,13 @@ impl EvmScanner {
                     continue;
                 };
 
-                let amount = uint256_to_decimal(amount_raw, token.decimals);
+                let amount = match uint256_to_decimal(amount_raw, token.decimals) {
+                    Ok(a) => a,
+                    Err(e) => {
+                        tracing::warn!(contract = %contract, "Skipping ERC-20 deposit: {e}");
+                        continue;
+                    }
+                };
                 let block_number = log.block_number.unwrap_or(0);
                 let tx_hash = log.transaction_hash.unwrap_or_default();
                 let log_index = log.log_index.map(|i| i as u32);

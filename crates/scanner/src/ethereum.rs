@@ -115,7 +115,13 @@ impl EthereumScanner {
                 if let Some(user_id) = self.address_cache.lookup(&to_hex) {
                     let value = tx_detail.value();
                     if value > U256::ZERO {
-                        let amount = uint256_to_decimal(value, 18);
+                        let amount = match uint256_to_decimal(value, 18) {
+                            Ok(a) => a,
+                            Err(e) => {
+                                tracing::warn!(tx_hash = %tx_hash, "Skipping deposit: {e}");
+                                continue;
+                            }
+                        };
                         let deposit = Deposit {
                             id: Uuid::new_v4(),
                             user_id,
@@ -194,7 +200,13 @@ impl EthereumScanner {
                     continue;
                 };
 
-                let amount = uint256_to_decimal(amount_raw, token.decimals);
+                let amount = match uint256_to_decimal(amount_raw, token.decimals) {
+                    Ok(a) => a,
+                    Err(e) => {
+                        tracing::warn!(contract = %contract, "Skipping ERC-20 deposit: {e}");
+                        continue;
+                    }
+                };
                 let block_number = log.block_number.unwrap_or(0);
                 let tx_hash = log.transaction_hash.unwrap_or_default();
                 let log_index = log.log_index.map(|i| i as u32);
@@ -286,7 +298,7 @@ pub fn parse_transfer_to(topic: &FixedBytes<32>) -> Address {
 }
 
 /// Parse an ERC-20 Transfer event's amount from log data.
-pub fn parse_transfer_amount(data: &[u8], decimals: u8) -> Decimal {
+pub fn parse_transfer_amount(data: &[u8], decimals: u8) -> anyhow::Result<Decimal> {
     let raw = if data.len() >= 32 {
         U256::from_be_slice(&data[..32])
     } else {
@@ -325,14 +337,14 @@ mod tests {
         data[29] = 0x0F;
         data[30] = 0x42;
         data[31] = 0x40; // 0x0F4240 = 1_000_000
-        let amount = parse_transfer_amount(&data, 6);
+        let amount = parse_transfer_amount(&data, 6).unwrap();
         assert_eq!(amount, dec!(1));
     }
 
     #[test]
     fn parse_transfer_amount_eth() {
         let raw = U256::from(1_000_000_000_000_000_000u128);
-        let amount = uint256_to_decimal(raw, 18);
+        let amount = uint256_to_decimal(raw, 18).unwrap();
         assert_eq!(amount, dec!(1));
     }
 }

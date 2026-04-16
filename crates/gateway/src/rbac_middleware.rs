@@ -18,6 +18,7 @@ use axum::{
     response::Response,
 };
 use chrono::Utc;
+use custody_db::audit::AuditEntry;
 use custody_db::sessions::Role;
 use custody_db::CustodyDb;
 use uuid::Uuid;
@@ -126,6 +127,7 @@ pub async fn rbac_auth(
                     auth_method: "session".into(),
                 };
                 request.extensions_mut().insert(ctx);
+                request.extensions_mut().insert(rbac.db.clone());
                 return Ok(next.run(request).await);
             }
             Ok(None) => {
@@ -151,14 +153,35 @@ pub async fn rbac_auth(
         auth_method: "hmac".into(),
     };
     request.extensions_mut().insert(ctx);
+    request.extensions_mut().insert(rbac.db.clone());
     Ok(next.run(request).await)
 }
 
-/// Record a permission denial in Prometheus metrics.
+/// Record a permission denial in Prometheus metrics and audit trail.
 fn record_denial(required_role: &str, method: &str) {
     custody_common::prometheus_metrics::PERMISSION_DENIALS
         .with_label_values(&[required_role, method])
         .inc();
+}
+
+/// Log a permission denial to the audit trail (best-effort, non-blocking).
+fn log_denial_to_audit(parts: &Parts, ctx: &AuthContext, required_role: &str) {
+    let path = parts.uri.path().to_string();
+    let method = parts.method.to_string();
+    let actor = ctx.email.clone();
+    let actual_role = format!("{:?}", ctx.role);
+    let required = required_role.to_string();
+
+    if let Some(db) = parts.extensions.get::<CustodyDb>().cloned() {
+        tokio::spawn(async move {
+            let entry = AuditEntry::permission_denied(
+                &actor, &required, &actual_role, &method, &path,
+            );
+            if let Err(e) = db.insert_audit_entry(&entry).await {
+                tracing::warn!(error = %e, "Failed to write RBAC denial to audit log");
+            }
+        });
+    }
 }
 
 /// Extract AuthContext from request extensions (set by rbac_auth middleware).
@@ -204,6 +227,7 @@ where
                 "RBAC denial: user lacks Viewer role"
             );
             record_denial("viewer", method);
+            log_denial_to_audit(parts, &ctx, "viewer");
             Err(StatusCode::FORBIDDEN)
         }
     }
@@ -233,6 +257,7 @@ where
                 "RBAC denial: user lacks Editor role"
             );
             record_denial("editor", method);
+            log_denial_to_audit(parts, &ctx, "editor");
             Err(StatusCode::FORBIDDEN)
         }
     }
@@ -262,6 +287,7 @@ where
                 "RBAC denial: user lacks Signer role"
             );
             record_denial("signer", method);
+            log_denial_to_audit(parts, &ctx, "signer");
             Err(StatusCode::FORBIDDEN)
         }
     }
@@ -291,6 +317,7 @@ where
                 "RBAC denial: user lacks Admin role"
             );
             record_denial("admin", method);
+            log_denial_to_audit(parts, &ctx, "admin");
             Err(StatusCode::FORBIDDEN)
         }
     }
@@ -320,6 +347,7 @@ where
                 "RBAC denial: user lacks Owner role"
             );
             record_denial("owner", method);
+            log_denial_to_audit(parts, &ctx, "owner");
             Err(StatusCode::FORBIDDEN)
         }
     }
@@ -358,6 +386,18 @@ mod tests {
         assert!(Role::Signer.has_at_least(&Role::Editor));
         assert!(Role::Editor.has_at_least(&Role::Viewer));
         assert!(!Role::Viewer.has_at_least(&Role::Editor));
+    }
+
+    #[test]
+    fn audit_entry_permission_denied() {
+        let entry = AuditEntry::permission_denied(
+            "user@test.com", "admin", "Viewer", "POST", "/v1/admin/freeze",
+        );
+        assert_eq!(entry.operation, custody_db::audit::AuditOperation::PermissionDenied);
+        let details = entry.details.unwrap();
+        assert!(details.contains("required=admin"));
+        assert!(details.contains("actual=Viewer"));
+        assert!(details.contains("POST /v1/admin/freeze"));
     }
 
     #[test]

@@ -81,13 +81,34 @@ async fn main() -> anyhow::Result<()> {
         Ok(pool) => {
             tracing::info!("Connected to PostgreSQL");
 
-            // Run all migrations in order
+            // Run ALL migrations in order.
+            // Each migration uses IF NOT EXISTS / ON CONFLICT so re-running is safe.
             let migrations: &[(&str, &str)] = &[
                 ("001_initial_schema", include_str!("../../db/migrations/001_initial_schema.sql")),
                 ("002_signed_tx_bytes", include_str!("../../db/migrations/002_signed_tx_bytes.sql")),
+                ("003_vaults", include_str!("../../db/migrations/003_vaults.sql")),
+                ("004_webhooks_addressbook", include_str!("../../db/migrations/004_webhooks_addressbook.sql")),
+                ("005_connectivity", include_str!("../../db/migrations/005_connectivity.sql")),
+                ("006_platform", include_str!("../../db/migrations/006_platform.sql")),
+                ("007_governance", include_str!("../../db/migrations/007_governance.sql")),
+                ("008_operations", include_str!("../../db/migrations/008_operations.sql")),
+                ("009_circuit_breaker", include_str!("../../db/migrations/009_circuit_breaker.sql")),
+                ("010_embedded_contracts_payments", include_str!("../../db/migrations/010_embedded_contracts_payments.sql")),
+                ("011_sessions", include_str!("../../db/migrations/011_sessions.sql")),
+                ("012_fido2", include_str!("../../db/migrations/012_fido2.sql")),
                 ("013_scheduled_withdrawals", include_str!("../../db/migrations/013_scheduled_withdrawals.sql")),
                 ("014_safe_wallets", include_str!("../../db/migrations/014_safe_wallets.sql")),
+                ("015_totp", include_str!("../../db/migrations/015_totp.sql")),
+                ("016_login_history", include_str!("../../db/migrations/016_login_history.sql")),
+                ("017_email_otp", include_str!("../../db/migrations/017_email_otp.sql")),
+                ("018_address_labels", include_str!("../../db/migrations/018_address_labels.sql")),
                 ("019_rate_limits", include_str!("../../db/migrations/019_rate_limits.sql")),
+                ("020_push_tokens", include_str!("../../db/migrations/020_push_tokens.sql")),
+                ("021_login_history_geo", include_str!("../../db/migrations/021_login_history_geo.sql")),
+                ("022_device_trust", include_str!("../../db/migrations/022_device_trust.sql")),
+                ("023_api_key_usage", include_str!("../../db/migrations/023_api_key_usage.sql")),
+                ("024_memo_tag", include_str!("../../db/migrations/024_memo_tag.sql")),
+                ("025_nft_custody", include_str!("../../db/migrations/025_nft_custody.sql")),
             ];
             for (name, sql) in migrations {
                 if let Err(e) = sqlx::raw_sql(sql).execute(&pool).await {

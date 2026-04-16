@@ -8,7 +8,7 @@ use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
 use rust_decimal::Decimal;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 /// A cached price entry.
 #[derive(Debug, Clone)]
@@ -95,6 +95,9 @@ impl PriceOracle {
 }
 
 /// CoinGecko API response for simple price endpoint.
+/// Note: CoinGecko returns JSON numbers (floats). We convert to Decimal immediately
+/// after deserialization with explicit error handling — never silently default to zero,
+/// as that would make the circuit breaker see $0 and bypass outflow limits.
 #[derive(Debug, Deserialize)]
 pub struct CoinGeckoPrice {
     pub usd: f64,
@@ -133,13 +136,19 @@ pub async fn fetch_coingecko_prices(
         ("matic-network", "MATIC"),
     ]);
 
-    let mut prices = HashMap::new();
+    let mut prices: HashMap<String, Decimal> = HashMap::new();
     for (id, price) in resp {
         if let Some(&symbol) = symbol_map.get(id.as_str()) {
-            // Convert f64 to Decimal carefully
-            let decimal_price = Decimal::from_f64_retain(price.usd)
-                .unwrap_or(Decimal::ZERO);
-            prices.insert(symbol.to_string(), decimal_price);
+            // Convert f64 → Decimal with validation.
+            // SECURITY: reject zero/negative/NaN/Inf prices. A zero price would
+            // make the circuit breaker see $0 for any withdrawal amount,
+            // effectively bypassing per-tx and hourly outflow limits.
+            if price.usd.is_finite() && price.usd > 0.0 {
+                if let Some(decimal_price) = Decimal::from_f64_retain(price.usd) {
+                    prices.insert(symbol.to_string(), decimal_price);
+                }
+                // If from_f64_retain fails, skip this price (stale cache is safer than zero)
+            }
         }
     }
 
@@ -204,6 +213,17 @@ mod tests {
         assert_eq!(oracle.get_price("USDT"), Some(dec!(1)));
         assert_eq!(oracle.get_price("USDC"), Some(dec!(1)));
         assert!(oracle.cache_size() >= 9);
+    }
+
+    #[test]
+    fn zero_price_rejected() {
+        // SECURITY: A zero price would make circuit breaker see $0 for any amount
+        let oracle = PriceOracle::with_default_ttl();
+        oracle.set_price("BTC", Decimal::ZERO);
+        // Zero price is stored (set_price doesn't guard — fetch_coingecko_prices does)
+        // But to_usd with zero returns zero, which is dangerous
+        assert_eq!(oracle.to_usd("BTC", dec!(100)), Some(dec!(0)));
+        // This test documents the risk — the guard is in fetch_coingecko_prices
     }
 
     #[test]

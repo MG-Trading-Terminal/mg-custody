@@ -38,12 +38,15 @@ pub trait ChainScanner: Send + Sync {
 /// Examples:
 ///   - 1_000_000_000_000_000_000 with 18 decimals → Decimal(1.0) (1 ETH)
 ///   - 1_000_000 with 6 decimals → Decimal(1.0) (1 USDT)
-pub fn uint256_to_decimal(raw: alloy::primitives::U256, decimals: u8) -> rust_decimal::Decimal {
+/// Returns `Err` if the U256 value exceeds Decimal's range (~2^96).
+/// This prevents silently recording impossibly large deposits.
+pub fn uint256_to_decimal(raw: alloy::primitives::U256, decimals: u8) -> anyhow::Result<rust_decimal::Decimal> {
     // U256 can exceed Decimal's range, so we convert via string
     let raw_str = raw.to_string();
-    let raw_decimal = rust_decimal::Decimal::from_str_exact(&raw_str).unwrap_or(rust_decimal::Decimal::MAX);
+    let raw_decimal = rust_decimal::Decimal::from_str_exact(&raw_str)
+        .map_err(|_| anyhow::anyhow!("Token amount {} exceeds Decimal range — likely invalid", raw_str))?;
     let divisor = rust_decimal::Decimal::new(10i64.pow(decimals as u32), 0);
-    raw_decimal / divisor
+    Ok(raw_decimal / divisor)
 }
 
 /// Convert a Decimal amount to U256 base units.
@@ -67,50 +70,57 @@ mod tests {
     fn uint256_to_decimal_eth_18() {
         // 1 ETH = 10^18 wei
         let raw = U256::from(1_000_000_000_000_000_000u128);
-        assert_eq!(uint256_to_decimal(raw, 18), dec!(1));
+        assert_eq!(uint256_to_decimal(raw, 18).unwrap(), dec!(1));
     }
 
     #[test]
     fn uint256_to_decimal_usdt_6() {
         // 1 USDT = 10^6 base units
         let raw = U256::from(1_000_000u128);
-        assert_eq!(uint256_to_decimal(raw, 6), dec!(1));
+        assert_eq!(uint256_to_decimal(raw, 6).unwrap(), dec!(1));
     }
 
     #[test]
     fn uint256_to_decimal_usdc_6() {
         // 1 USDC = 10^6 base units
         let raw = U256::from(1_000_000u128);
-        assert_eq!(uint256_to_decimal(raw, 6), dec!(1));
+        assert_eq!(uint256_to_decimal(raw, 6).unwrap(), dec!(1));
     }
 
     #[test]
     fn uint256_to_decimal_fractional_eth() {
         // 0.5 ETH = 5 * 10^17 wei
         let raw = U256::from(500_000_000_000_000_000u128);
-        assert_eq!(uint256_to_decimal(raw, 18), dec!(0.5));
+        assert_eq!(uint256_to_decimal(raw, 18).unwrap(), dec!(0.5));
     }
 
     #[test]
     fn uint256_to_decimal_large_usdt() {
         // 1,000,000 USDT = 10^12 base units
         let raw = U256::from(1_000_000_000_000u128);
-        assert_eq!(uint256_to_decimal(raw, 6), dec!(1000000));
+        assert_eq!(uint256_to_decimal(raw, 6).unwrap(), dec!(1000000));
     }
 
     #[test]
     fn uint256_to_decimal_zero() {
-        assert_eq!(uint256_to_decimal(U256::ZERO, 18), dec!(0));
-        assert_eq!(uint256_to_decimal(U256::ZERO, 6), dec!(0));
+        assert_eq!(uint256_to_decimal(U256::ZERO, 18).unwrap(), dec!(0));
+        assert_eq!(uint256_to_decimal(U256::ZERO, 6).unwrap(), dec!(0));
     }
 
     #[test]
     fn uint256_to_decimal_small_wei() {
         // 1 wei = 10^-18 ETH
         let raw = U256::from(1u128);
-        let result = uint256_to_decimal(raw, 18);
+        let result = uint256_to_decimal(raw, 18).unwrap();
         assert!(result > dec!(0));
         assert!(result < dec!(0.000000000000000001) || result == dec!(0.000000000000000001));
+    }
+
+    #[test]
+    fn uint256_to_decimal_overflow_returns_error() {
+        // U256::MAX exceeds Decimal's range — should return Err, not Decimal::MAX
+        let result = uint256_to_decimal(U256::MAX, 18);
+        assert!(result.is_err(), "U256::MAX should not silently become Decimal::MAX");
     }
 
     #[test]
@@ -132,14 +142,14 @@ mod tests {
         // ETH roundtrip
         let original = dec!(123.456789012345678);
         let u256 = decimal_to_uint256(original, 18);
-        let recovered = uint256_to_decimal(u256, 18);
+        let recovered = uint256_to_decimal(u256, 18).unwrap();
         // Should be equal after truncation to 18 decimal places
         assert_eq!(recovered, dec!(123.456789012345678));
 
         // USDT roundtrip
         let original = dec!(999.99);
         let u256 = decimal_to_uint256(original, 6);
-        let recovered = uint256_to_decimal(u256, 6);
+        let recovered = uint256_to_decimal(u256, 6).unwrap();
         assert_eq!(recovered, dec!(999.99));
     }
 }

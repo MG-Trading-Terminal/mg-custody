@@ -39,6 +39,8 @@ pub enum AuditOperation {
     EmergencyUnfreeze,
     /// Withdrawal state overridden by operator (force-complete or force-cancel).
     WithdrawalOverride,
+    /// RBAC permission denied (user tried to access resource above their role).
+    PermissionDenied,
 }
 
 /// A single audit log entry.
@@ -120,6 +122,28 @@ impl AuditEntry {
             chain: None,
             derivation_path: None,
             details: Some(format!("threshold={threshold}, shares={shares}")),
+            prev_hash: None,
+        }
+    }
+
+    /// Create a new audit entry for RBAC permission denial.
+    pub fn permission_denied(
+        actor: &str,
+        required_role: &str,
+        actual_role: &str,
+        method: &str,
+        path: &str,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            timestamp: Utc::now(),
+            operation: AuditOperation::PermissionDenied,
+            actor: actor.to_string(),
+            chain: None,
+            derivation_path: None,
+            details: Some(format!(
+                "required={required_role}, actual={actual_role}, {method} {path}"
+            )),
             prev_hash: None,
         }
     }

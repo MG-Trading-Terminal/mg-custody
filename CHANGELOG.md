@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed (2026-04-16) — Sprint P1: Production Hardening
+
+- **SECURITY: Price oracle zero-price guard** — `fetch_coingecko_prices()` now rejects zero/negative/NaN/Inf prices. Previously `from_f64_retain().unwrap_or(ZERO)` could silently set price to $0, making the circuit breaker see $0 for any withdrawal and bypassing outflow limits.
+- **SECURITY: Scanner overflow protection** — `uint256_to_decimal()` now returns `Result<Decimal>` instead of falling back to `Decimal::MAX`. Previously a U256 overflow would silently record an impossibly large deposit.
+- **SECURITY: Bitcoin signing input validation** — `sign_bitcoin_tx()` now returns `Err` on invalid txid instead of silently substituting a zero txid.
+- **Compliance: RBAC denials logged to audit trail** — New `PermissionDenied` audit operation. Every 403 response now writes to the tamper-evident audit log (non-blocking, via `tokio::spawn`).
+- **Ops: All 25 DB migrations run on startup** — Previously only 5 of 25 migrations ran. Now all migrations (001–025) execute in order on server start.
+- **Docs: Fixed ROADMAP false negatives** — Session cleanup, FIDO2 withdrawal wiring, Prometheus metrics all marked as done (they were already implemented but ROADMAP said otherwise). Phase 11 reclassified from "types only" to "metrics wired".
+
 ### Added (2026-03-27) — Dark/Light Theme, NFT Custody, NEAR Protocol, Aptos/Sui, Webhook Retry Dashboard
 
 - **Feature 1: Dark/Light Theme Toggle**

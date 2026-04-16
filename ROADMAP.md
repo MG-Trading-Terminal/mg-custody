@@ -221,8 +221,8 @@
 - [x] Token allowance scanner types
 - [x] DeFi protocol whitelisting (DefiProtocolEntry)
 
-## Phase 11 — Observability & Operations (3-4 weeks) ⏸️ TYPES ONLY — not wired to runtime
-> Metric definitions and health check types. Implementation needs Prometheus + Grafana. **Types exist, runtime metrics not emitted.**
+## Phase 11 — Observability & Operations (3-4 weeks) ✅ METRICS WIRED — Grafana dashboards pending
+> Prometheus metrics fully instrumented at runtime (counters, gauges, histograms). `/metrics` endpoint live. Grafana dashboard JSON generator exists but not deployed.
 
 - [x] Full metric name definitions (deposits, withdrawals, chain health, signing, policy, compliance, wallets)
 - [x] Standard label names (chain, asset, status, tier, provider)
@@ -438,7 +438,7 @@
 - [x] Session revocation: `DELETE /v1/auth/sessions/{token}`
 - [x] Session listing: `GET /v1/auth/sessions`
 - [x] Session DB layer: create/load/touch/revoke/cleanup, token hashing (SHA-256)
-- [ ] Background task: expire stale sessions (hourly cleanup)
+- [x] Background task: expire stale sessions (hourly cleanup) — implemented in server/main.rs:898-912
 
 ### 19B — RBAC Middleware ✅ DONE
 - [x] `rbac_auth` middleware in `crates/gateway/src/rbac_middleware.rs` — Bearer token → session → AuthContext
@@ -450,7 +450,7 @@
 - [x] HMAC-authed service requests get Admin role (backward compatible)
 - [x] 14 new tests: sessions, RBAC extractors, password verification
 - [x] Apply guards to ALL 125+ endpoints across 11 route files (vault, ops, connectivity, platform, governance, operations, embedded, exchange, admin, settlement, staking)
-- [ ] Permission denials logged to audit trail
+- [x] Permission denials logged to audit trail — PermissionDenied AuditOperation + log_denial_to_audit()
 
 ---
 
@@ -467,7 +467,7 @@
 - [x] Configurable `rp_id` via `CUSTODY_FIDO2_RP_ID` env var (default: "custody.local")
 - [x] Security: server-side challenges (SHA-256 hashed, single-use, 5min expiry), sign count monotonic (cloned key detection)
 - [x] 7 new tests (challenge validity, consumed rejection, serialization)
-- [ ] Wire FIDO2 verification into Tier 2+ withdrawal approval flow
+- [x] Wire FIDO2 verification into Tier 2+ withdrawal approval flow — approve_withdrawal handler, $10K threshold, challenge + sign count
 - [ ] Full WebAuthn assertion verification (CBOR attestation parsing — needs `webauthn-rs` stable release or manual COSE key verification)
 
 ---
@@ -677,7 +677,7 @@ Phase 19 + 21 ────────> Phase 25 (OpenAPI)
 |---------|-------|--------|
 | Staking (ETH/SOL) | Phase 9 | ⏸️ Types only |
 | DeFi (WalletConnect, DEX) | Phase 10 | ⏸️ Types only |
-| Observability (Prometheus/Grafana) | Phase 11 | ⏸️ Types only |
+| Observability (Prometheus wired, Grafana pending) | Phase 11 | ✅ Metrics emitted at runtime |
 | Settlement network | Phase 13 | ⏸️ Types only |
 | Tokenization/RWA | Phase 14 | ⏸️ Types only |
 | WaaS multi-tenancy | Phase 15 | ⏸️ Types only |
@@ -703,7 +703,7 @@ Phase 19 + 21 ────────> Phase 25 (OpenAPI)
 | Feature | Phase | Status | Priority |
 |---------|-------|--------|----------|
 | RBAC enforcement middleware | Phase 19 | ✅ Done — middleware + extractors + guards on ALL 125+ endpoints | P0 |
-| FIDO2/WebAuthn verification | Phase 20 | ✅ Done — registration + authentication flows, challenge management, credential CRUD | P0 |
+| FIDO2/WebAuthn verification | Phase 20 | ✅ Done — registration + auth flows + wired to Tier 2+ withdrawal approvals ($10K+) | P0 |
 | **Web Dashboard (SvelteKit)** | Phase 21 | 🔶 Phase 21A done — scaffold, 9 pages, API client, security headers, axum ServeDir | P0 |
 | AML/KYT real vendor integration | Phase 22 | ✅ Done — Chainalysis + Elliptic providers, ScreeningService, cache + fallback | P1 |
 | UTXO consolidation execution | Phase 23 | ✅ Done — ConsolidationPolicy, plan_consolidation, fee-gated scheduler | P1 |

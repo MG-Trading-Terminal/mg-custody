@@ -183,16 +183,16 @@ pub fn sign_bitcoin_tx(seed: &[u8; 64], params: &BtcTxParams) -> Result<Vec<u8>>
     };
 
     // Build unsigned transaction
-    let inputs: Vec<TxIn> = params.inputs.iter().map(|input| {
+    let inputs: Vec<TxIn> = params.inputs.iter().enumerate().map(|(i, input)| {
         let txid: Txid = input.txid.parse()
-            .unwrap_or_else(|_| Txid::from_byte_array([0; 32]));
-        TxIn {
+            .map_err(|e| anyhow::anyhow!("Invalid txid for input {i}: {e}"))?;
+        Ok(TxIn {
             previous_output: OutPoint::new(txid, input.vout),
             script_sig: ScriptBuf::new(),
             sequence,
             witness: Witness::default(),
-        }
-    }).collect();
+        })
+    }).collect::<Result<Vec<TxIn>>>()?;
 
     let outputs: Vec<TxOut> = params.outputs.iter().map(|output| {
         TxOut {

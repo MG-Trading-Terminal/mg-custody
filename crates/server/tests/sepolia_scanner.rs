@@ -41,7 +41,7 @@ async fn scan_sepolia_block_for_eth_transfers() {
             use alloy::consensus::Transaction;
             let value = tx.value();
             if value > alloy::primitives::U256::ZERO {
-                let amount_eth = uint256_to_decimal(value, 18);
+                let amount_eth = uint256_to_decimal(value, 18).unwrap();
                 if let Some(to) = tx.to() {
                     println!("  ETH transfer: {} ETH to {:#x}", amount_eth, to);
                     eth_transfers += 1;
