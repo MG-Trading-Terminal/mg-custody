@@ -2,10 +2,49 @@
 	import { locale, setLocale, LOCALES } from '$lib/i18n';
 	import type { Locale } from '$lib/i18n';
 	import { onMount } from 'svelte';
+	import { api } from '$lib/api';
 
 	let { children } = $props();
 
 	let sidebarOpen = $state(false);
+
+	// ---------------------------------------------------------------------------
+	// User session — role determines which nav items are visible
+	// ---------------------------------------------------------------------------
+
+	type UserRole = 'owner' | 'admin' | 'signer' | 'editor' | 'viewer';
+
+	let userEmail = $state('');
+	let userRole = $state<UserRole>('viewer');
+	let isLoggedIn = $state(false);
+
+	// Roles that can see admin section
+	const ADMIN_ROLES: UserRole[] = ['owner', 'admin'];
+	// Roles that can see signer-level items (approvals)
+	const SIGNER_ROLES: UserRole[] = ['owner', 'admin', 'signer'];
+
+	$effect(() => {
+		isLoggedIn = api.isAuthenticated();
+	});
+
+	async function loadUserProfile() {
+		if (!api.isAuthenticated()) return;
+		try {
+			const profile = await api.getJson<{ email: string; role: string }>('/v1/user/profile');
+			userEmail = profile.email ?? '';
+			userRole = (profile.role ?? 'viewer') as UserRole;
+		} catch {
+			// Not logged in or profile unavailable — defaults are fine
+		}
+	}
+
+	function logout() {
+		api.clearToken();
+		userEmail = '';
+		userRole = 'viewer';
+		isLoggedIn = false;
+		window.location.href = '/login';
+	}
 
 	// ---------------------------------------------------------------------------
 	// Theme management (dark / light)
@@ -13,7 +52,6 @@
 
 	const THEME_KEY = 'custody_theme';
 
-	// 'dark' is the default — matches the existing CSS variable defaults.
 	let theme = $state<'dark' | 'light'>('dark');
 
 	function applyTheme(t: 'dark' | 'light') {
@@ -33,15 +71,19 @@
 	onMount(() => {
 		const stored = localStorage.getItem(THEME_KEY) as 'dark' | 'light' | null;
 		applyTheme(stored ?? 'dark');
+		loadUserProfile();
 	});
 
-	// Nav items use translation keys — labels are re-derived whenever $locale changes.
+	// ---------------------------------------------------------------------------
+	// Navigation — role-based visibility
+	// ---------------------------------------------------------------------------
+
 	const userItemDefs = [
 		{ href: '/',             key: 'nav.portfolio', icon: '$' },
 		{ href: '/deposit',      key: 'nav.deposit',   icon: '+' },
 		{ href: '/withdraw',     key: 'nav.withdraw',  icon: '-' },
 		{ href: '/transactions', key: 'nav.transactions', icon: 'T' },
-		{ href: '/approvals',    key: 'nav.approvals', icon: 'A' },
+		{ href: '/approvals',    key: 'nav.approvals', icon: 'A', minRole: 'signer' as UserRole },
 		{ href: '/profile',      key: 'nav.profile',   icon: 'Me' },
 	];
 
@@ -58,14 +100,17 @@
 		{ href: '/settings',   key: 'nav.settings',   icon: 'S' },
 	];
 
+	function hasRole(minRole: UserRole): boolean {
+		const order: UserRole[] = ['viewer', 'editor', 'signer', 'admin', 'owner'];
+		return order.indexOf(userRole) >= order.indexOf(minRole);
+	}
+
 	function closeSidebar() { sidebarOpen = false; }
 
 	function onLocaleChange(e: Event) {
 		setLocale((e.target as HTMLSelectElement).value as Locale);
 	}
 
-	// Derive translated label from the current locale store value.
-	// $locale triggers re-evaluation when locale changes.
 	import { t } from '$lib/i18n';
 </script>
 
@@ -116,32 +161,35 @@
 		</div>
 		<ul>
 			{#each userItemDefs as item}
-				<li>
-					<a href={item.href} onclick={closeSidebar}>
-						<span class="icon">{item.icon}</span>
-						<!-- Re-evaluates when $locale changes -->
-						{$locale, t(item.key)}
-					</a>
-				</li>
+				{#if !item.minRole || hasRole(item.minRole)}
+					<li>
+						<a href={item.href} onclick={closeSidebar}>
+							<span class="icon">{item.icon}</span>
+							{$locale, t(item.key)}
+						</a>
+					</li>
+				{/if}
 			{/each}
 		</ul>
 
-		<div class="section-sep">
-			<span>{$locale, t('nav.admin')}</span>
-		</div>
+		{#if hasRole('admin')}
+			<div class="section-sep">
+				<span>{$locale, t('nav.admin')}</span>
+			</div>
 
-		<ul>
-			{#each adminItemDefs as item}
-				<li>
-					<a href={item.href} onclick={closeSidebar}>
-						<span class="icon">{item.icon}</span>
-						{$locale, t(item.key)}
-					</a>
-				</li>
-			{/each}
-		</ul>
+			<ul>
+				{#each adminItemDefs as item}
+					<li>
+						<a href={item.href} onclick={closeSidebar}>
+							<span class="icon">{item.icon}</span>
+							{$locale, t(item.key)}
+						</a>
+					</li>
+				{/each}
+			</ul>
+		{/if}
 
-		<!-- Language picker in sidebar footer -->
+		<!-- Language picker -->
 		<div class="lang-picker">
 			<label class="lang-label" for="lang-select">
 				&#127760;
@@ -157,6 +205,23 @@
 				{/each}
 			</select>
 		</div>
+
+		<!-- User info + Logout -->
+		{#if isLoggedIn}
+			<div class="user-footer">
+				<div class="user-info">
+					<span class="user-email" title={userEmail}>{userEmail || 'User'}</span>
+					<span class="role-badge">{userRole}</span>
+				</div>
+				<button class="logout-btn" onclick={logout} title="Sign out">
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+						<polyline points="16 17 21 12 16 7"/>
+						<line x1="21" y1="12" x2="9" y2="12"/>
+					</svg>
+				</button>
+			</div>
+		{/if}
 	</nav>
 
 	<div class="content-wrap">
@@ -342,6 +407,63 @@
 	.lang-select:focus {
 		outline: 1px solid var(--accent, #58a6ff);
 		color: var(--fg, #e1e4e8);
+	}
+
+	/* User info + logout at sidebar bottom */
+	.user-footer {
+		padding: 0.6rem 1rem;
+		border-top: 1px solid var(--border, #30363d);
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+	}
+
+	.user-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+		min-width: 0;
+	}
+
+	.user-email {
+		font-size: 0.78rem;
+		color: var(--fg, #e1e4e8);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.role-badge {
+		font-size: 0.65rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: var(--accent, #58a6ff);
+		background: rgba(88, 166, 255, 0.1);
+		padding: 0.1rem 0.4rem;
+		border-radius: 3px;
+		width: fit-content;
+	}
+
+	.logout-btn {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: none;
+		border: 1px solid var(--border, #30363d);
+		border-radius: 6px;
+		padding: 6px;
+		cursor: pointer;
+		color: var(--fg-muted, #8b949e);
+		flex-shrink: 0;
+		transition: background 0.15s, color 0.15s, border-color 0.15s;
+	}
+
+	.logout-btn:hover {
+		background: rgba(248, 81, 73, 0.1);
+		color: var(--red, #f85149);
+		border-color: var(--red, #f85149);
 	}
 
 	.content-wrap {
