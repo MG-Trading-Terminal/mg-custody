@@ -26,6 +26,7 @@ uuid = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
+cryptoki = { workspace = true }
 
 reqwest = { workspace = true }
 

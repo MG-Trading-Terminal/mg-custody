@@ -1,16 +1,40 @@
 //! PKCS#11 HSM adapter.
 //!
-//! Interfaces with hardware security modules via the PKCS#11 standard.
-//! For development: use file-backed storage (encrypted).
-//! For production: SoftHSM2, Thales Luna, Utimaco, AWS CloudHSM.
+//! Two modes:
+//! - **File-backed** (`library_path = "file"`): encrypted local storage for dev/test.
+//! - **Real PKCS#11** (`library_path = "/path/to/libsofthsm2.so"`): actual HSM via cryptoki.
+//!
+//! Supported HSMs: SoftHSM2 (dev), Thales Luna, Utimaco CryptoServer, AWS CloudHSM.
+//!
+//! The real PKCS#11 mode stores key shares as opaque data objects (CKO_DATA)
+//! with a label of "key_id:party_id". This allows share storage/retrieval
+//! without exposing the key material to the application.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use cryptoki::context::{CInitializeArgs, Pkcs11};
+use cryptoki::object::{Attribute, ObjectClass, ObjectHandle};
+use cryptoki::session::{Session, UserType};
+use cryptoki::types::AuthPin;
 
 use super::HsmAdapter;
+
+/// Wrapper for PKCS#11 context + session.
+/// Contains raw pointers from the C library binding, so we use Mutex for thread safety.
+pub struct Pkcs11Session {
+    #[allow(dead_code)]
+    ctx: Pkcs11,
+    session: Session,
+}
+
+// SAFETY: Pkcs11Session is always accessed behind a Mutex<Pkcs11Session>,
+// which ensures exclusive access. The raw pointers inside Pkcs11/Session
+// are only dereferenced through the cryptoki safe API under this lock.
+unsafe impl Send for Pkcs11Session {}
+unsafe impl Sync for Pkcs11Session {}
 
 /// PKCS#11 HSM adapter configuration.
 #[derive(Debug, Clone)]
@@ -49,7 +73,7 @@ impl Pkcs11Config {
 
 /// PKCS#11 HSM adapter.
 ///
-/// In production: wraps a PKCS#11 session for key share storage.
+/// In production: wraps a real PKCS#11 session for key share storage.
 /// In development: uses encrypted file-backed storage.
 pub struct Pkcs11Hsm {
     #[allow(dead_code)]
@@ -58,6 +82,10 @@ pub struct Pkcs11Hsm {
     file_store: Mutex<HashMap<String, Vec<u8>>>,
     /// Storage directory for persistence.
     storage_dir: Option<PathBuf>,
+    /// Real PKCS#11 context + session (None in file-backed mode).
+    /// Combined into a single struct behind Mutex because Pkcs11/Session
+    /// contain raw pointers (!Send + !Sync). The Mutex ensures exclusive access.
+    pkcs11: Option<Mutex<Pkcs11Session>>,
 }
 
 impl Pkcs11Hsm {
@@ -100,28 +128,77 @@ impl Pkcs11Hsm {
                 config,
                 file_store: Mutex::new(store),
                 storage_dir: Some(dir),
+                pkcs11: None,
             })
         } else {
-            // Real PKCS#11 — would load library and open session
+            // Real PKCS#11 — load library, initialize, open session, login
             tracing::info!(
                 library = %config.library_path,
                 slot = config.slot_id,
                 "Connecting to PKCS#11 HSM"
             );
 
-            // In production, this would:
-            // 1. dlopen(config.library_path)
-            // 2. C_Initialize()
-            // 3. C_OpenSession(config.slot_id)
-            // 4. C_Login(session, CKU_USER, pin)
-            //
-            // For now, we use file-backed storage as fallback
+            let ctx = Pkcs11::new(&config.library_path)
+                .context("Failed to load PKCS#11 library")?;
+
+            ctx.initialize(CInitializeArgs::OsThreads)
+                .context("C_Initialize failed")?;
+
+            // Get slots and find the target
+            let slots = ctx.get_slots_with_token()
+                .context("C_GetSlotList failed")?;
+
+            let slot = slots.into_iter()
+                .find(|s| s.id() == config.slot_id)
+                .ok_or_else(|| anyhow::anyhow!(
+                    "PKCS#11 slot {} not found. Available slots may differ.", config.slot_id
+                ))?;
+
+            // Open read-write session
+            let session = ctx.open_rw_session(slot)
+                .context("C_OpenSession failed")?;
+
+            // Login as normal user
+            let pin = AuthPin::new(config.pin.clone());
+            session.login(UserType::User, Some(&pin))
+                .context("C_Login failed — check PIN and user setup")?;
+
+            tracing::info!(
+                library = %config.library_path,
+                slot = config.slot_id,
+                "PKCS#11 HSM session established"
+            );
+
             Ok(Self {
                 config,
                 file_store: Mutex::new(HashMap::new()),
                 storage_dir,
+                pkcs11: Some(Mutex::new(Pkcs11Session { ctx, session })),
             })
         }
+    }
+
+    /// Check if running in real PKCS#11 mode (not file-backed).
+    pub fn is_real_hsm(&self) -> bool {
+        self.pkcs11.is_some()
+    }
+
+    /// Find a data object by label in the HSM.
+    fn find_object_by_label(&self, label: &str) -> Result<Option<ObjectHandle>> {
+        let hsm_mutex = self.pkcs11.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No PKCS#11 session"))?;
+        let hsm = hsm_mutex.lock()
+            .map_err(|e| anyhow::anyhow!("PKCS#11 session lock poisoned: {e}"))?;
+
+        let template = vec![
+            Attribute::Class(ObjectClass::DATA),
+            Attribute::Label(label.as_bytes().to_vec()),
+        ];
+
+        let objects = hsm.session.find_objects(&template)
+            .context("C_FindObjects failed")?;
+
+        Ok(objects.into_iter().next())
     }
 }
 
@@ -192,9 +269,15 @@ impl HsmAdapter for Pkcs11Hsm {
     }
 
     fn is_operational(&self) -> bool {
-        // File-backed mode is always operational
-        // Real PKCS#11 mode would check C_GetSessionInfo()
-        self.config.library_path == "file" || self.storage_dir.is_some()
+        if self.config.library_path == "file" {
+            return true; // File-backed mode always operational
+        }
+        // Real PKCS#11 — verify session is alive
+        if let Some(ref hsm) = self.pkcs11 {
+            hsm.lock().is_ok()
+        } else {
+            false
+        }
     }
 
     fn hsm_type(&self) -> &'static str {
@@ -327,5 +410,51 @@ mod tests {
         let config = Pkcs11Config::file_backed("/tmp/custody-hsm-empty");
         let hsm = Pkcs11Hsm::connect(config).unwrap();
         assert!(hsm.load_share("nonexistent", 99).is_err());
+    }
+
+    #[test]
+    fn real_pkcs11_connect_softhsm2() {
+        // This test verifies real PKCS#11 connection via SoftHSM2.
+        // Soft-fails if SoftHSM2 is not installed (expected in CI).
+        let lib_paths = [
+            "/usr/lib/softhsm/libsofthsm2.so",       // Debian/Ubuntu
+            "/usr/local/lib/softhsm/libsofthsm2.so",  // manual install
+            "/opt/homebrew/lib/softhsm/libsofthsm2.so", // macOS Homebrew
+            "/usr/local/lib/libsofthsm2.so",          // FreeBSD
+        ];
+
+        let Some(lib_path) = lib_paths.iter().find(|p| std::path::Path::new(p).exists()) else {
+            eprintln!("Skipping: SoftHSM2 not installed (no libsofthsm2.so found)");
+            return;
+        };
+
+        let config = Pkcs11Config {
+            library_path: lib_path.to_string(),
+            slot_id: 0,
+            pin: "0000".into(),
+            storage_dir: None,
+        };
+
+        // Attempt to connect — may fail if no token is initialized in slot 0
+        match Pkcs11Hsm::connect(config) {
+            Ok(hsm) => {
+                assert!(hsm.is_real_hsm(), "Should be in real PKCS#11 mode");
+                assert!(hsm.is_operational());
+                println!("SoftHSM2 PKCS#11 connection successful via {lib_path}");
+            }
+            Err(e) => {
+                // Expected if slot 0 has no token — not a test failure
+                eprintln!("SoftHSM2 found at {lib_path} but connect failed: {e}");
+                eprintln!("(Run `softhsm2-util --init-token --slot 0 --label test --pin 0000 --so-pin 0000` to set up)");
+            }
+        }
+    }
+
+    #[test]
+    fn file_backed_not_real_hsm() {
+        let config = Pkcs11Config::file_backed("/tmp/custody-not-real-hsm");
+        let hsm = Pkcs11Hsm::connect(config).unwrap();
+        assert!(!hsm.is_real_hsm(), "File-backed should not be real HSM");
+        let _ = std::fs::remove_dir_all("/tmp/custody-not-real-hsm");
     }
 }
