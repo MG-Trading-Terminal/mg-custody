@@ -281,7 +281,14 @@ pub fn default_evm_chains() -> Vec<EvmChainDef> {
             block_time_secs: 1,
             native_token: "ETH".into(),
             native_decimals: 18,
-            tokens: HashMap::new(),
+            tokens: HashMap::from([
+                ("0x493257fD37EDB34451f62EDf8D2a0C418852bA4C".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0x493257fD37EDB34451f62EDf8D2a0C418852bA4C".into(), decimals: 6,
+                }),
+                ("0x1d17CBcF0D6D143135aE902365D2E5e2A16538D4".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0x1d17CBcF0D6D143135aE902365D2E5e2A16538D4".into(), decimals: 6,
+                }),
+            ]),
             enabled: true,
             testnet: false,
         },
@@ -296,7 +303,14 @@ pub fn default_evm_chains() -> Vec<EvmChainDef> {
             block_time_secs: 2,
             native_token: "ETH".into(),
             native_decimals: 18,
-            tokens: HashMap::new(),
+            tokens: HashMap::from([
+                ("0xA219439258ca9da29E9Cc4cE5596924745e12B93".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0xA219439258ca9da29E9Cc4cE5596924745e12B93".into(), decimals: 6,
+                }),
+                ("0x176211869cA2b568f2A7D4EE941E073a821EE1ff".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0x176211869cA2b568f2A7D4EE941E073a821EE1ff".into(), decimals: 6,
+                }),
+            ]),
             enabled: true,
             testnet: false,
         },
@@ -311,7 +325,14 @@ pub fn default_evm_chains() -> Vec<EvmChainDef> {
             block_time_secs: 3,
             native_token: "ETH".into(),
             native_decimals: 18,
-            tokens: HashMap::new(),
+            tokens: HashMap::from([
+                ("0xf55BEC9cafDbE8a36eF67A3D7ee70C6Aa7D2Da26".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0xf55BEC9cafDbE8a36eF67A3D7ee70C6Aa7D2Da26".into(), decimals: 6,
+                }),
+                ("0x06eFdBFf2a14a7c8E15944D1F4A48F9F95F663A4".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0x06eFdBFf2a14a7c8E15944D1F4A48F9F95F663A4".into(), decimals: 6,
+                }),
+            ]),
             enabled: true,
             testnet: false,
         },
@@ -326,7 +347,14 @@ pub fn default_evm_chains() -> Vec<EvmChainDef> {
             block_time_secs: 2,
             native_token: "MNT".into(),
             native_decimals: 18,
-            tokens: HashMap::new(),
+            tokens: HashMap::from([
+                ("0x201EBa5CC46D216Ce6DC03F6a759e8E766e956aE".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0x201EBa5CC46D216Ce6DC03F6a759e8E766e956aE".into(), decimals: 6,
+                }),
+                ("0x09Bc4E0D864854c6aFB6eB9A9cdF58aC190D0dF9".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0x09Bc4E0D864854c6aFB6eB9A9cdF58aC190D0dF9".into(), decimals: 6,
+                }),
+            ]),
             enabled: true,
             testnet: false,
         },
@@ -404,6 +432,29 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn all_evm_chains_have_stablecoins() {
+        let registry = EvmChainRegistry::with_defaults();
+        let chains_needing_stables = ["ethereum", "arbitrum", "optimism", "base", "polygon", "avalanche", "bsc", "zksync", "linea", "scroll", "mantle"];
+
+        for chain in registry.enabled_chains() {
+            if !chains_needing_stables.contains(&chain.id.as_str()) { continue; }
+            let has_usdt = chain.tokens.values().any(|t| t.symbol == "USDT");
+            let has_usdc = chain.tokens.values().any(|t| t.symbol == "USDC");
+            // Base doesn't have official USDT
+            if chain.id != "base" {
+                assert!(has_usdt, "Chain {} missing USDT", chain.id);
+            }
+            assert!(has_usdc, "Chain {} missing USDC", chain.id);
+        }
+
+        // Verify all target chains exist
+        let chain_ids: Vec<&str> = registry.enabled_chains().iter().map(|c| c.id.as_str()).collect();
+        for id in &chains_needing_stables {
+            assert!(chain_ids.contains(id), "Chain {} should be in registry", id);
         }
     }
 

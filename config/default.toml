@@ -66,6 +66,7 @@ required_confirmations = 20
 
 [chains.tron.tokens]
 "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t" = { symbol = "USDT", decimals = 6 }
+"TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8" = { symbol = "USDC", decimals = 6 }
 
 [chains.solana]
 enabled = true
