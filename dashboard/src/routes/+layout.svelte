@@ -92,6 +92,7 @@
 		{ href: '/policies',   key: 'nav.policies',   icon: 'P' },
 		{ href: '/users',      key: 'nav.users',       icon: 'U' },
 		{ href: '/addresses',  key: 'nav.addresses',  icon: '@' },
+		{ href: '/tokens',     key: 'nav.tokens',     icon: 'T' },
 		{ href: '/nfts',       key: 'nav.nfts',       icon: 'N' },
 		{ href: '/audit',      key: 'nav.audit',       icon: 'L' },
 		{ href: '/webhooks',   key: 'nav.webhooks',   icon: 'W' },
