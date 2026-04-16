@@ -23,6 +23,7 @@
 	interface Portfolio {
 		total_usd: string;
 		balances: AssetBalance[];
+		assets: AssetBalance[];
 		pending_approvals: number;
 	}
 
@@ -37,6 +38,9 @@
 				api.getJson<Portfolio>('/v1/user/portfolio'),
 				api.getJson<{ events: ActivityEvent[] }>('/v1/user/activity'),
 			]);
+			// API returns "assets", dashboard uses "balances" — normalize
+			port.balances = port.balances ?? port.assets ?? [];
+			port.pending_approvals = port.pending_approvals ?? 0;
 			portfolio = port;
 			activity  = act.events ?? [];
 		} catch (e) {
