@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import { t, locale } from '$lib/i18n';
-	import { tokenIcon } from '$lib/icons/tokens';
+	import { tokenIcon, chainIcon } from '$lib/icons/tokens';
 
 	interface AssetBalance {
 		asset: string;
@@ -64,22 +64,73 @@
 {:else if error}
 	<p class="err">{error}</p>
 {:else if portfolio}
-	<div class="top-row">
-		<div class="card aum-card">
-			<p class="aum-label">{$locale, t('portfolio.total')}</p>
-			<p class="aum-value">${portfolio.total_usd}</p>
-		</div>
-		<div class="actions">
-			<a class="btn-primary" href="/deposit">{$locale, t('portfolio.deposit')}</a>
-			<a class="btn-secondary" href="/withdraw">{$locale, t('portfolio.withdraw')}</a>
-			{#if portfolio.pending_approvals > 0}
-				<a class="btn-warn" href="/approvals">
-					{$locale, t('portfolio.approvals')}
-					<span class="badge-count">{portfolio.pending_approvals}</span>
+	{#if portfolio.balances.length === 0 && activity.length === 0}
+		<!-- Onboarding card for new users -->
+		<div class="card onboarding">
+			<div class="onboarding-header">
+				<span class="onboarding-icon">
+					<svg width="40" height="40" viewBox="0 0 40 40" fill="none"><circle cx="20" cy="20" r="20" fill="var(--accent, #58a6ff)" opacity="0.15"/><path d="M20 10v10m0 0v10m0-10h10m-10 0H10" stroke="var(--accent, #58a6ff)" stroke-width="2.5" stroke-linecap="round"/></svg>
+				</span>
+				<div>
+					<h2 class="onboarding-title">Welcome to MG Custody</h2>
+					<p class="onboarding-sub">Get started in 3 simple steps</p>
+				</div>
+			</div>
+			<div class="onboarding-steps">
+				<a href="/deposit" class="step">
+					<span class="step-num">1</span>
+					<div>
+						<strong>Generate deposit address</strong>
+						<p>Choose a chain and get your unique custody address with QR code</p>
+					</div>
 				</a>
-			{/if}
+				<a href="/deposit" class="step">
+					<span class="step-num">2</span>
+					<div>
+						<strong>Send crypto</strong>
+						<p>Transfer from your exchange or wallet. Scanner detects deposits automatically.</p>
+					</div>
+				</a>
+				<a href="/transactions" class="step">
+					<span class="step-num">3</span>
+					<div>
+						<strong>Track & manage</strong>
+						<p>Monitor balances, approve withdrawals, set policies — all from this dashboard.</p>
+					</div>
+				</a>
+			</div>
+			<div class="onboarding-chains">
+				<span class="chain-label">Supported chains:</span>
+				{@html chainIcon('ethereum', 22)}
+				{@html chainIcon('bitcoin', 22)}
+				{@html chainIcon('tron', 22)}
+				{@html chainIcon('solana', 22)}
+				{@html chainIcon('arbitrum', 22)}
+				{@html chainIcon('optimism', 22)}
+				{@html chainIcon('polygon', 22)}
+				{@html chainIcon('base', 22)}
+				{@html chainIcon('avalanche', 22)}
+				{@html chainIcon('bsc', 22)}
+			</div>
 		</div>
-	</div>
+	{:else}
+		<div class="top-row">
+			<div class="card aum-card">
+				<p class="aum-label">{$locale, t('portfolio.total')}</p>
+				<p class="aum-value">${portfolio.total_usd}</p>
+			</div>
+			<div class="actions">
+				<a class="btn-primary" href="/deposit">{$locale, t('portfolio.deposit')}</a>
+				<a class="btn-secondary" href="/withdraw">{$locale, t('portfolio.withdraw')}</a>
+				{#if portfolio.pending_approvals > 0}
+					<a class="btn-warn" href="/approvals">
+						{$locale, t('portfolio.approvals')}
+						<span class="badge-count">{portfolio.pending_approvals}</span>
+					</a>
+				{/if}
+			</div>
+		</div>
+	{/if}
 
 	<div class="card">
 		<h3>{$locale, t('portfolio.assets')}</h3>
@@ -201,6 +252,99 @@
 	.muted  { color: var(--fg-muted, #8b949e); }
 	.mono   { font-family: monospace; }
 	.err    { color: var(--red, #f85149); }
+
+	/* Onboarding card */
+	.onboarding {
+		border-color: var(--accent, #58a6ff);
+		border-width: 2px;
+	}
+
+	.onboarding-header {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		margin-bottom: 1.5rem;
+	}
+
+	.onboarding-icon { flex-shrink: 0; }
+
+	.onboarding-title {
+		margin: 0;
+		font-size: 1.3rem;
+		color: var(--fg, #e1e4e8);
+	}
+
+	.onboarding-sub {
+		margin: 0.2rem 0 0;
+		color: var(--fg-muted, #8b949e);
+		font-size: 0.9rem;
+	}
+
+	.onboarding-steps {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		margin-bottom: 1.5rem;
+	}
+
+	.step {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.9rem;
+		padding: 0.8rem 1rem;
+		background: var(--hover-bg, #1c2128);
+		border: 1px solid var(--border, #30363d);
+		border-radius: 8px;
+		text-decoration: none;
+		color: inherit;
+		transition: border-color 0.15s, background 0.15s;
+	}
+
+	.step:hover {
+		border-color: var(--accent, #58a6ff);
+		background: var(--card-bg, #161b22);
+	}
+
+	.step-num {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		background: var(--accent, #58a6ff);
+		color: #0f1117;
+		font-weight: 700;
+		font-size: 0.85rem;
+		flex-shrink: 0;
+	}
+
+	.step strong {
+		display: block;
+		font-size: 0.95rem;
+		margin-bottom: 0.15rem;
+	}
+
+	.step p {
+		margin: 0;
+		font-size: 0.82rem;
+		color: var(--fg-muted, #8b949e);
+	}
+
+	.onboarding-chains {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+	}
+
+	.onboarding-chains :global(svg) { border-radius: 50%; }
+
+	.chain-label {
+		font-size: 0.8rem;
+		color: var(--fg-muted, #8b949e);
+		margin-right: 0.3rem;
+	}
 
 	@media (max-width: 768px) {
 		.top-row { flex-direction: column; }

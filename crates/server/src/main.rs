@@ -937,6 +937,23 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // DB pool metrics emitter (every 10s)
+    {
+        let pool_ref = db.pool.clone();
+        tokio::spawn(async move {
+            use custody_common::prometheus_metrics::{DB_POOL_ACTIVE, DB_POOL_IDLE, DB_POOL_SIZE};
+            loop {
+                let size = pool_ref.size() as f64;
+                let idle = pool_ref.num_idle() as f64;
+                let active = size - idle;
+                DB_POOL_SIZE.set(size);
+                DB_POOL_ACTIVE.set(active);
+                DB_POOL_IDLE.set(idle);
+                tokio::time::sleep(Duration::from_secs(10)).await;
+            }
+        });
+    }
+
     // FIDO2 challenge cleanup loop (hourly)
     {
         let fido2_db = db.clone();

@@ -28,6 +28,7 @@
 	let addrLoading   = $state(false);
 	let addrError     = $state('');
 	let copied        = $state(false);
+	let qrSvg         = $state('');
 
 	let history     = $state<DepositRecord[]>([]);
 	let histLoading = $state(true);
@@ -37,8 +38,15 @@
 		addrLoading = true;
 		addrError   = '';
 		addrInfo    = null;
+		qrSvg       = '';
 		try {
 			addrInfo = await api.getJson<DepositAddress>(`/v1/user/deposit-address/${chain}`);
+			// Fetch real QR code SVG
+			try {
+				qrSvg = await api.get(`/v1/user/deposit-address/${chain}/qr`);
+			} catch {
+				qrSvg = ''; // QR generation optional — fallback to text
+			}
 		} catch (e) {
 			addrError = e instanceof Error ? e.message : 'Failed to fetch address';
 		} finally {
@@ -108,9 +116,15 @@
 		{:else if addrError}
 			<p class="err">{addrError}</p>
 		{:else if addrInfo}
-			<div class="qr-placeholder">
-				<p class="qr-data">{addrInfo.qr_data}</p>
-				<p class="qr-hint">QR code — scan with wallet app</p>
+			<div class="qr-container">
+				{#if qrSvg}
+					<div class="qr-svg">{@html qrSvg}</div>
+				{:else}
+					<div class="qr-fallback">
+						<p class="qr-data">{addrInfo.qr_data || addrInfo.address}</p>
+					</div>
+				{/if}
+				<p class="qr-hint">Scan with wallet app to deposit</p>
 			</div>
 
 			<p class="addr-label">Your {addrInfo.chain} deposit address</p>
@@ -196,7 +210,28 @@
 
 	.addr-section { margin-top: 0.5rem; }
 
-	.qr-placeholder {
+	.qr-container {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		padding: 1rem;
+	}
+
+	.qr-svg {
+		background: #fff;
+		border-radius: 8px;
+		padding: 0.75rem;
+		display: inline-block;
+		margin-bottom: 0.5rem;
+	}
+
+	.qr-svg :global(svg) {
+		width: 180px;
+		height: 180px;
+		display: block;
+	}
+
+	.qr-fallback {
 		width: 160px; height: 160px;
 		border: 2px dashed var(--border, #30363d);
 		border-radius: 8px;

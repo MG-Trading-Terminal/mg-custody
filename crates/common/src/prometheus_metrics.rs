@@ -4,8 +4,8 @@
 //! Exposes them via a `/metrics` endpoint in the gateway.
 
 use prometheus::{
-    register_counter_vec, register_gauge_vec, register_histogram_vec,
-    CounterVec, GaugeVec, HistogramVec, TextEncoder, Encoder,
+    register_counter_vec, register_gauge, register_gauge_vec, register_histogram_vec,
+    CounterVec, Gauge, GaugeVec, HistogramVec, TextEncoder, Encoder,
 };
 use once_cell::sync::Lazy;
 
@@ -149,6 +149,32 @@ pub static CIRCUIT_BREAKER_OUTFLOW_USD: Lazy<GaugeVec> = Lazy::new(|| {
         "custody_circuit_breaker_outflow_usd",
         "Current outflow window total in USD",
         &["window"] // "hourly" or "daily"
+    ).unwrap()
+});
+
+// ── Database pool metrics ────────────────────────────────────────
+
+/// Gauge: number of active (in-use) DB connections.
+pub static DB_POOL_ACTIVE: Lazy<prometheus::Gauge> = Lazy::new(|| {
+    register_gauge!(
+        "custody_db_pool_active_connections",
+        "Number of active (in-use) database connections"
+    ).unwrap()
+});
+
+/// Gauge: number of idle DB connections.
+pub static DB_POOL_IDLE: Lazy<prometheus::Gauge> = Lazy::new(|| {
+    register_gauge!(
+        "custody_db_pool_idle_connections",
+        "Number of idle database connections"
+    ).unwrap()
+});
+
+/// Gauge: total pool size (max connections configured).
+pub static DB_POOL_SIZE: Lazy<prometheus::Gauge> = Lazy::new(|| {
+    register_gauge!(
+        "custody_db_pool_max_connections",
+        "Maximum database connections configured"
     ).unwrap()
 });
 

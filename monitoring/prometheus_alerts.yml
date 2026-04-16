@@ -131,6 +131,16 @@ groups:
           description: "API response times degraded. Check database and chain node connectivity."
 
       # ── Wallet Balance ─────────────────────────────────────
+      - alert: DbPoolExhaustion
+        expr: custody_db_pool_active_connections / custody_db_pool_max_connections > 0.8
+        for: 2m
+        labels:
+          severity: warning
+          team: custody
+        annotations:
+          summary: "DB pool > 80% utilized ({{ $value | humanizePercentage }})"
+          description: "Database connection pool is running low. Active: {{ $value }}. Consider increasing max_connections."
+
       - alert: HotWalletLow
         expr: custody_wallet_balance{tier="hot"} < 1000
         for: 10m
