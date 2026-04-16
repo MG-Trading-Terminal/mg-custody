@@ -133,7 +133,7 @@ pub async fn security_headers(
 
     headers.insert(
         "Content-Security-Policy",
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss:; img-src 'self' data:; font-src 'self'"
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss:; img-src 'self' data:; font-src 'self'"
             .parse().unwrap(),
     );
     headers.insert("X-Frame-Options", "DENY".parse().unwrap());
