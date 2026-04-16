@@ -35,7 +35,7 @@ pub enum TokenType {
 
 /// Get all verified tokens in the database.
 pub fn all_tokens() -> Vec<TokenEntry> {
-    let mut tokens = Vec::with_capacity(120);
+    let mut tokens = Vec::with_capacity(200);
 
     // --- Native tokens ---
     tokens.push(native("BTC", "Bitcoin", Chain::Bitcoin, 8, "bitcoin"));
@@ -132,6 +132,43 @@ pub fn all_tokens() -> Vec<TokenEntry> {
     tokens.push(spl("HNT", "Helium", "hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux", 8, false, "helium"));
     tokens.push(spl("MOBILE", "Helium Mobile", "mb1eu7TzEc71KxDpsmsKoucSSuuo6KWzSY2qPAqTL7W9", 6, false, "helium-mobile"));
 
+    // --- Solana SPL (batch 2 — DeFi + memecoins) ---
+    tokens.push(spl("TNSR", "Tensor", "TNSRxcUxoT9xBG3de7PiJyTDYu7kskLqcpddxnEJAS6", 9, false, "tensor"));
+    tokens.push(spl("DRIFT", "Drift", "DriFtupJYLTosbwoN8koMbEYSx54aFAVLddWsbksjwg7", 6, false, "drift-protocol"));
+    tokens.push(spl("POPCAT", "Popcat", "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr", 9, false, "popcat"));
+    tokens.push(spl("MEW", "cat in a dogs world", "MEW1gQWJ3nEXg2qgERiKu7FAFj79PHvQVREQUzScPP5", 5, false, "cat-in-a-dogs-world"));
+    tokens.push(spl("KMNO", "Kamino", "KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS", 6, false, "kamino"));
+    tokens.push(spl("JITOSOL", "Jito Staked SOL", "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn", 9, false, "jito-staked-sol"));
+    tokens.push(spl("BSOL", "BlazeStake SOL", "bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1", 9, false, "blazestake-staked-sol"));
+
+    // --- Ethereum ERC-20 (batch 3 — top by market cap, missing from batch 1-2) ---
+    tokens.push(erc20("TON", "Toncoin (wrapped)", "0x582d872A1B094FC48F5DE31D3B73F2D9bE47def1", 9, false, "the-open-network"));
+    tokens.push(erc20("TRX", "TRON (wrapped)", "0x50327c6c5a14DCaDE707ABad2E27eB517df87AB5", 6, false, "tron"));
+    tokens.push(erc20("DOGE", "Dogecoin (wrapped)", "0x4206931337dc273a630d328dA6441786BfaD668f", 8, false, "dogecoin"));
+    tokens.push(erc20("AVAX", "Avalanche (wrapped)", "0x85f138bfEE4ef8e540890CFb48F620571d67Eda3", 18, false, "avalanche-2"));
+    tokens.push(erc20("FIL", "Filecoin (wrapped)", "0x6e1A19F235bE7ED8E3369eF73b196C07257494DE", 18, false, "filecoin"));
+    tokens.push(erc20("ICP", "Internet Computer (wrapped)", "0x054B8f99D15cC5B35a42a926635977d62692F25b", 8, false, "internet-computer"));
+    tokens.push(erc20("ATOM", "Cosmos (wrapped)", "0x8D983cb9388EaC77af0474fA441C4815500Cb7BB", 6, false, "cosmos"));
+    tokens.push(erc20("XLM", "Stellar (wrapped)", "0x4Ae2Ab1af7e3b0092dbF3A4B20ec3de8fC834873", 7, false, "stellar"));
+    tokens.push(erc20("STX", "Stacks", "0xfc98e825A2264D890F73661eD31Bd5b0FFe9544c", 8, false, "stacks"));
+    tokens.push(erc20("FLOKI", "Floki", "0xcf0C122c6b73ff809C693DB761e7BaeBe62b6a2E", 9, false, "floki"));
+    tokens.push(erc20("WOO", "WOO", "0x4691937a7508860F876c9c0a0a617784553e1d89", 18, false, "woo-network"));
+    tokens.push(erc20("MANA", "Decentraland", "0x0F5D2fB29fb7d3CFeE444a200298f468908cC942", 18, false, "decentraland"));
+    tokens.push(erc20("SAND", "The Sandbox", "0x3845badAde8e6dFF049820680d1F14bD3903a5d0", 18, false, "the-sandbox"));
+    tokens.push(erc20("AXS", "Axie Infinity", "0xBB0E17EF65F82Ab018d8EDd776e8DD940327B28b", 18, false, "axie-infinity"));
+    tokens.push(erc20("GALA", "Gala", "0xd1d2Eb1B1e90B638588728b4130137D262C87cae", 8, false, "gala"));
+    tokens.push(erc20("IOTX", "IoTeX", "0x6fB3e0A217407EFFf7Ca062D46c26E5d60a14d69", 18, false, "iotex"));
+    tokens.push(erc20("ZRX", "0x Protocol", "0xE41d2489571d322189246DaFA5ebDe1F4699F498", 18, false, "0x"));
+    tokens.push(erc20("OCEAN", "Ocean Protocol", "0x967da4048cD07aB37855c090aAF366e4ce1b9F48", 18, false, "ocean-protocol"));
+    tokens.push(erc20("SKL", "SKALE", "0x00c83aeCC790e8a4453e5dD3B0B4b3680501a7A7", 18, false, "skale"));
+    tokens.push(erc20("MASK", "Mask Network", "0x69af81e73A73B40adF4f3d4223Cd9b1ECE623074", 18, false, "mask-network"));
+    tokens.push(erc20("CHZ", "Chiliz", "0x3506424F91fD33084466F402d5D97f05F8e3b4AF", 18, false, "chiliz"));
+    tokens.push(erc20("OSMO", "Osmosis (wrapped)", "0xD176A78B1a4Aab8e3175C367589d4E052ECf6285", 6, false, "osmosis"));
+
+    // --- Tron TRC-20 (batch 2) ---
+    tokens.push(trc20("TUSD", "TrueUSD", "TUpMhErZL2fhh4sVNULAbNKLokS4GjC1F4", 18, true, "true-usd"));
+    tokens.push(trc20("USDJ", "JUST Stablecoin", "TMwFHYXLJaRUPeW6421aqXL4ZEzPRFGkGT", 18, true, "just-stablecoin"));
+
     tokens
 }
 
@@ -202,7 +239,7 @@ mod tests {
     #[test]
     fn total_token_count() {
         let tokens = all_tokens();
-        assert!(tokens.len() >= 80, "Should have 80+ tokens, got {}", tokens.len());
+        assert!(tokens.len() >= 110, "Should have 110+ tokens, got {}", tokens.len());
     }
 
     #[test]

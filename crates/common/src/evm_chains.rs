@@ -358,6 +358,218 @@ pub fn default_evm_chains() -> Vec<EvmChainDef> {
             enabled: true,
             testnet: false,
         },
+        // ── Additional EVM Chains ────────────────────────────────
+        EvmChainDef {
+            id: "fantom".into(),
+            name: "Fantom Opera".into(),
+            chain_id: 250,
+            rpc_url: "https://rpc.ftm.tools".into(),
+            fallback_rpc_urls: vec!["https://rpc.ankr.com/fantom".into()],
+            explorer_url: Some("https://ftmscan.com".into()),
+            required_confirmations: 12,
+            block_time_secs: 1,
+            native_token: "FTM".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0x049d68029688eAbF473097a2fC38ef61633A3C7A".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0x049d68029688eAbF473097a2fC38ef61633A3C7A".into(), decimals: 6,
+                }),
+                ("0x04068DA6C83AFCFA0e13ba15A6696662335D5B75".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0x04068DA6C83AFCFA0e13ba15A6696662335D5B75".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "cronos".into(),
+            name: "Cronos".into(),
+            chain_id: 25,
+            rpc_url: "https://evm.cronos.org".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://cronoscan.com".into()),
+            required_confirmations: 12,
+            block_time_secs: 6,
+            native_token: "CRO".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0x66e428c3f67a68878562e79A0234c1F83c208770".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0x66e428c3f67a68878562e79A0234c1F83c208770".into(), decimals: 6,
+                }),
+                ("0xc21223249CA28397B4B6541dfFaEcC539BfF0c59".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0xc21223249CA28397B4B6541dfFaEcC539BfF0c59".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "gnosis".into(),
+            name: "Gnosis Chain".into(),
+            chain_id: 100,
+            rpc_url: "https://rpc.gnosischain.com".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://gnosisscan.io".into()),
+            required_confirmations: 12,
+            block_time_secs: 5,
+            native_token: "xDAI".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0x4ECaBa5870353805a9F068101A40E0f32ed605C6".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0x4ECaBa5870353805a9F068101A40E0f32ed605C6".into(), decimals: 6,
+                }),
+                ("0xDDAfbb505ad214D7b80b1f830fcCc89B60fb7A83".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0xDDAfbb505ad214D7b80b1f830fcCc89B60fb7A83".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "celo".into(),
+            name: "Celo".into(),
+            chain_id: 42220,
+            rpc_url: "https://forno.celo.org".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://celoscan.io".into()),
+            required_confirmations: 12,
+            block_time_secs: 5,
+            native_token: "CELO".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e".into(), decimals: 6,
+                }),
+                ("0xcebA9300f2b948710d2653dD7B07f33A8B32118C".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0xcebA9300f2b948710d2653dD7B07f33A8B32118C".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "kava".into(),
+            name: "Kava EVM".into(),
+            chain_id: 2222,
+            rpc_url: "https://evm.kava.io".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://kavascan.com".into()),
+            required_confirmations: 12,
+            block_time_secs: 6,
+            native_token: "KAVA".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0x919C1c267BC06a7039e03fcc2eF738525769109c".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0x919C1c267BC06a7039e03fcc2eF738525769109c".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "moonbeam".into(),
+            name: "Moonbeam".into(),
+            chain_id: 1284,
+            rpc_url: "https://rpc.api.moonbeam.network".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://moonscan.io".into()),
+            required_confirmations: 12,
+            block_time_secs: 12,
+            native_token: "GLMR".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0xFFFFFFfFea09FB06d082fd1275CD48b191cbCD1d".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0xFFFFFFfFea09FB06d082fd1275CD48b191cbCD1d".into(), decimals: 6,
+                }),
+                ("0x931715FEE2d06333043d11F658C8CE934aC61D0c".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0x931715FEE2d06333043d11F658C8CE934aC61D0c".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "blast".into(),
+            name: "Blast".into(),
+            chain_id: 81457,
+            rpc_url: "https://rpc.blast.io".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://blastscan.io".into()),
+            required_confirmations: 12,
+            block_time_secs: 2,
+            native_token: "ETH".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0x4300000000000000000000000000000000000003".into(), EvmTokenDef {
+                    symbol: "USDB".into(), contract_address: "0x4300000000000000000000000000000000000003".into(), decimals: 18,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "metis".into(),
+            name: "Metis Andromeda".into(),
+            chain_id: 1088,
+            rpc_url: "https://andromeda.metis.io/?owner=1088".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://andromeda-explorer.metis.io".into()),
+            required_confirmations: 12,
+            block_time_secs: 4,
+            native_token: "METIS".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0xbB06DCA3AE6887fAbF931640f67cab3e3a16F4dC".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0xbB06DCA3AE6887fAbF931640f67cab3e3a16F4dC".into(), decimals: 6,
+                }),
+                ("0xEA32A96608495e54156Ae48931A7c0f0046d1e99".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0xEA32A96608495e54156Ae48931A7c0f0046d1e99".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "manta".into(),
+            name: "Manta Pacific".into(),
+            chain_id: 169,
+            rpc_url: "https://pacific-rpc.manta.network/http".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://pacific-explorer.manta.network".into()),
+            required_confirmations: 12,
+            block_time_secs: 2,
+            native_token: "ETH".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0xf417F5A458eC102B90352F697D6e2Ac3A3d2851f".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0xf417F5A458eC102B90352F697D6e2Ac3A3d2851f".into(), decimals: 6,
+                }),
+                ("0xb73603C5d87fA094B7314C74ACE2e64D165016fb".into(), EvmTokenDef {
+                    symbol: "USDC".into(), contract_address: "0xb73603C5d87fA094B7314C74ACE2e64D165016fb".into(), decimals: 6,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
+        EvmChainDef {
+            id: "opbnb".into(),
+            name: "opBNB".into(),
+            chain_id: 204,
+            rpc_url: "https://opbnb-mainnet-rpc.bnbchain.org".into(),
+            fallback_rpc_urls: vec![],
+            explorer_url: Some("https://opbnbscan.com".into()),
+            required_confirmations: 12,
+            block_time_secs: 1,
+            native_token: "BNB".into(),
+            native_decimals: 18,
+            tokens: HashMap::from([
+                ("0x9e5AAC1Ba1a2e6aEd6b32689DFcF62A509Ca96f3".into(), EvmTokenDef {
+                    symbol: "USDT".into(), contract_address: "0x9e5AAC1Ba1a2e6aEd6b32689DFcF62A509Ca96f3".into(), decimals: 18,
+                }),
+            ]),
+            enabled: true,
+            testnet: false,
+        },
         // Testnets
         EvmChainDef {
             id: "sepolia".into(),
@@ -424,8 +636,8 @@ mod tests {
         for chain in registry.enabled_chains() {
             for token in chain.tokens.values() {
                 if token.symbol == "USDT" {
-                    // BSC USDT is 18 decimals, all others are 6
-                    if chain.id == "bsc" {
+                    // BSC and opBNB USDT are 18 decimals, all others are 6
+                    if chain.id == "bsc" || chain.id == "opbnb" {
                         assert_eq!(token.decimals, 18, "BSC USDT should be 18 decimals");
                     } else {
                         assert_eq!(token.decimals, 6, "USDT should be 6 decimals on {}", chain.id);
@@ -438,7 +650,7 @@ mod tests {
     #[test]
     fn all_evm_chains_have_stablecoins() {
         let registry = EvmChainRegistry::with_defaults();
-        let chains_needing_stables = ["ethereum", "arbitrum", "optimism", "base", "polygon", "avalanche", "bsc", "zksync", "linea", "scroll", "mantle"];
+        let chains_needing_stables = ["ethereum", "arbitrum", "optimism", "base", "polygon", "avalanche", "bsc", "zksync", "linea", "scroll", "mantle", "fantom", "cronos", "gnosis", "celo", "metis", "manta"];
 
         for chain in registry.enabled_chains() {
             if !chains_needing_stables.contains(&chain.id.as_str()) { continue; }
