@@ -45,7 +45,14 @@
 	let silenceHistory = $state<Silence[]>([]);
 	let showSilenceHistory = $state(false);
 
-	interface UptimeEntry { feature: string; uptime_pct: string; down_seconds: number; transitions: number; }
+	interface UptimeEntry {
+		feature: string;
+		uptime_pct: string;
+		down_seconds: number;
+		transitions: number;
+		slo_target_pct?: string;
+		slo_breach?: boolean;
+	}
 	interface ChaosOverride {
 		state: unknown;
 		reason: string;
@@ -83,8 +90,11 @@
 
 	async function loadHistory() {
 		try {
+			// Pull 500 rows so the sparkline computation has enough
+			// history to cover a flapping 24h. The "Recent incidents"
+			// list below still truncates to the most recent 50.
 			const data = await api.getJson<{ transitions: Transition[] }>(
-				'/v1/health/features/history?limit=50'
+				'/v1/health/features/history?limit=500'
 			);
 			history = data.transitions ?? [];
 			historyErr = '';
@@ -260,6 +270,25 @@
 			? features.filter(f => f.state === 'misconfigured' || f.state === 'degraded')
 			: features.filter(f => f.state === filter));
 
+	// KPI aggregates over the last 24h. Incidents = degradation /
+	// misconfig events. SLO breaches = features below their target.
+	// Avg uptime averages across every feature that has an uptime
+	// row (Disabled features don't contribute — they're not serving).
+	let incidents24h = $derived(
+		history.filter(t => {
+			if (t.kind === 'recovery') return false;
+			return (Date.now() - new Date(t.occurred_at).getTime()) < 24 * 3600 * 1000;
+		}).length
+	);
+	let sloBreaches = $derived(
+		Object.values(uptimes).filter(u => u.slo_breach === true).length
+	);
+	let avgUptime = $derived(() => {
+		const vals = Object.values(uptimes).map(u => parseFloat(u.uptime_pct));
+		if (vals.length === 0) return null;
+		return vals.reduce((a, b) => a + b, 0) / vals.length;
+	});
+
 	function stateLabel(s: FeatureState): string {
 		return { ready: 'READY', disabled: 'DISABLED', misconfigured: 'MISCONFIGURED', degraded: 'DEGRADED' }[s];
 	}
@@ -288,6 +317,63 @@
 
 	function kindLabel(k: Transition['kind']): string {
 		return { degradation: 'DEGRADED', misconfiguration: 'MISCONFIG', recovery: 'RECOVERED' }[k];
+	}
+
+	// Sparkline: 48 buckets of 30 minutes each over the last 24h.
+	// Each bucket is "down" if any degradation interval overlaps it.
+	// Algorithm mirrors compute_down_seconds in the backend — walk
+	// the feature's transitions ordered ascending, open a down
+	// interval on degradation/misconfig, close on recovery, tail the
+	// open interval against `now`.
+	const SPARKLINE_BUCKETS = 48;
+	const WINDOW_MS = 24 * 3600 * 1000;
+
+	function sparklineBuckets(featureName: string): boolean[] {
+		const now = Date.now();
+		const windowStart = now - WINDOW_MS;
+		const bucketMs = WINDOW_MS / SPARKLINE_BUCKETS;
+		const down: boolean[] = new Array(SPARKLINE_BUCKETS).fill(false);
+
+		const events = history
+			.filter(t => t.feature === featureName)
+			.slice()
+			.reverse(); // history is newest-first; we want ascending
+
+		let downSince: number | null = null;
+		// If the first in-window event is a recovery, the feature
+		// was down before the window opened.
+		const firstInWindow = events.find(e => new Date(e.occurred_at).getTime() >= windowStart);
+		if (firstInWindow && firstInWindow.kind === 'recovery') {
+			downSince = windowStart;
+		}
+
+		const fillRange = (from: number, to: number) => {
+			const start = Math.max(from, windowStart);
+			const end = Math.min(to, now);
+			if (end <= start) return;
+			const firstBucket = Math.floor((start - windowStart) / bucketMs);
+			const lastBucket = Math.min(
+				SPARKLINE_BUCKETS - 1,
+				Math.floor((end - windowStart) / bucketMs)
+			);
+			for (let i = firstBucket; i <= lastBucket; i++) {
+				if (i >= 0 && i < SPARKLINE_BUCKETS) down[i] = true;
+			}
+		};
+
+		for (const e of events) {
+			const ts = new Date(e.occurred_at).getTime();
+			if (e.kind === 'degradation' || e.kind === 'misconfiguration') {
+				if (downSince === null) downSince = ts;
+			} else if (e.kind === 'recovery') {
+				if (downSince !== null) {
+					fillRange(downSince, ts);
+					downSince = null;
+				}
+			}
+		}
+		if (downSince !== null) fillRange(downSince, now);
+		return down;
 	}
 </script>
 
@@ -325,6 +411,26 @@
 	{#if error}
 		<div class="banner banner-error">{error}</div>
 	{/if}
+
+	<section class="kpi-row">
+		<div class="kpi-tile">
+			<div class="kpi-label">Incidents 24h</div>
+			<div class="kpi-value {incidents24h === 0 ? 'kpi-ok' : 'kpi-bad'}">{incidents24h}</div>
+			<div class="kpi-sub">{incidents24h === 0 ? 'Quiet day' : 'Degradation + misconfig events'}</div>
+		</div>
+		<div class="kpi-tile">
+			<div class="kpi-label">SLO breaches</div>
+			<div class="kpi-value {sloBreaches === 0 ? 'kpi-ok' : 'kpi-bad'}">{sloBreaches}</div>
+			<div class="kpi-sub">{sloBreaches === 0 ? 'All features within target' : 'Features below their 30d SLO target'}</div>
+		</div>
+		<div class="kpi-tile">
+			<div class="kpi-label">Avg uptime 24h</div>
+			<div class="kpi-value">
+				{#if avgUptime() !== null}{avgUptime()!.toFixed(3)}%{:else}—{/if}
+			</div>
+			<div class="kpi-sub">Mean across reported features</div>
+		</div>
+	</section>
 
 	<section class="summary-row">
 		<button class="chip chip-total" class:active={filter === 'all'} onclick={() => filter = 'all'}>
@@ -364,12 +470,13 @@
 		<div class="feature-list">
 			{#each filtered as f (f.name)}
 				{@const sil = silencedBy(f.name)}
+				{@const buckets = sparklineBuckets(f.name)}
 				<article class="feature feature-{f.state}" class:feature-silenced={sil !== null}>
 					<div class="feature-left">
 						<span class="state-pill state-{f.state}">{stateLabel(f.state)}</span>
 						<div class="feature-info">
 							<div class="feature-name">
-								{f.name}
+								<a href={`/readiness/${encodeURIComponent(f.name)}`} class="feature-link">{f.name}</a>
 								{#if sil}
 									<span class="silenced-badge" title={`Matched by silence "${sil.feature}" — ${sil.reason}`}>
 										SILENCED{sil.feature !== f.name ? ` by ${sil.feature}` : ''}
@@ -381,8 +488,20 @@
 					</div>
 					<div class="feature-right">
 						<div class="feature-meta-line">
+							<svg class="sparkline" viewBox="0 0 {SPARKLINE_BUCKETS * 3} 12" preserveAspectRatio="none" aria-label="24h uptime">
+								<title>24h timeline — {SPARKLINE_BUCKETS} × 30min buckets</title>
+								{#each buckets as d, i}
+									<rect
+										x={i * 3}
+										y="0"
+										width="2.4"
+										height="12"
+										class={d ? 'spark-down' : 'spark-up'}
+									/>
+								{/each}
+							</svg>
 							{#if uptimes[f.name]}
-								<span class="uptime-pill" title={`${uptimes[f.name].down_seconds}s down · ${uptimes[f.name].transitions} transitions in 24h`}>
+								<span class="uptime-pill" class:uptime-breach={uptimes[f.name].slo_breach} title={`${uptimes[f.name].down_seconds}s down · ${uptimes[f.name].transitions} transitions in 24h · SLO ${uptimes[f.name].slo_target_pct ?? '—'}%`}>
 									{parseFloat(uptimes[f.name].uptime_pct).toFixed(2)}% 24h
 								</span>
 							{/if}
@@ -515,6 +634,38 @@
 	.btn-primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
 	.btn-primary .btn-icon { color: #0A0B0D; }
 
+	.kpi-row {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+		gap: var(--sp-3);
+	}
+	.kpi-tile {
+		padding: var(--sp-4);
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--r-md);
+	}
+	.kpi-label {
+		font-size: 0.7rem; font-weight: 600;
+		text-transform: uppercase; letter-spacing: 0.08em;
+		color: var(--fg-dim);
+	}
+	.kpi-value {
+		margin: 6px 0 4px;
+		font-size: 1.7rem; font-weight: 650;
+		font-family: var(--font-mono);
+		color: var(--fg-strong);
+	}
+	.kpi-ok  { color: var(--green); }
+	.kpi-bad { color: var(--red); }
+	.kpi-sub { font-size: 0.74rem; color: var(--fg-muted); }
+
+	.feature-link {
+		color: var(--fg-strong);
+		text-decoration: none;
+	}
+	.feature-link:hover { color: var(--accent); text-decoration: underline; }
+
 	.summary-row {
 		display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
 	}
@@ -635,6 +786,20 @@
 		color: var(--fg-muted);
 		white-space: nowrap;
 	}
+	.uptime-pill.uptime-breach {
+		color: var(--red);
+		border-color: color-mix(in srgb, var(--red) 40%, transparent);
+		background: var(--red-soft);
+	}
+
+	.sparkline {
+		width: 90px;
+		height: 12px;
+		border-radius: 2px;
+		background: var(--surface-3);
+	}
+	.spark-up   { fill: color-mix(in srgb, var(--green) 55%, transparent); }
+	.spark-down { fill: var(--red); }
 
 	.feature-silenced { opacity: 0.75; }
 	.silenced-badge {
