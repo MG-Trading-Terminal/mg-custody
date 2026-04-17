@@ -35,7 +35,7 @@ impl CustodyDb {
     }
 
     pub async fn find_embedded_wallet(&self, id: Uuid) -> anyhow::Result<Option<EmbeddedWallet>> {
-        let row: Option<(Uuid, String, String, String, DateTime<Utc>, Option<DateTime<Utc>>)> = sqlx::query_as(
+        let row: Option<(Uuid, Uuid, String, String, DateTime<Utc>, Option<DateTime<Utc>>)> = sqlx::query_as(
             "SELECT id, user_id, wallet_type, status, created_at, last_active_at
              FROM embedded_wallets WHERE id = $1",
         ).bind(id).fetch_optional(&self.pool).await?;
@@ -54,7 +54,7 @@ impl CustodyDb {
         }
     }
 
-    pub async fn list_embedded_wallets_by_user(&self, user_id: &str) -> anyhow::Result<Vec<EmbeddedWallet>> {
+    pub async fn list_embedded_wallets_by_user(&self, user_id: Uuid) -> anyhow::Result<Vec<EmbeddedWallet>> {
         let rows: Vec<(Uuid,)> = sqlx::query_as(
             "SELECT id FROM embedded_wallets WHERE user_id = $1 ORDER BY created_at",
         ).bind(user_id).fetch_all(&self.pool).await?;

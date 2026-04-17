@@ -46,10 +46,14 @@ async fn create_embedded_wallet(
     Json(req): Json<CreateEmbeddedWalletRequest>,
 ) -> Result<(StatusCode, Json<EmbeddedWallet>), ApiError> {
     // Admins may create wallets on behalf of any user; regular editors only
-    // for themselves. The `user_id` from the request body is no longer blindly
-    // trusted.
+    // for themselves. Any body `user_id` from a non-admin is ignored — the
+    // owner is always the authenticated caller.
     let is_admin = auth.0.role.has_at_least(&custody_db::sessions::Role::Admin);
-    let owner = if is_admin { req.user_id } else { auth.0.user_id.to_string() };
+    let owner = if is_admin {
+        req.user_id.unwrap_or(auth.0.user_id)
+    } else {
+        auth.0.user_id
+    };
 
     let wallet = EmbeddedWallet {
         id: Uuid::new_v4(),
@@ -78,7 +82,7 @@ async fn get_embedded_wallet(
         .ok_or_else(|| ApiError::not_found("Embedded wallet not found"))?;
 
     let is_admin = auth.0.role.has_at_least(&custody_db::sessions::Role::Admin);
-    if !is_admin && wallet.user_id != auth.0.user_id.to_string() {
+    if !is_admin && wallet.user_id != auth.0.user_id {
         return Err(ApiError::not_found("Embedded wallet not found"));
     }
 
@@ -88,17 +92,17 @@ async fn get_embedded_wallet(
 async fn list_user_wallets(
     auth: RequireViewer,
     State(state): State<AppState>,
-    Path(user_id): Path<String>,
+    Path(user_id): Path<Uuid>,
 ) -> Result<Json<Vec<EmbeddedWallet>>, ApiError> {
     // A user may only list their own wallets; admins may list any user's.
     let is_admin = auth.0.role.has_at_least(&custody_db::sessions::Role::Admin);
-    if !is_admin && user_id != auth.0.user_id.to_string() {
+    if !is_admin && user_id != auth.0.user_id {
         return Err(ApiError::forbidden(
             "You do not have permission to list wallets for this user",
         ));
     }
 
-    let wallets = state.db.list_embedded_wallets_by_user(&user_id).await
+    let wallets = state.db.list_embedded_wallets_by_user(user_id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?;
     Ok(Json(wallets))
 }

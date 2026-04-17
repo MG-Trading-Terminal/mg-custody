@@ -2,7 +2,7 @@
 
 CREATE TABLE IF NOT EXISTS embedded_wallets (
     id UUID PRIMARY KEY,
-    user_id TEXT NOT NULL,
+    user_id UUID NOT NULL,
     wallet_type TEXT NOT NULL DEFAULT 'non_custodial',
     status TEXT NOT NULL DEFAULT 'active',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

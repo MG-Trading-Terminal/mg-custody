@@ -12,7 +12,10 @@ use crate::Chain;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddedWallet {
     pub id: Uuid,
-    pub user_id: String,
+    /// Owner of the wallet — a workspace user. Typed as UUID so it
+    /// participates directly in the RBAC ownership model without stringly
+    /// comparisons. Migration 028 backfills existing rows.
+    pub user_id: Uuid,
     pub wallet_type: EmbeddedWalletType,
     pub status: WalletStatus,
     pub accounts: Vec<EmbeddedAccount>,
@@ -51,7 +54,10 @@ pub struct EmbeddedAccount {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateEmbeddedWalletRequest {
-    pub user_id: String,
+    /// Optional — when omitted the caller (self-service). Admins may
+    /// supply another user's ID.
+    #[serde(default)]
+    pub user_id: Option<Uuid>,
     pub wallet_type: EmbeddedWalletType,
     pub chains: Vec<Chain>,
 }
@@ -85,8 +91,9 @@ mod tests {
 
     #[test]
     fn embedded_wallet_structure() {
+        let uid = Uuid::new_v4();
         let wallet = EmbeddedWallet {
-            id: Uuid::nil(), user_id: "user@example.com".into(),
+            id: Uuid::nil(), user_id: uid,
             wallet_type: EmbeddedWalletType::MpcSplit,
             status: WalletStatus::Active,
             accounts: vec![EmbeddedAccount {
@@ -97,7 +104,7 @@ mod tests {
         };
         let json = serde_json::to_string(&wallet).unwrap();
         assert!(json.contains("mpc_split"));
-        assert!(json.contains("user@example.com"));
+        assert!(json.contains(&uid.to_string()));
     }
 
     #[test]
