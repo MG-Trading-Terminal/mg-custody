@@ -6,14 +6,28 @@
 //! - Circuit breaker tripped
 //! - Failed withdrawal requiring attention
 //!
-//! FCM: HTTP POST to https://fcm.googleapis.com/fcm/send (legacy V1 API)
-//! APNs: HTTP/2 to api.push.apple.com — stubbed here, real impl needs `h2` crate
-//! Web Push: RFC 8030 — stubbed here, real impl needs VAPID signing
+//! ## Delivery status in this build
+//!
+//! | Platform | Status                                                                 |
+//! |----------|------------------------------------------------------------------------|
+//! | FCM      | **Broken by upstream.** The legacy `/fcm/send` endpoint returned       |
+//! |          | 200 for years but was fully shut down on 2024-07-22. The transport    |
+//! |          | here now refuses to call it; migrate to FCM HTTP v1                    |
+//! |          | (`/v1/projects/{id}/messages:send`) with an OAuth2 bearer token       |
+//! |          | minted from a Google service-account JSON before re-enabling.         |
+//! | APNs     | Not wired. Needs HTTP/2 + ES256 JWT signing (the `a2` crate).          |
+//! | Web Push | Not wired. Needs VAPID signing + RFC 8291 payload encryption          |
+//! |          | (the `web_push` crate).                                                |
+//!
+//! All three paths return `Err` when called, so `PushService::broadcast`
+//! reports real zero-delivery instead of counting log-only "sends" as
+//! successes.
 //!
 //! References:
-//! - FCM legacy HTTP: https://firebase.google.com/docs/cloud-messaging/http-server-ref
-//! - APNs HTTP/2: https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns
-//! - Web Push RFC 8030: https://tools.ietf.org/html/rfc8030
+//! - FCM HTTP v1:     https://firebase.google.com/docs/cloud-messaging/migrate-v1
+//! - FCM sunset note: https://firebase.google.com/support/faq#fcm-23-deprecation
+//! - APNs HTTP/2:     https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns
+//! - Web Push:        https://tools.ietf.org/html/rfc8030
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
@@ -203,45 +217,41 @@ impl PushNotificationService {
         }
     }
 
-    /// Send via FCM (Firebase Cloud Messaging) — for Android and background Web.
+    /// Send via FCM (Firebase Cloud Messaging).
     ///
-    /// POST to https://fcm.googleapis.com/fcm/send
-    /// Authorization: key={FCM_SERVER_KEY}
+    /// **Dead upstream.** The legacy `https://fcm.googleapis.com/fcm/send`
+    /// endpoint (what the `FCM_SERVER_KEY` authorises) was shut down by
+    /// Google on 2024-07-22. Any POST to it returns 404 / a deprecation
+    /// notice regardless of the server key. The FCM HTTP v1 migration
+    /// (OAuth2-bearer token minted from a service-account JSON +
+    /// `/v1/projects/{project}/messages:send`) is not yet in the
+    /// workspace, so calling this reliably fails — returning an
+    /// ambiguous HTTP error to the operator.
+    ///
+    /// Return `Err` with an explicit deprecation message so the operator
+    /// doesn't chase a 404 they can't fix without a code change. When the
+    /// v1 path lands, swap the body below for the service-account OAuth
+    /// flow and remove this early bail.
     pub async fn send_fcm(&self, device_token: &str, payload: &PushPayload) -> Result<()> {
-        let key = self
+        let _key = self
             .fcm_server_key
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("FCM server key not configured"))?;
-
         if device_token.is_empty() {
             bail!("FCM device token must not be empty");
         }
+        let _body = build_fcm_payload(device_token, payload);
 
-        let body = build_fcm_payload(device_token, payload);
-
-        let resp = self
-            .client
-            .post("https://fcm.googleapis.com/fcm/send")
-            .header("Authorization", format!("key={key}"))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .context("FCM HTTP request failed")?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            bail!("FCM send failed: HTTP {status}: {text}");
-        }
-
-        tracing::info!(
+        tracing::warn!(
             platform = "android",
             title = %payload.title,
-            "Push notification sent via FCM"
+            "FCM push not dispatched — legacy /fcm/send endpoint shut down 2024-07-22; needs HTTP v1 migration"
         );
-
-        Ok(())
+        bail!(
+            "FCM legacy endpoint shut down on 2024-07-22. Migrate to FCM HTTP v1 \
+             (OAuth2-bearer via a Google service-account JSON, POST to \
+             /v1/projects/{{project}}/messages:send) before re-enabling push."
+        )
     }
 
     /// Send via APNs (Apple Push Notification Service).
