@@ -134,6 +134,84 @@ pub struct ReadinessReport {
     pub features: Vec<FeatureStatus>,
 }
 
+/// Shared handle around a `ReadinessReport` that lets a background
+/// task hot-swap the snapshot as probes refresh, while handler-side
+/// readers stay sync and lock-free on the fast path. Internally
+/// `Arc<std::sync::RwLock<Arc<ReadinessReport>>>` — the critical
+/// section is a single `clone()` of an `Arc` so read contention is
+/// negligible.
+#[derive(Clone)]
+pub struct ReadinessHandle {
+    inner: std::sync::Arc<std::sync::RwLock<std::sync::Arc<ReadinessReport>>>,
+    /// Wake-up signal for the background refresh task. An operator
+    /// hitting `POST /v1/health/features/refresh` calls `notify_one()`
+    /// here; the task catches up and re-runs every probe ahead of
+    /// the periodic tick.
+    refresh_notify: std::sync::Arc<tokio::sync::Notify>,
+}
+
+impl ReadinessHandle {
+    pub fn new(report: ReadinessReport) -> Self {
+        Self {
+            inner: std::sync::Arc::new(std::sync::RwLock::new(std::sync::Arc::new(report))),
+            refresh_notify: std::sync::Arc::new(tokio::sync::Notify::new()),
+        }
+    }
+
+    /// Read-cheap snapshot. Takes the read lock just long enough to
+    /// clone an `Arc<ReadinessReport>`, then releases it. Callers get
+    /// a frozen view that stays valid even if the background refresh
+    /// swaps in a new report mid-request.
+    pub fn snapshot(&self) -> std::sync::Arc<ReadinessReport> {
+        self.inner
+            .read()
+            .expect("readiness lock poisoned")
+            .clone()
+    }
+
+    /// Hot-swap the report. The background refresh task calls this
+    /// after rebuilding the report; in-flight request handlers keep
+    /// the old snapshot they captured at entry.
+    pub fn replace(&self, report: ReadinessReport) {
+        *self.inner.write().expect("readiness lock poisoned") =
+            std::sync::Arc::new(report);
+    }
+
+    /// Ask the background refresh task to re-run every probe now.
+    /// Safe to call from anywhere — if no task is listening (e.g.
+    /// test fixtures built with a static `new()`), the notification
+    /// is simply dropped.
+    pub fn request_refresh(&self) {
+        self.refresh_notify.notify_one();
+    }
+
+    /// Await a refresh request. The background refresh task awaits
+    /// on this between periodic ticks; `select!` it against a
+    /// `tokio::time::interval` tick to get "rebuild every N seconds
+    /// OR whenever an operator pokes the endpoint".
+    pub async fn refresh_requested(&self) {
+        self.refresh_notify.notified().await
+    }
+
+    pub fn feature_ready(&self, name: &str) -> bool {
+        self.snapshot().feature_ready(name)
+    }
+
+    pub fn feature_reason(&self, name: &str) -> Option<String> {
+        self.snapshot().feature(name).map(|f| f.state.reason())
+    }
+
+    pub fn summary_counts(&self) -> (usize, usize, usize, usize) {
+        self.snapshot().summary_counts()
+    }
+}
+
+impl std::fmt::Debug for ReadinessHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ReadinessHandle({} features)", self.snapshot().features.len())
+    }
+}
+
 impl ReadinessReport {
     pub fn new() -> Self {
         Self::default()

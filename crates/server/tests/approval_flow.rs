@@ -40,7 +40,7 @@ async fn setup() -> Option<(axum::Router, custody_db::CustodyDb)> {
         .with_eth_chain_id(11155111)
     );
 
-    let state = custody_gateway::state::AppState { db: db.clone(), address_allocator: allocator, seed, withdrawal_pipeline: pipeline.clone(), event_broadcaster: std::sync::Arc::new(custody_common::events::EventBroadcaster::with_default_capacity()), user_rate_limiter: std::sync::Arc::new(custody_gateway::rate_limit::UserRateLimiter::default_user()), frozen: custody_common::emergency::FreezeFlag::new(), email: std::sync::Arc::new(custody_common::email::EmailSender::noop()), travel_rule_provider: None, readiness: std::sync::Arc::new(custody_common::readiness::ReadinessReport::new()) };
+    let state = custody_gateway::state::AppState { db: db.clone(), address_allocator: allocator, seed, withdrawal_pipeline: pipeline.clone(), event_broadcaster: std::sync::Arc::new(custody_common::events::EventBroadcaster::with_default_capacity()), user_rate_limiter: std::sync::Arc::new(custody_gateway::rate_limit::UserRateLimiter::default_user()), frozen: custody_common::emergency::FreezeFlag::new(), email: std::sync::Arc::new(custody_common::email::EmailSender::noop()), travel_rule_provider: None, readiness: custody_common::readiness::ReadinessHandle::new(custody_common::readiness::ReadinessReport::new()) };
     Some((custody_gateway::routes::router(state), db))
 }
 

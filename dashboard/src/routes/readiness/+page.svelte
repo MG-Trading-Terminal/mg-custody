@@ -28,6 +28,8 @@
 
 	const REFRESH_MS = 15_000;
 	let timer: ReturnType<typeof setInterval> | null = null;
+	let probing = $state(false);
+	let probeNote = $state('');
 
 	async function load() {
 		try {
@@ -40,6 +42,26 @@
 			error = e instanceof Error ? e.message : 'Failed to load readiness report';
 		} finally {
 			loading = false;
+		}
+	}
+
+	// Ask the server to re-run every cold-start probe, then poll the
+	// report a couple of times so the user sees the new state without
+	// having to click Refresh a second time. Probes are capped at 5s
+	// each in the server, so 3s-then-6s gets us past nearly every
+	// realistic refresh. Admin-only on the backend; non-admins get 403.
+	async function requestProbe() {
+		probing = true;
+		probeNote = '';
+		try {
+			await api.post('/v1/health/features/refresh', {});
+			probeNote = 'Probes re-running — report will update momentarily.';
+			setTimeout(load, 3_000);
+			setTimeout(() => { load(); probeNote = ''; }, 7_000);
+		} catch (e) {
+			probeNote = e instanceof Error ? e.message : 'Refresh request failed';
+		} finally {
+			probing = false;
 		}
 	}
 
@@ -92,11 +114,18 @@
 			</label>
 			<button class="btn" onclick={load} disabled={loading}>
 				<span class="btn-icon">{@html icon('refresh', 14)}</span>
-				<span>Refresh now</span>
+				<span>Reload report</span>
+			</button>
+			<button class="btn btn-primary" onclick={requestProbe} disabled={probing}>
+				<span class="btn-icon">{@html icon('zap', 14)}</span>
+				<span>{probing ? 'Probing…' : 'Re-probe now'}</span>
 			</button>
 		</div>
 	</header>
 
+	{#if probeNote}
+		<div class="banner banner-info">{probeNote}</div>
+	{/if}
 	{#if error}
 		<div class="banner banner-error">{error}</div>
 	{/if}
@@ -186,6 +215,17 @@
 		background: var(--red-soft); color: var(--red);
 		border: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
 	}
+	.banner-info {
+		background: var(--accent-soft); color: var(--accent);
+		border: 1px solid var(--accent-line);
+	}
+
+	.btn-primary {
+		background: var(--accent); color: #0A0B0D;
+		border-color: var(--accent);
+	}
+	.btn-primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+	.btn-primary .btn-icon { color: #0A0B0D; }
 
 	.summary-row {
 		display: flex; flex-wrap: wrap; gap: 8px; align-items: center;

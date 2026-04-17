@@ -113,15 +113,18 @@ impl ApiError {
 /// Check a readiness report for a named feature; return `Ok(())` when
 /// it's `Ready`, or an `ApiError::feature_unavailable` with the exact
 /// reason when not. Handler-level gate for "feature wired vs. feature
-/// usable" mismatches.
+/// usable" mismatches. Snapshots the current report under a cheap
+/// read lock — the background refresh task can swap the inner
+/// report without disturbing in-flight handlers.
 pub fn require_feature(
-    readiness: &custody_common::readiness::ReadinessReport,
+    readiness: &custody_common::readiness::ReadinessHandle,
     feature: &str,
 ) -> Result<(), ApiError> {
-    if readiness.feature_ready(feature) {
+    let snap = readiness.snapshot();
+    if snap.feature_ready(feature) {
         return Ok(());
     }
-    let reason = readiness
+    let reason = snap
         .feature(feature)
         .map(|f| f.state.reason())
         .unwrap_or_else(|| format!("{feature} not reported in readiness"));
@@ -133,7 +136,7 @@ pub fn require_feature(
 /// (address generation — can't receive a deposit we don't scan;
 /// withdrawal submission — can't broadcast without an RPC).
 pub fn require_chain_ready(
-    readiness: &custody_common::readiness::ReadinessReport,
+    readiness: &custody_common::readiness::ReadinessHandle,
     chain: custody_common::Chain,
 ) -> Result<(), ApiError> {
     use custody_common::Chain;

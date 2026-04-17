@@ -53,6 +53,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health/chains", get(health_chains))
         .route("/health/deep", get(crate::health::deep_health))
         .route("/v1/health/features", get(health_features))
+        .route("/v1/health/features/refresh", post(health_features_refresh))
         .route("/v1/addresses", post(create_address))
         .route("/v1/withdrawals", post(submit_withdrawal))
         .route("/v1/withdrawals/{id}", get(get_withdrawal_status))
@@ -120,6 +121,7 @@ pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
         .route("/health/chains", get(health_chains))
         .route("/health/deep", get(crate::health::deep_health))
         .route("/v1/health/features", get(health_features))
+        .route("/v1/health/features/refresh", post(health_features_refresh))
         .route("/metrics", get(prometheus_metrics))
         .route("/v1/addresses", post(create_address))
         .route("/v1/withdrawals", post(submit_withdrawal))
@@ -192,19 +194,43 @@ async fn health() -> &'static str { "ok" }
 /// operators can see at a glance what will work vs what silently
 /// won't. This is the counterpart to the startup log table — the
 /// JSON version that dashboards and monitoring can scrape.
+/// `POST /v1/health/features/refresh` — tell the background refresh
+/// task to re-run every probe now. Returns immediately with 202; the
+/// updated report shows up on the next `GET /v1/health/features`
+/// (typically within a second or two as probes complete).
+///
+/// Admin-only — probing external vendors can generate measurable
+/// traffic (SMTP handshakes, JSON-RPC calls, HEAD requests), so we
+/// don't let unauthenticated callers trigger it.
+async fn health_features_refresh(
+    _auth: crate::rbac_middleware::RequireAdmin,
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> (StatusCode, Json<serde_json::Value>) {
+    state.readiness.request_refresh();
+    (
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({
+            "requested": true,
+            "note": "Probes are re-running asynchronously. \
+                     Poll GET /v1/health/features for the updated report.",
+        })),
+    )
+}
+
 async fn health_features(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Json<serde_json::Value> {
-    let (ready, disabled, misc, degraded) = state.readiness.summary_counts();
+    let snap = state.readiness.snapshot();
+    let (ready, disabled, misc, degraded) = snap.summary_counts();
     Json(serde_json::json!({
         "summary": {
             "ready": ready,
             "disabled": disabled,
             "misconfigured": misc,
             "degraded": degraded,
-            "total": state.readiness.features.len(),
+            "total": snap.features.len(),
         },
-        "features": state.readiness.features,
+        "features": snap.features,
     }))
 }
 
