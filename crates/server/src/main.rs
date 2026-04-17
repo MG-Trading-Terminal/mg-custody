@@ -989,10 +989,13 @@ async fn main() -> anyhow::Result<()> {
                 let previous = handle.snapshot();
                 let report = readiness_build::build(&cfg, &email, tr).await;
                 let transitions = readiness_build::diff_transitions(&previous, &report);
-                // Active silences — operator-created maintenance
-                // windows. Features in this set skip the alert
-                // channel but still appear in the history log.
-                let silenced: std::collections::HashSet<String> = history_db
+                // Active silence patterns — operator-created
+                // maintenance windows. Each row is either an exact
+                // feature name or a prefix pattern ("scanner.*").
+                // `fire_alerts` matches each transition against all
+                // patterns, so a single "*" silence fully mutes the
+                // alerting channel.
+                let silence_patterns: Vec<String> = history_db
                     .list_active_silences()
                     .await
                     .unwrap_or_default()
@@ -1030,7 +1033,7 @@ async fn main() -> anyhow::Result<()> {
                         .insert_readiness_transition(feature, kind, reason)
                         .await;
                 }
-                readiness_build::fire_alerts(&mut alerts, &silenced, &transitions).await;
+                readiness_build::fire_alerts(&mut alerts, &silence_patterns, &transitions).await;
                 report.export_prometheus_gauges();
                 handle.replace(report);
             }

@@ -63,6 +63,10 @@ pub fn router(state: AppState) -> Router {
             "/v1/health/features/silences/{feature}",
             axum::routing::delete(end_health_silence),
         )
+        .route(
+            "/v1/health/features/silences/history",
+            get(list_silence_history),
+        )
         .route("/v1/addresses", post(create_address))
         .route("/v1/withdrawals", post(submit_withdrawal))
         .route("/v1/withdrawals/{id}", get(get_withdrawal_status))
@@ -139,6 +143,10 @@ pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
         .route(
             "/v1/health/features/silences/{feature}",
             axum::routing::delete(end_health_silence),
+        )
+        .route(
+            "/v1/health/features/silences/history",
+            get(list_silence_history),
         )
         .route("/metrics", get(prometheus_metrics))
         .route("/v1/addresses", post(create_address))
@@ -334,6 +342,27 @@ async fn create_health_silence(
         "Readiness alert silence created"
     );
     Ok((StatusCode::CREATED, Json(serde_json::json!(silence))))
+}
+
+/// `GET /v1/health/features/silences/history?limit=N` — every
+/// silence ever created, newest first. For postmortem tooling:
+/// "what was muted during last Thursday's outage?".
+async fn list_silence_history(
+    _auth: crate::rbac_middleware::RequireAdmin,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<HistoryQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let limit = q.limit.unwrap_or(200).clamp(1, 1000);
+    let rows = state
+        .db
+        .list_silence_history(limit)
+        .await
+        .map_err(|e| ApiError::internal(&format!("silence history: {e}")))?;
+    let count = rows.len();
+    Ok(Json(serde_json::json!({
+        "silences": rows,
+        "count": count,
+    })))
 }
 
 /// `DELETE /v1/health/features/silences/:feature` — end an active

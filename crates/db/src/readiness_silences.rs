@@ -80,6 +80,35 @@ impl CustodyDb {
             .collect())
     }
 
+    /// Return every silence (active and expired), newest first,
+    /// capped at `limit`. Used by postmortem tooling: "what was
+    /// silenced during last Thursday's incident?".
+    pub async fn list_silence_history(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<ReadinessSilence>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (i64, String, DateTime<Utc>, String, String, DateTime<Utc>)>(
+            "SELECT id, feature, expires_at, reason, created_by, created_at \
+             FROM readiness_silences \
+             ORDER BY created_at DESC \
+             LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, feature, expires_at, reason, created_by, created_at)| ReadinessSilence {
+                id,
+                feature,
+                expires_at,
+                reason,
+                created_by,
+                created_at,
+            })
+            .collect())
+    }
+
     /// End a silence early. Returns true when a live silence was
     /// actually ended (caller can report 404 on false).
     pub async fn end_readiness_silence(&self, feature: &str) -> Result<bool, sqlx::Error> {

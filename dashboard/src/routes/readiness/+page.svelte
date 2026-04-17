@@ -41,6 +41,8 @@
 	let historyErr = $state('');
 	let silences = $state<Silence[]>([]);
 	let silenceErr = $state('');
+	let silenceHistory = $state<Silence[]>([]);
+	let showSilenceHistory = $state(false);
 	let loading = $state(true);
 	let error = $state('');
 	let lastLoaded = $state<Date | null>(null);
@@ -90,7 +92,39 @@
 		}
 	}
 
-	let silencedNames = $derived(new Set(silences.map(s => s.feature)));
+	async function loadSilenceHistory() {
+		try {
+			const data = await api.getJson<{ silences: Silence[] }>(
+				'/v1/health/features/silences/history?limit=100'
+			);
+			silenceHistory = data.silences ?? [];
+		} catch (e) {
+			silenceErr = e instanceof Error ? e.message : 'Failed to load silence history';
+		}
+	}
+
+	function toggleSilenceHistory() {
+		showSilenceHistory = !showSilenceHistory;
+		if (showSilenceHistory) loadSilenceHistory();
+	}
+
+	function silenceActive(s: Silence): boolean {
+		return new Date(s.expires_at).getTime() > Date.now();
+	}
+
+	// Check a feature against the active silence patterns — exact
+	// match OR "<prefix>.*" prefix match OR "*" full wildcard.
+	// Mirrors silence_pattern_matches() in readiness_build.rs.
+	function silencedBy(feature: string): Silence | null {
+		for (const s of silences) {
+			if (s.feature === '*') return s;
+			if (s.feature.endsWith('.*')) {
+				const prefix = s.feature.slice(0, -2);
+				if (feature.startsWith(prefix + '.')) return s;
+			} else if (s.feature === feature) return s;
+		}
+		return null;
+	}
 
 	async function createSilence(feature: string, hours: number) {
 		const reason = prompt(
@@ -255,14 +289,17 @@
 	{:else}
 		<div class="feature-list">
 			{#each filtered as f (f.name)}
-				<article class="feature feature-{f.state}" class:feature-silenced={silencedNames.has(f.name)}>
+				{@const sil = silencedBy(f.name)}
+				<article class="feature feature-{f.state}" class:feature-silenced={sil !== null}>
 					<div class="feature-left">
 						<span class="state-pill state-{f.state}">{stateLabel(f.state)}</span>
 						<div class="feature-info">
 							<div class="feature-name">
 								{f.name}
-								{#if silencedNames.has(f.name)}
-									<span class="silenced-badge" title="Alerts silenced — live state still enforced by handler gates">SILENCED</span>
+								{#if sil}
+									<span class="silenced-badge" title={`Matched by silence "${sil.feature}" — ${sil.reason}`}>
+										SILENCED{sil.feature !== f.name ? ` by ${sil.feature}` : ''}
+									</span>
 								{/if}
 							</div>
 							<div class="feature-summary">{f.summary}</div>
@@ -271,9 +308,9 @@
 					<div class="feature-right">
 						<div class="feature-reason" title={reasonFor(f)}>{reasonFor(f)}</div>
 						<div class="feature-actions">
-							{#if silencedNames.has(f.name)}
+							{#if sil && sil.feature === f.name}
 								<button class="btn-tiny" onclick={() => endSilence(f.name)} title="End silence now">Unmute</button>
-							{:else}
+							{:else if !sil}
 								<button class="btn-tiny" onclick={() => createSilence(f.name, 1)} title="Silence alerts for 1 hour">Silence 1h</button>
 								<button class="btn-tiny" onclick={() => createSilence(f.name, 24)} title="Silence alerts for 24 hours">24h</button>
 							{/if}
@@ -282,6 +319,25 @@
 				</article>
 			{/each}
 		</div>
+	{/if}
+
+	{#if silences.length > 0}
+		<section class="silences-section">
+			<header class="silences-head">
+				<h2>Active silences</h2>
+				<span class="silences-hint">Alerts muted — handler gates still enforce state.</span>
+			</header>
+			<ul class="silences-list">
+				{#each silences as s (s.id)}
+					<li class="silence-row">
+						<span class="silence-feature mono">{s.feature}</span>
+						<span class="silence-reason" title={s.reason}>{s.reason}</span>
+						<span class="silence-expires">expires {fmtOccurred(s.expires_at)}</span>
+						<span class="silence-by">by {s.created_by}</span>
+					</li>
+				{/each}
+			</ul>
+		</section>
 	{/if}
 
 	<section class="history-section">
@@ -304,6 +360,28 @@
 					</li>
 				{/each}
 			</ul>
+		{/if}
+
+		<button class="btn-link" onclick={toggleSilenceHistory}>
+			{showSilenceHistory ? 'Hide past silences ▲' : 'Show past silences ▼'}
+		</button>
+		{#if showSilenceHistory}
+			{#if silenceHistory.length === 0}
+				<div class="empty empty-small">No silences have been created yet.</div>
+			{:else}
+				<ul class="silences-list silences-list-past">
+					{#each silenceHistory as s (s.id)}
+						<li class="silence-row" class:silence-past={!silenceActive(s)}>
+							<span class="silence-feature mono">{s.feature}</span>
+							<span class="silence-reason" title={s.reason}>{s.reason}</span>
+							<span class="silence-expires">
+								{silenceActive(s) ? `expires ${fmtOccurred(s.expires_at)}` : `ended ${fmtOccurred(s.expires_at)}`}
+							</span>
+							<span class="silence-by">by {s.created_by}</span>
+						</li>
+					{/each}
+				</ul>
+			{/if}
 		{/if}
 	</section>
 </div>
@@ -522,5 +600,48 @@
 	@media (max-width: 720px) {
 		.history-row { grid-template-columns: auto 1fr; gap: 6px; }
 		.history-reason, .history-when { grid-column: 1 / -1; text-align: left; }
+	}
+
+	.silences-section {
+		display: flex; flex-direction: column; gap: var(--sp-3);
+	}
+	.silences-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+	.silences-head h2 { margin: 0; font-size: 1rem; letter-spacing: -0.015em; color: var(--yellow); }
+	.silences-hint { color: var(--fg-muted); font-size: 0.78rem; }
+
+	.silences-list {
+		list-style: none; padding: 0; margin: 0;
+		display: flex; flex-direction: column; gap: 4px;
+	}
+	.silence-row {
+		display: grid;
+		grid-template-columns: 180px minmax(200px, 1fr) 160px 140px;
+		align-items: center; gap: var(--sp-3);
+		padding: 8px 14px;
+		background: var(--yellow-soft);
+		border: 1px solid color-mix(in srgb, var(--yellow) 30%, transparent);
+		border-radius: var(--r-md);
+		font-size: 0.84rem;
+	}
+	.silences-list-past .silence-row { background: var(--surface); border-color: var(--border); }
+	.silence-past { opacity: 0.7; }
+	.silence-feature { color: var(--fg-strong); font-weight: 600; }
+	.silence-reason {
+		color: var(--fg-muted);
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+	}
+	.silence-expires { color: var(--fg-muted); font-size: 0.78rem; font-family: var(--font-mono); }
+	.silence-by { color: var(--fg-dim); font-size: 0.78rem; text-align: right; }
+
+	.btn-link {
+		align-self: flex-start;
+		background: transparent; border: none; padding: 4px 0;
+		color: var(--accent); font-size: 0.84rem; cursor: pointer;
+	}
+	.btn-link:hover { color: var(--accent-strong); }
+
+	@media (max-width: 720px) {
+		.silence-row { grid-template-columns: 1fr; gap: 4px; }
+		.silence-expires, .silence-by { text-align: left; }
 	}
 </style>

@@ -233,15 +233,29 @@ pub async fn build(
         });
     }
 
-    // Travel Rule
-    readiness.push(if travel_rule_configured {
-        FeatureStatus::ready("travel_rule.notabene", "Travel Rule dispatch via Notabene")
+    // Travel Rule — same shape as AML screening. A key being set is
+    // not the same as the vendor being reachable; probe the Notabene
+    // base URL so a DNS outage or expired contract surfaces as
+    // Degraded before the first real counterparty dispatch.
+    if travel_rule_configured {
+        match custody_common::readiness::probe_http_reachable("https://api.notabene.id/tf/v1").await
+        {
+            Ok(()) => readiness.push(FeatureStatus::ready(
+                "travel_rule.notabene",
+                "Travel Rule dispatch via Notabene",
+            )),
+            Err(e) => readiness.push(FeatureStatus::degraded(
+                "travel_rule.notabene",
+                "Travel Rule dispatch via Notabene",
+                e,
+            )),
+        }
     } else {
-        FeatureStatus::disabled(
+        readiness.push(FeatureStatus::disabled(
             "travel_rule.notabene",
             "Travel Rule. Set CUSTODY_TRAVELRULE__NOTABENE_API_KEY.",
-        )
-    });
+        ));
+    }
 
     // MPC multi-host receiver.
     if std::env::var("CUSTODY_MPC__ENABLED").ok().as_deref() == Some("true") {
@@ -536,21 +550,42 @@ impl AlertState {
 ///      Slack/PagerDuty/Opsgenie incoming webhooks can parse it with
 ///      their standard templates.
 ///
+/// Does `feature` match this silence pattern? Accepted forms:
+/// - `scanner.ethereum` — exact match
+/// - `scanner.*`        — prefix match (everything under "scanner.")
+/// - `*`                — matches every feature (full mute)
+///
+/// Kept deliberately limited to prefix wildcards. Arbitrary glob
+/// patterns add error surface without meaningful power for our
+/// dotted-namespace feature names.
+pub fn silence_pattern_matches(pattern: &str, feature: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    if let Some(prefix) = pattern.strip_suffix(".*") {
+        // "scanner.*" matches "scanner.ethereum" but NOT "scanner"
+        // itself — a silence is always about a specific named child.
+        return feature.strip_prefix(prefix)
+            .is_some_and(|rest| rest.starts_with('.') || rest.is_empty() && pattern == ".*");
+    }
+    pattern == feature
+}
+
 /// `state` carries anti-flap cooldowns: a degradation/misconfiguration
 /// for the same feature within `ALERT_COOLDOWN` is suppressed.
 ///
-/// `silenced_features` is the set of feature names currently under
-/// an operator-created silence — those alerts are dropped entirely
-/// (no log, no webhook) during the silence window. Recovery events
-/// still fire because operators want the audible "it came back" even
-/// during a maintenance window.
+/// `silence_patterns` carries operator-created silence patterns
+/// (exact feature name or `<prefix>.*`). If any pattern matches a
+/// transition's feature, the alert is dropped entirely (no log, no
+/// webhook). Recovery events still fire because operators want the
+/// audible "it came back" even during a maintenance window.
 ///
 /// Failures posting to the webhook are logged but not retried — a
 /// subsequent transition will try again; queueing alerts just means
 /// a paged oncall sees the incident twice instead of timed out.
 pub async fn fire_alerts(
     state: &mut AlertState,
-    silenced_features: &std::collections::HashSet<String>,
+    silence_patterns: &[String],
     transitions: &[Transition<'_>],
 ) {
     if transitions.is_empty() {
@@ -568,10 +603,15 @@ pub async fn fire_alerts(
             .ok())
         .flatten();
 
+    let is_silenced = |feature: &str| -> bool {
+        silence_patterns
+            .iter()
+            .any(|p| silence_pattern_matches(p, feature))
+    };
     for t in transitions {
         match t {
             Transition::Degradation { feature, reason } => {
-                if silenced_features.contains(*feature) {
+                if is_silenced(feature) {
                     tracing::debug!(
                         target: "custody::readiness::alert",
                         feature = %feature,
@@ -596,7 +636,7 @@ pub async fn fire_alerts(
                 post_webhook(&client, &webhook, &now, "degradation", feature, Some(reason.as_str()), None).await;
             }
             Transition::Misconfiguration { feature, missing } => {
-                if silenced_features.contains(*feature) {
+                if is_silenced(feature) {
                     tracing::debug!(
                         target: "custody::readiness::alert",
                         feature = %feature,
@@ -775,36 +815,99 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fire_alerts_respects_silences() {
+    async fn fire_alerts_respects_exact_silence() {
         // Degradation on a silenced feature must not even try to
         // write to the tracing target. We can't easily assert on
         // tracing output without a subscriber fixture, but we CAN
         // assert that the cooldown state remains untouched — an
         // unsuppressed alert would tick the cooldown.
         let mut alerts = AlertState::default();
-        let silenced: std::collections::HashSet<String> =
-            ["scanner.ethereum".to_string()].into_iter().collect();
+        let silenced = vec!["scanner.ethereum".to_string()];
         let transitions = vec![Transition::Degradation {
             feature: "scanner.ethereum",
             reason: "unreachable".into(),
         }];
         fire_alerts(&mut alerts, &silenced, &transitions).await;
-        // Cooldown HashMap must be empty — silenced alerts never
-        // touch the cooldown tracker.
+        assert!(alerts.last_fired.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fire_alerts_respects_prefix_silence() {
+        let mut alerts = AlertState::default();
+        let silenced = vec!["push.*".to_string()];
+        let transitions = vec![
+            Transition::Degradation {
+                feature: "push.fcm",
+                reason: "JSON parse".into(),
+            },
+            Transition::Degradation {
+                feature: "push.apns",
+                reason: "EC parse".into(),
+            },
+            // Different namespace — not silenced.
+            Transition::Degradation {
+                feature: "scanner.ethereum",
+                reason: "RPC down".into(),
+            },
+        ];
+        fire_alerts(&mut alerts, &silenced, &transitions).await;
+        // Only scanner.ethereum should have ticked the cooldown.
+        assert_eq!(alerts.last_fired.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn fire_alerts_respects_wildcard_silence() {
+        let mut alerts = AlertState::default();
+        let silenced = vec!["*".to_string()];
+        let transitions = vec![
+            Transition::Degradation {
+                feature: "scanner.ethereum",
+                reason: "A".into(),
+            },
+            Transition::Misconfiguration {
+                feature: "push.apns",
+                missing: vec!["CUSTODY_APNS__KEY_P8".into()],
+            },
+        ];
+        fire_alerts(&mut alerts, &silenced, &transitions).await;
         assert!(alerts.last_fired.is_empty());
     }
 
     #[tokio::test]
     async fn fire_alerts_ignores_empty_silence_set() {
         let mut alerts = AlertState::default();
-        let silenced: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let silenced: Vec<String> = vec![];
         let transitions = vec![Transition::Degradation {
             feature: "scanner.ethereum",
             reason: "unreachable".into(),
         }];
         fire_alerts(&mut alerts, &silenced, &transitions).await;
-        // Cooldown should have one entry now (alert was fired).
         assert_eq!(alerts.last_fired.len(), 1);
+    }
+
+    #[test]
+    fn silence_pattern_exact_match() {
+        assert!(silence_pattern_matches("scanner.ethereum", "scanner.ethereum"));
+        assert!(!silence_pattern_matches("scanner.ethereum", "scanner.bitcoin"));
+    }
+
+    #[test]
+    fn silence_pattern_prefix_wildcard() {
+        assert!(silence_pattern_matches("scanner.*", "scanner.ethereum"));
+        assert!(silence_pattern_matches("scanner.*", "scanner.bitcoin"));
+        assert!(silence_pattern_matches("push.*", "push.fcm"));
+        // Must NOT match the bare namespace (no trailing dot child).
+        assert!(!silence_pattern_matches("scanner.*", "scanner"));
+        assert!(!silence_pattern_matches("scanner.*", "scanning.ethereum"));
+        // Cross-namespace is not matched.
+        assert!(!silence_pattern_matches("scanner.*", "push.fcm"));
+    }
+
+    #[test]
+    fn silence_pattern_full_wildcard() {
+        assert!(silence_pattern_matches("*", "scanner.ethereum"));
+        assert!(silence_pattern_matches("*", "push.apns"));
+        assert!(silence_pattern_matches("*", ""));
     }
 
     #[test]
