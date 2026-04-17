@@ -180,17 +180,38 @@ impl TravelRuleProvider for NotabeneProvider {
             .send()
             .await;
 
+        // Status semantics for the caller:
+        //   Ok(Some(_))   — beneficiary data retrieved and parsed.
+        //   Ok(None)      — counterparty has not posted data yet
+        //                   (status != "accepted", or transport error).
+        //   Err(_)        — Notabene acknowledged the transfer but we
+        //                   cannot parse the response. This is NOT the
+        //                   same as "no data"; surfacing it as `Err`
+        //                   forces the caller to record the transfer
+        //                   as "review manually" instead of silently
+        //                   treating it as "still waiting".
         match resp {
             Ok(r) if r.status().is_success() => {
                 let body: serde_json::Value = r.json().await?;
                 if body["status"].as_str() == Some("accepted") {
-                    tracing::info!(transfer_id = %transfer_id, "Beneficiary data received");
-                    // Parse into TravelRuleData if beneficiary confirmed
-                    // For now, return None until full parsing is implemented
+                    tracing::warn!(
+                        transfer_id = %transfer_id,
+                        "Notabene reports accepted beneficiary data, but parser is not implemented — caller must reconcile manually",
+                    );
+                    anyhow::bail!(
+                        "Notabene accepted transfer {transfer_id} but the beneficiary-parse path is not implemented; manual reconciliation required"
+                    );
                 }
                 Ok(None)
             }
-            _ => Ok(None),
+            Ok(r) => {
+                tracing::debug!(transfer_id = %transfer_id, status = %r.status(), "Notabene returned non-success");
+                Ok(None)
+            }
+            Err(e) => {
+                tracing::debug!(transfer_id = %transfer_id, error = %e, "Notabene transport error");
+                Ok(None)
+            }
         }
     }
 

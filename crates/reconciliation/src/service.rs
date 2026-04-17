@@ -91,37 +91,93 @@ impl ReconciliationService {
 
         // 2. On-chain vs internal balance reconciliation (ETH)
         if let Some(ref eth) = self.eth_provider {
-            // Get all our ETH deposit addresses
-            let addresses = self.db.all_addresses_for_chain(Chain::Ethereum).await?;
+            self.reconcile_ethereum(eth).await?;
+        }
 
-            // Sum on-chain balances for all managed addresses
-            let mut on_chain_total = Decimal::ZERO;
-            for addr in addresses.iter().take(50) { // limit to avoid rate limiting
+        Ok(())
+    }
+
+    /// Walk every managed ETH address, sum on-chain balances, and
+    /// compare to internal hot-wallet total.
+    ///
+    /// The old version used `.take(50)` to dodge RPC rate limits, but
+    /// then compared the partial on-chain sum against the *full*
+    /// internal total — guaranteeing a false-positive
+    /// `DiscrepancyAlert` for any vault with more than 50 addresses
+    /// (i.e., every serious one). Instead we paginate with a small
+    /// inter-batch delay and bail out of the whole tick if too many
+    /// RPCs fail, rather than comparing mismatched totals.
+    async fn reconcile_ethereum(&self, eth: &EthBalanceProvider) -> anyhow::Result<()> {
+        const BATCH_SIZE: usize = 25;
+        const BATCH_DELAY: Duration = Duration::from_millis(200);
+        /// Abort the whole pass if more than this fraction of RPC
+        /// queries fail — a partial on-chain total vs full internal
+        /// total is worse than no reconciliation at all.
+        const MAX_FAILURE_RATIO: f64 = 0.10;
+
+        let addresses = self.db.all_addresses_for_chain(Chain::Ethereum).await?;
+        if addresses.is_empty() {
+            tracing::debug!("No Ethereum addresses to reconcile");
+            return Ok(());
+        }
+
+        let mut on_chain_total = Decimal::ZERO;
+        let mut queried = 0usize;
+        let mut failed = 0usize;
+
+        for chunk in addresses.chunks(BATCH_SIZE) {
+            for addr in chunk {
                 match eth.native_balance(addr).await {
-                    Ok(bal) => on_chain_total += bal,
+                    Ok(bal) => {
+                        on_chain_total += bal;
+                        queried += 1;
+                    }
                     Err(e) => {
-                        tracing::debug!(addr, error = %e, "Failed to query ETH balance");
+                        failed += 1;
+                        tracing::debug!(addr, error = %e, "ETH balance query failed");
                     }
                 }
             }
+            tokio::time::sleep(BATCH_DELAY).await;
+        }
 
-            // Compare against internal hot wallet balance
-            let internal_hot = self.db.account_balance("hot:eth", "ETH").await?;
-
-            let (result, alert) = reconciler::run_reconciliation(
-                Chain::Ethereum, "ETH", on_chain_total, internal_hot,
+        let total = queried + failed;
+        let failure_ratio = failed as f64 / total.max(1) as f64;
+        if failure_ratio > MAX_FAILURE_RATIO {
+            tracing::warn!(
+                queried,
+                failed,
+                ratio = %format_args!("{:.2}", failure_ratio),
+                "Skipping ETH reconciliation — too many RPC failures to trust a partial total"
             );
+            return Ok(());
+        }
 
-            if let Some(ref alert) = alert {
-                tracing::error!(
-                    chain = "ethereum",
-                    on_chain = %on_chain_total,
-                    internal = %internal_hot,
-                    discrepancy = %result.discrepancy,
-                    severity = ?alert.severity,
-                    "RECONCILIATION ALERT — ETH balance mismatch"
-                );
-            }
+        let internal_hot = self.db.account_balance("hot:eth", "ETH").await?;
+        let (result, alert) = reconciler::run_reconciliation(
+            Chain::Ethereum, "ETH", on_chain_total, internal_hot,
+        );
+
+        if let Some(ref alert) = alert {
+            tracing::error!(
+                chain = "ethereum",
+                addresses_total = addresses.len(),
+                addresses_queried = queried,
+                addresses_failed = failed,
+                on_chain = %on_chain_total,
+                internal = %internal_hot,
+                discrepancy = %result.discrepancy,
+                severity = ?alert.severity,
+                "RECONCILIATION ALERT — ETH balance mismatch"
+            );
+        } else {
+            tracing::info!(
+                addresses_queried = queried,
+                addresses_failed = failed,
+                on_chain = %on_chain_total,
+                internal = %internal_hot,
+                "ETH reconciliation clean"
+            );
         }
 
         Ok(())

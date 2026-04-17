@@ -11,7 +11,6 @@
 
 	let sidebarOpen = $state(false);
 	let userMenuOpen = $state(false);
-	let envMenuOpen = $state(false);
 
 	let isPublicPage = $derived(
 		$page.url.pathname.startsWith('/login') ||
@@ -29,9 +28,17 @@
 	async function loadUserProfile() {
 		if (!api.isAuthenticated()) return;
 		try {
-			const profile = await api.getJson<{ email: string; role: string }>('/v1/user/profile');
+			const profile = await api.getJson<{
+				email: string;
+				role: string;
+				workspace_environment?: string;
+			}>('/v1/user/profile');
 			userEmail = profile.email ?? '';
 			userRole = (profile.role ?? 'viewer') as UserRole;
+			const raw = (profile.workspace_environment ?? '').toLowerCase();
+			if (raw === 'production' || raw === 'testnet' || raw === 'sandbox') {
+				env = raw;
+			}
 		} catch { /* ignore */ }
 	}
 
@@ -63,10 +70,9 @@
 		const onDocClick = (e: MouseEvent) => {
 			const target = e.target as HTMLElement;
 			if (!target.closest('.user-trigger') && !target.closest('.user-menu')) userMenuOpen = false;
-			if (!target.closest('.env-trigger') && !target.closest('.env-menu'))   envMenuOpen  = false;
 		};
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key === 'Escape') { userMenuOpen = false; envMenuOpen = false; sidebarOpen = false; }
+			if (e.key === 'Escape') { userMenuOpen = false; sidebarOpen = false; }
 		};
 		document.addEventListener('click', onDocClick);
 		document.addEventListener('keydown', onKey);
@@ -186,7 +192,12 @@
 		return local.slice(0, 2).toUpperCase();
 	}
 
-	// Environment — live from config later; hardcoded for now
+	// Environment — fed from `/v1/user/profile` (workspace_environment
+	// joined on workspaces.environment). The display is read-only: the
+	// old dropdown pretended to switch environments client-side without
+	// actually routing to a different backend, which misled operators
+	// into thinking testnet mode was active while they were still
+	// pointed at production.
 	let env = $state<'production' | 'testnet' | 'sandbox'>('production');
 	let envLabels = $derived<Record<'production' | 'testnet' | 'sandbox', { label: string; tone: string }>>(({
 		production: { label: ($locale, t('layout.env.production')), tone: 'green'  },
@@ -220,238 +231,29 @@
 {:else}
 <div class="app">
 	<aside class="sidebar" class:open={sidebarOpen}>
-		<!-- Workspace switcher -->
-		<div class="workspace">
-			<button
-				class="workspace-btn env-trigger"
-				onclick={(e) => { e.stopPropagation(); envMenuOpen = !envMenuOpen; userMenuOpen = false; }}
-				aria-haspopup="menu"
-				aria-expanded={envMenuOpen}
-			>
-				<span class="workspace-mark">
-					<svg width="22" height="22" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-						<defs>
-							<linearGradient id="brand-g" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-								<stop stop-color="#6FA8FF"/>
-								<stop offset="1" stop-color="#3D6BE0"/>
-							</linearGradient>
-						</defs>
-						<path d="M16 3L4 8v9c0 7 4.8 13.2 12 15 7.2-1.8 12-8 12-15V8l-12-5z" fill="url(#brand-g)"/>
-						<path d="M12 17l2.8 2.8L21 13.5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-					</svg>
-				</span>
-				<span class="workspace-body">
-					<span class="workspace-name">MG Custody</span>
-					<span class="workspace-env">
-						<span class="env-dot tone-{envLabels[env].tone}"></span>
-						{envLabels[env].label}
+		<!-- Workspace label — static; env tone reflects backend workspaces.environment -->
+			<div class="workspace">
+				<div class="workspace-btn env-static" aria-label={envLabels[env].label}>
+					<span class="workspace-mark">
+						<svg width="22" height="22" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+							<defs>
+								<linearGradient id="brand-g" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+									<stop stop-color="#6FA8FF"/>
+									<stop offset="1" stop-color="#3D6BE0"/>
+								</linearGradient>
+							</defs>
+							<path d="M16 3L4 8v9c0 7 4.8 13.2 12 15 7.2-1.8 12-8 12-15V8l-12-5z" fill="url(#brand-g)"/>
+							<path d="M12 17l2.8 2.8L21 13.5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+						</svg>
 					</span>
-				</span>
-				<span class="workspace-chev" aria-hidden="true">{@html icon('chevron-down', 14)}</span>
-			</button>
-
-			{#if envMenuOpen}
-				<div class="env-menu popover">
-					<div class="menu-section-label">{$locale, t('layout.env.select')}</div>
-					{#each Object.entries(envLabels) as [k, v]}
-						<button
-							class="menu-item"
-							class:selected={env === k}
-							onclick={() => { env = k as typeof env; envMenuOpen = false; }}
-						>
-							<span class="env-dot tone-{v.tone}"></span>
-							<span>{v.label}</span>
-							{#if env === k}
-								<span class="menu-check">{@html icon('check', 14)}</span>
-							{/if}
-						</button>
-					{/each}
-				</div>
-			{/if}
-		</div>
-
-		<!-- Command bar trigger (visual only for now) -->
-		<button class="cmdbar" aria-label={($locale, t('common.search'))}>
-			<span class="cmdbar-icon">{@html icon('search', 14)}</span>
-			<span class="cmdbar-label">{$locale, t('layout.search.hint')}</span>
-			<kbd class="kbd">⌘K</kbd>
-		</button>
-
-		<!-- Nav -->
-		<nav class="nav" aria-label="Main navigation">
-			<div class="nav-section">
-				<span class="nav-section-title">{$locale, t('layout.personal')}</span>
-			</div>
-			<ul class="nav-list">
-				{#each userItemDefs as item}
-					{#if !item.minRole || hasRole(item.minRole)}
-						<li>
-							<a
-								href={item.href}
-								onclick={closeSidebar}
-								class="nav-item"
-								class:active={isActive(item.href)}
-								aria-current={isActive(item.href) ? 'page' : undefined}
-							>
-								<span class="nav-icon">{@html icon(item.icon, 16)}</span>
-								<span class="nav-label">{$locale, t(item.key)}</span>
-								{#if item.icon === 'approvals' && notificationCount > 0}
-									<span class="nav-badge">{notificationCount}</span>
-								{/if}
-							</a>
-						</li>
-					{/if}
-				{/each}
-			</ul>
-
-			{#if hasRole('admin')}
-				<div class="nav-divider"></div>
-				<div class="nav-section with-badge">
-					<span class="nav-section-title admin-title">{$locale, t('layout.organization')}</span>
-					<span class="admin-chip">
-						<span class="admin-dot"></span>
-						{$locale, t('layout.admin_badge')}
+					<span class="workspace-body">
+						<span class="workspace-name">MG Custody</span>
+						<span class="workspace-env">
+							<span class="env-dot tone-{envLabels[env].tone}"></span>
+							{envLabels[env].label}
+						</span>
 					</span>
 				</div>
-				<ul class="nav-list">
-					{#each adminItemDefs as item}
-						<li>
-							<a
-								href={item.href}
-								onclick={closeSidebar}
-								class="nav-item"
-								class:active={isActive(item.href)}
-							>
-								<span class="nav-icon">{@html icon(item.icon, 16)}</span>
-								<span class="nav-label">{$locale, t(item.key)}</span>
-							</a>
-						</li>
-					{/each}
-				</ul>
-
-				<div class="nav-section">
-					<span class="nav-section-title">{$locale, t('layout.system')}</span>
-				</div>
-				<ul class="nav-list">
-					{#each systemItemDefs as item}
-						<li>
-							<a
-								href={item.href}
-								onclick={closeSidebar}
-								class="nav-item"
-								class:active={isActive(item.href)}
-							>
-								<span class="nav-icon">{@html icon(item.icon, 16)}</span>
-								<span class="nav-label">{$locale, t(item.key)}</span>
-							</a>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-		</nav>
-
-	</aside>
-
-	<div class="content-wrap">
-		<!-- Top bar -->
-		<header class="topbar">
-			<div class="topbar-left">
-				<button
-					class="hamburger"
-					aria-label="Toggle navigation"
-					aria-expanded={sidebarOpen}
-					onclick={() => { sidebarOpen = !sidebarOpen; }}
-				>
-					{@html icon('menu', 18)}
-				</button>
-				<div class="crumbs">
-					<span class="crumb-root">MG Custody</span>
-					<span class="crumb-sep" aria-hidden="true">/</span>
-					<span class="crumb-current">{$locale, activeTitle()}</span>
-				</div>
-			</div>
-
-			<div class="topbar-right">
-				<div class="top-env">
-					<span class="env-dot tone-{envLabels[env].tone}"></span>
-					<span>{envLabels[env].label}</span>
-				</div>
-
-				<div class="top-sep"></div>
-
-				<button class="top-btn" aria-label={($locale, t('layout.notifications'))} title={($locale, t('layout.notifications'))}>
-					{@html icon('bell', 16)}
-					{#if notificationCount > 0}
-						<span class="top-badge">{notificationCount}</span>
-					{/if}
-				</button>
-
-				<button class="top-btn" aria-label={($locale, t('layout.help'))} title={($locale, t('layout.help'))}>
-					{@html icon('circle', 16)}
-				</button>
-
-				{#if isLoggedIn}
-					<div class="user-wrap">
-						<button
-							class="user-trigger"
-							aria-haspopup="menu"
-							aria-expanded={userMenuOpen}
-							onclick={(e) => { e.stopPropagation(); userMenuOpen = !userMenuOpen; envMenuOpen = false; }}
-						>
-							<span class="avatar" aria-hidden="true">{userInitials(userEmail)}</span>
-							<span class="user-meta">
-								<span class="user-email" title={userEmail}>{userEmail || 'User'}</span>
-								<span class="user-role">{userRole}</span>
-							</span>
-							<span class="user-chev" aria-hidden="true">{@html icon('chevron-down', 12)}</span>
-						</button>
-
-						{#if userMenuOpen}
-							<div class="user-menu popover" role="menu">
-								<div class="menu-user-head">
-									<span class="avatar lg" aria-hidden="true">{userInitials(userEmail)}</span>
-									<div>
-										<span class="menu-user-email">{userEmail}</span>
-										<span class="menu-user-role">
-											<span class="role-dot"></span>
-											{userRole}
-										</span>
-									</div>
-								</div>
-
-								<a href="/profile" class="menu-item" onclick={() => userMenuOpen = false}>
-									<span class="menu-icon">{@html icon('profile', 14)}</span>
-									<span>{$locale, t('nav.profile')}</span>
-								</a>
-								<a href="/settings" class="menu-item" onclick={() => userMenuOpen = false}>
-									<span class="menu-icon">{@html icon('settings', 14)}</span>
-									<span>{$locale, t('nav.settings')}</span>
-								</a>
-
-								<button class="menu-item" onclick={toggleTheme}>
-									<span class="menu-icon">{@html icon(theme === 'dark' ? 'sun' : 'moon', 14)}</span>
-									<span>{$locale, t(theme === 'dark' ? 'layout.theme.light' : 'layout.theme.dark')}</span>
-								</button>
-
-								<div class="menu-lang">
-									<span class="menu-icon">{@html icon('globe', 14)}</span>
-									<select aria-label="Language" value={$locale} onchange={onLocaleChange}>
-										{#each LOCALES as loc}
-											<option value={loc.code}>{loc.label}</option>
-										{/each}
-									</select>
-								</div>
-
-								<div class="menu-sep"></div>
-
-								<button class="menu-item danger" onclick={logout}>
-									<span class="menu-icon">{@html icon('logout', 14)}</span>
-									<span>{$locale, t('auth.sign_out')}</span>
-								</button>
-							</div>
-						{/if}
-					</div>
-				{/if}
 			</div>
 		</header>
 

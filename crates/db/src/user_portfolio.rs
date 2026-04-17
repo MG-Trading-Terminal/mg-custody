@@ -51,6 +51,11 @@ pub struct UserProfile {
     pub role: String,
     pub created_at: DateTime<Utc>,
     pub last_login_at: Option<DateTime<Utc>>,
+    /// Workspace environment (`production` / `testnet` / `sandbox`).
+    /// Joined from `workspaces.environment` so the dashboard's env
+    /// chip reflects reality instead of a hardcoded
+    /// client-side default.
+    pub workspace_environment: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -221,26 +226,34 @@ impl CustodyDb {
     }
 
     /// Load profile data for the authenticated user.
+    ///
+    /// Joins `workspaces.environment` so the UI can render a truthful
+    /// env chip. `workspace_environment` defaults to `"unknown"` if
+    /// the join comes back empty (should not happen for a valid
+    /// workspace_users row — the FK would have been rejected earlier).
     pub async fn load_user_profile(
         &self,
         user_id: Uuid,
     ) -> anyhow::Result<Option<UserProfile>> {
-        let row: Option<(Uuid, String, String, DateTime<Utc>, Option<DateTime<Utc>>)> =
+        let row: Option<(Uuid, String, String, DateTime<Utc>, Option<DateTime<Utc>>, Option<String>)> =
             sqlx::query_as(
-                "SELECT id, email, role, created_at, last_login_at
-                 FROM workspace_users
-                 WHERE id = $1",
+                "SELECT u.id, u.email, u.role, u.created_at, u.last_login_at,
+                        w.environment
+                 FROM workspace_users u
+                 LEFT JOIN workspaces w ON w.id = u.workspace_id
+                 WHERE u.id = $1",
             )
             .bind(user_id)
             .fetch_optional(&self.pool)
             .await?;
 
-        Ok(row.map(|(user_id, email, role, created_at, last_login_at)| UserProfile {
+        Ok(row.map(|(user_id, email, role, created_at, last_login_at, env)| UserProfile {
             user_id,
             email,
             role,
             created_at,
             last_login_at,
+            workspace_environment: env.unwrap_or_else(|| "unknown".to_string()),
         }))
     }
 

@@ -67,6 +67,29 @@ Security work done this session is real but the following remain open.
 Labeled by bite size so future-me knows where to start.
 
 ### Fixed since last published snapshot
+- **Reconciliation no longer guarantees false positives.** The ETH
+  balance-check capped on-chain queries at the first 50 addresses
+  with `.take(50)` to duck rate limits, then compared that partial
+  on-chain total against the *full* internal hot balance. Any vault
+  with ≥ 51 addresses tripped a "RECONCILIATION ALERT" on every tick.
+  Replaced with a batched sweep (25 addresses per batch, 200 ms
+  inter-batch delay) that processes all addresses; aborts the tick
+  and logs at warn level if > 10 % of RPC queries fail (partial
+  totals can't be trusted against the full internal).
+- **Travel Rule Notabene receive path is honest.** `receive_beneficiary_data`
+  on a successfully-accepted transfer used to log "Beneficiary data
+  received" and return `Ok(None)`, indistinguishable from "still
+  waiting". It now returns `Err` so the caller has to record the
+  transfer for manual review instead of silently treating acceptance
+  as "data not yet available".
+- **Dashboard env chip reflects reality.** The sidebar env selector
+  was a local-state toggle — clicking "testnet" never re-routed to
+  a different backend, it just changed a client-side variable.
+  Replaced with a read-only chip fed from `workspaces.environment`
+  via a new `workspace_environment` field on `GET /v1/user/profile`
+  (joined in `load_user_profile`). Tone (green / yellow / blue) now
+  matches the actual workspace environment the user is authenticated
+  into.
 - **Staking routes return 501 instead of fake "pending".** `POST
   /v1/staking/stake` and `/unstake` accepted requests and returned
   `{"status": "pending"}` with no signing backend, no broadcast, no

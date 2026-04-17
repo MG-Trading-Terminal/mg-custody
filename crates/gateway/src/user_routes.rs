@@ -173,6 +173,10 @@ pub struct ProfileResponse {
     pub fido2_credentials: i64,
     pub created_at: String,
     pub last_login: Option<String>,
+    /// `production` / `testnet` / `sandbox` — the workspace's live
+    /// environment flag. Surfaced so the dashboard env chip can
+    /// reflect reality instead of a hardcoded client default.
+    pub workspace_environment: String,
 }
 
 #[derive(Deserialize)]
@@ -421,6 +425,7 @@ async fn get_profile(
         fido2_credentials: fido2_count,
         created_at: profile.created_at.to_rfc3339(),
         last_login: profile.last_login_at.map(|t| t.to_rfc3339()),
+        workspace_environment: profile.workspace_environment,
     }))
 }
 
