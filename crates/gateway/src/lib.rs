@@ -11,6 +11,7 @@ pub mod auth;
 pub mod push_routes;
 pub mod auth_routes;
 pub mod password_reset_routes;
+pub mod email_verification_routes;
 pub mod totp_routes;
 pub mod safe_routes;
 pub mod openapi;

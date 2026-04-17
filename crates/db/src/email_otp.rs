@@ -165,6 +165,52 @@ impl CustodyDb {
         .await?;
         Ok(row)
     }
+
+    /// Whether `user_id` has confirmed their email address.
+    ///
+    /// Used by the login response and the verify-email status endpoint so
+    /// the UI can decide whether to show a "verify your email" banner.
+    pub async fn is_email_verified(&self, user_id: Uuid) -> anyhow::Result<bool> {
+        let row: Option<(Option<chrono::DateTime<chrono::Utc>>,)> = sqlx::query_as(
+            "SELECT email_verified_at FROM workspace_users WHERE id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.and_then(|(t,)| t).is_some())
+    }
+
+    /// Stamp `email_verified_at = NOW()` for `user_id`. Idempotent —
+    /// repeat calls are harmless and do not overwrite the original
+    /// timestamp (COALESCE preserves the first verification).
+    pub async fn mark_email_verified(&self, user_id: Uuid) -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE workspace_users
+             SET email_verified_at = COALESCE(email_verified_at, NOW())
+             WHERE id = $1",
+        )
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Fetch `(email, email_verified_at IS NOT NULL)` for a user. Used
+    /// by the verify-email request handler to decide whether to mint a
+    /// new OTP (pointless if already verified) and by the UI to render
+    /// the address being verified.
+    pub async fn fetch_email_and_verified(
+        &self,
+        user_id: Uuid,
+    ) -> anyhow::Result<Option<(String, bool)>> {
+        let row: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = sqlx::query_as(
+            "SELECT email, email_verified_at FROM workspace_users WHERE id = $1",
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(email, t)| (email, t.is_some())))
+    }
 }
 
 #[cfg(test)]

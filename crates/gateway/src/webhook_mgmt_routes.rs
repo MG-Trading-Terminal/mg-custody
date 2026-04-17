@@ -1237,15 +1237,38 @@ async fn register_user(
         "New user registered"
     );
 
+    // Fire-and-forget verification OTP. A dispatch failure here must
+    // not fail registration — the user can always request a fresh
+    // code from the verify-email/request endpoint after signing in.
+    if let Ok(code) = state.db.create_email_otp(user_id, "email_verify").await {
+        let (subject, body) = custody_common::email::render_email_verification(&code, 10);
+        if let Err(e) = state
+            .email
+            .send(custody_common::email::EmailMessage::new(
+                email.clone(),
+                subject,
+                body,
+            ))
+            .await
+        {
+            tracing::warn!(
+                user_id = %user_id,
+                error = %e,
+                "Registration verification email dispatch failed"
+            );
+        }
+    }
+
     Ok(Json(serde_json::json!({
         "user_id": user_id,
         "email": email,
         "role": role,
         "vault_id": vault_id,
+        "email_verification_required": true,
         "message": if is_bootstrap {
-            "Account created as workspace owner. You can now sign in."
+            "Account created as workspace owner. Check your email for a verification code."
         } else {
-            "Account created. You can now sign in."
+            "Account created. Check your email for a verification code."
         }
     })))
 }

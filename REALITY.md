@@ -48,7 +48,7 @@ live integration, no real counterparty, no production-grade driver.
 | MPC FROST Ed25519 | Same as above |
 | HSM (PKCS#11 via `cryptoki`) | File-backed `HsmSigningBackend` works; real HSM integration is stubbed |
 | Chainalysis / Elliptic AML | `ScreeningProvider` trait + cache layer; actual HTTP to vendors needs API keys |
-| Email delivery (password reset, verification) | No SMTP wired; endpoint accepts requests but no email is sent |
+| Email delivery (SMTP) | `EmailSender` enum wired (Console/Noop); password reset + email verification dispatch through it. Real SMTP pending `lettre` add. |
 | Staking (ETH / SOL) | Structs only — no beacon deposit or SOL delegate broadcast |
 | DeFi (WalletConnect, DEX aggregator) | Types only |
 | Settlement / counterparty network | Types only |
@@ -94,9 +94,9 @@ Labeled by bite size so future-me knows where to start.
   follow-up migration.
 - **Withdrawal memo/tag validation** is length-only. Chain-specific
   invariants (Cosmos hash length, XRP u32 range) not enforced.
-- **`detailed_health` / `circuit_breaker_status` endpoints** leak
-  org-wide operational metrics at Viewer role. Not a security bug in
-  any strict sense; it *is* an information-disclosure gap.
+- ~~**`detailed_health` / `circuit_breaker_status` endpoints** leak
+  org-wide operational metrics at Viewer role.~~ Fixed — both now
+  require `RequireAdmin`.
 
 ---
 

@@ -164,17 +164,22 @@ pub fn render_password_reset(code: &str, ttl_minutes: u64) -> (String, String) {
     (subject, body)
 }
 
-/// Email-verification link body. `url` is the fully-qualified confirm URL.
-pub fn render_email_verification(url: &str) -> (String, String) {
+/// Email-verification code body. Mirrors the password-reset template
+/// shape so we only maintain one delivery pattern: a 6-digit OTP that
+/// the user enters in the UI. URL-based confirm flows need a signed
+/// token mint + route — intentionally deferred until we actually need
+/// deep-linking from a client outside the SPA.
+pub fn render_email_verification(code: &str, ttl_minutes: u64) -> (String, String) {
     let subject = "Confirm your MG Custody email".to_string();
     let body = format!(
-        "Thanks for creating an MG Custody account.\n\
+        "Welcome to MG Custody.\n\
          \n\
-         Click this link to confirm your email address:\n\
-         {url}\n\
+         Confirmation code: {code}\n\
+         This code expires in {ttl_minutes} minutes.\n\
          \n\
-         The link expires in 24 hours. If you didn't register, ignore\n\
-         this message.\n\
+         Enter it on the verification screen to finish setting up your\n\
+         account. If you didn't register, you can safely ignore this\n\
+         email — no action will be taken.\n\
          \n\
          — MG Custody"
     );
@@ -213,9 +218,10 @@ mod tests {
     }
 
     #[test]
-    fn verification_template_contains_url() {
-        let (subject, body) = render_email_verification("https://custody.local/verify?t=xyz");
+    fn verification_template_contains_code_and_ttl() {
+        let (subject, body) = render_email_verification("654321", 10);
         assert!(subject.contains("Confirm"));
-        assert!(body.contains("https://custody.local/verify?t=xyz"));
+        assert!(body.contains("654321"));
+        assert!(body.contains("10 minutes"));
     }
 }

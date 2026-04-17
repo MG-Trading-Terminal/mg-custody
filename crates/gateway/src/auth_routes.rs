@@ -49,6 +49,13 @@ pub struct LoginResponse {
     /// Short-lived token to present with the TOTP code at /v1/auth/sessions/verify-2fa.
     /// Only present when requires_2fa is true. Expires in 5 minutes.
     pub pending_token: Option<String>,
+    /// Whether the user's email address has been verified. When false the
+    /// UI should nudge the user toward the verify-email flow — we do NOT
+    /// gate login on this, because locking a user out of their account
+    /// over an unsent verification email is a worse failure mode than a
+    /// temporarily unverified session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email_verified: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -208,6 +215,7 @@ async fn login(
                 expires_in_seconds: None,
                 requires_2fa: true,
                 pending_token: Some(pending_token),
+                email_verified: None,
             }),
         ));
     }
@@ -225,6 +233,10 @@ async fn login(
         .record_login(user_id, &ip, &user_agent, "password", true, None)
         .await;
 
+    // Best-effort — if the column doesn't exist yet in some stale test DB,
+    // we fall back to None rather than failing login.
+    let email_verified = state.db.is_email_verified(user_id).await.ok();
+
     tracing::info!(email = %req.email, role = %role_str, "User logged in");
 
     Ok((
@@ -236,6 +248,7 @@ async fn login(
             expires_in_seconds: Some(8 * 3600),
             requires_2fa: false,
             pending_token: None,
+            email_verified,
         }),
     ))
 }
@@ -397,6 +410,7 @@ mod tests {
             expires_in_seconds: Some(28800),
             requires_2fa: false,
             pending_token: None,
+            email_verified: Some(true),
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("abc123"));
@@ -413,6 +427,7 @@ mod tests {
             expires_in_seconds: None,
             requires_2fa: true,
             pending_token: Some("pending_abc".into()),
+            email_verified: None,
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"requires_2fa\":true"));
