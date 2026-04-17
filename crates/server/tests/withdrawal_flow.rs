@@ -57,6 +57,7 @@ async fn setup() -> Option<(axum::Router, CustodyDb, Arc<WithdrawalPipeline>)> {
         email: Arc::new(custody_common::email::EmailSender::noop()),
         travel_rule_provider: None,
         readiness: custody_common::readiness::ReadinessHandle::new(custody_common::readiness::ReadinessReport::new()),
+        chaos_overrides: custody_common::readiness_chaos::ChaosOverrides::new(),
     };
 
     Some((custody_gateway::routes::router(state), db, pipeline))

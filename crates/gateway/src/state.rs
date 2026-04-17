@@ -10,6 +10,7 @@ use custody_common::email::EmailSender;
 use custody_common::emergency::FreezeFlag;
 use custody_common::events::EventBroadcaster;
 use custody_common::readiness::ReadinessHandle;
+use custody_common::readiness_chaos::ChaosOverrides;
 use custody_compliance::travel_rule::NotabeneProvider;
 use custody_db::CustodyDb;
 use custody_withdrawal_pipeline::WithdrawalPipeline;
@@ -43,4 +44,11 @@ pub struct AppState {
     /// 503 + the current reason when not ready. `GET
     /// /v1/health/features` serialises the latest snapshot.
     pub readiness: ReadinessHandle,
+    /// In-memory chaos overrides. Admin endpoints mutate; the
+    /// refresh task applies after each probe so fake-Degraded
+    /// feature states propagate through the whole alerting
+    /// pipeline (transition detection, webhook, history row).
+    /// Cleared on service restart — no persistence, because a
+    /// forgotten chaos override in production is itself an incident.
+    pub chaos_overrides: ChaosOverrides,
 }

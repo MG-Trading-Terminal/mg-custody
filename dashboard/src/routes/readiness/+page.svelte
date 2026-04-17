@@ -29,6 +29,7 @@
 	interface Silence {
 		id: number;
 		feature: string;
+		starts_at: string;
 		expires_at: string;
 		reason: string;
 		created_by: string;

@@ -918,6 +918,7 @@ async fn main() -> anyhow::Result<()> {
     // refresh task below, and dump the human-readable table so
     // operators see the truth before any other log noise.
     let travel_rule_configured = travel_rule_provider.is_some();
+    let chaos_overrides = custody_common::readiness_chaos::ChaosOverrides::new();
     let initial = readiness_build::build(&config, &email_sender, travel_rule_configured).await;
     custody_common::readiness::startup_log_report(&initial);
     initial.export_prometheus_gauges();
@@ -970,6 +971,7 @@ async fn main() -> anyhow::Result<()> {
         let email = email_sender.clone();
         let tr = travel_rule_configured;
         let history_db = db.clone();
+        let chaos_map = chaos_overrides.clone();
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
             tick.tick().await; // skip the immediate first tick — boot already built one
@@ -987,7 +989,11 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
                 let previous = handle.snapshot();
-                let report = readiness_build::build(&cfg, &email, tr).await;
+                let mut report = readiness_build::build(&cfg, &email, tr).await;
+                // Overlay any chaos overrides on the freshly-probed
+                // report. An empty override map is the common case
+                // and a cheap RwLock read — no-op when nothing's set.
+                chaos_map.apply(&mut report);
                 let transitions = readiness_build::diff_transitions(&previous, &report);
                 // Active silence patterns — operator-created
                 // maintenance windows. Each row is either an exact
@@ -1054,6 +1060,7 @@ async fn main() -> anyhow::Result<()> {
         email: std::sync::Arc::new(email_sender),
         travel_rule_provider: travel_rule_provider.clone(),
         readiness: readiness.clone(),
+        chaos_overrides: chaos_overrides.clone(),
     };
 
     // Use middleware if HMAC secret is configured

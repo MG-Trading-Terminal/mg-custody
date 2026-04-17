@@ -88,6 +88,7 @@ pub mod prometheus_metrics;
 pub mod reorg_detection;
 pub mod rpc_failover;
 pub mod readiness;
+pub mod readiness_chaos;
 pub mod safe_executor;
 pub mod safe_wallet;
 pub mod sandbox;

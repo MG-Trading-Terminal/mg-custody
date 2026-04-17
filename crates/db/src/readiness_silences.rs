@@ -20,6 +20,11 @@ use crate::CustodyDb;
 pub struct ReadinessSilence {
     pub id: i64,
     pub feature: String,
+    /// When the silence window opens. For "silence now" this equals
+    /// `created_at`; for scheduled maintenance it can be in the
+    /// future and the alert suppression kicks in only after this
+    /// moment.
+    pub starts_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
     pub reason: String,
     pub created_by: String,
@@ -30,16 +35,21 @@ impl CustodyDb {
     pub async fn insert_readiness_silence(
         &self,
         feature: &str,
+        starts_at: Option<DateTime<Utc>>,
         expires_at: DateTime<Utc>,
         reason: &str,
         created_by: &str,
     ) -> Result<ReadinessSilence, sqlx::Error> {
-        let row: (i64, DateTime<Utc>) = sqlx::query_as(
-            "INSERT INTO readiness_silences (feature, expires_at, reason, created_by) \
-             VALUES ($1, $2, $3, $4) \
-             RETURNING id, created_at",
+        // When `starts_at` is None, the DB default `clock_timestamp()`
+        // kicks in — caller gets "silence from right now". RETURNING
+        // gives us the exact value the DB stored.
+        let row: (i64, DateTime<Utc>, DateTime<Utc>) = sqlx::query_as(
+            "INSERT INTO readiness_silences (feature, starts_at, expires_at, reason, created_by) \
+             VALUES ($1, COALESCE($2, clock_timestamp()), $3, $4, $5) \
+             RETURNING id, starts_at, created_at",
         )
         .bind(feature)
+        .bind(starts_at)
         .bind(expires_at)
         .bind(reason)
         .bind(created_by)
@@ -48,10 +58,11 @@ impl CustodyDb {
         Ok(ReadinessSilence {
             id: row.0,
             feature: feature.to_string(),
+            starts_at: row.1,
             expires_at,
             reason: reason.to_string(),
             created_by: created_by.to_string(),
-            created_at: row.1,
+            created_at: row.2,
         })
     }
 
@@ -59,19 +70,24 @@ impl CustodyDb {
     /// future. The refresh task calls this on every tick; the
     /// partial index on the table keeps the query cheap.
     pub async fn list_active_silences(&self) -> Result<Vec<ReadinessSilence>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (i64, String, DateTime<Utc>, String, String, DateTime<Utc>)>(
-            "SELECT id, feature, expires_at, reason, created_by, created_at \
+        // "Active" = the silence window is open NOW: it started in
+        // the past (or at clock_timestamp) and has not yet expired.
+        // Scheduled silences whose `starts_at` is still in the
+        // future are NOT included — they don't suppress alerts yet.
+        let rows = sqlx::query_as::<_, (i64, String, DateTime<Utc>, DateTime<Utc>, String, String, DateTime<Utc>)>(
+            "SELECT id, feature, starts_at, expires_at, reason, created_by, created_at \
              FROM readiness_silences \
-             WHERE expires_at > clock_timestamp() \
+             WHERE starts_at <= clock_timestamp() AND expires_at > clock_timestamp() \
              ORDER BY expires_at DESC",
         )
         .fetch_all(&self.pool)
         .await?;
         Ok(rows
             .into_iter()
-            .map(|(id, feature, expires_at, reason, created_by, created_at)| ReadinessSilence {
+            .map(|(id, feature, starts_at, expires_at, reason, created_by, created_at)| ReadinessSilence {
                 id,
                 feature,
+                starts_at,
                 expires_at,
                 reason,
                 created_by,
@@ -87,8 +103,8 @@ impl CustodyDb {
         &self,
         limit: i64,
     ) -> Result<Vec<ReadinessSilence>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, (i64, String, DateTime<Utc>, String, String, DateTime<Utc>)>(
-            "SELECT id, feature, expires_at, reason, created_by, created_at \
+        let rows = sqlx::query_as::<_, (i64, String, DateTime<Utc>, DateTime<Utc>, String, String, DateTime<Utc>)>(
+            "SELECT id, feature, starts_at, expires_at, reason, created_by, created_at \
              FROM readiness_silences \
              ORDER BY created_at DESC \
              LIMIT $1",
@@ -98,9 +114,10 @@ impl CustodyDb {
         .await?;
         Ok(rows
             .into_iter()
-            .map(|(id, feature, expires_at, reason, created_by, created_at)| ReadinessSilence {
+            .map(|(id, feature, starts_at, expires_at, reason, created_by, created_at)| ReadinessSilence {
                 id,
                 feature,
+                starts_at,
                 expires_at,
                 reason,
                 created_by,

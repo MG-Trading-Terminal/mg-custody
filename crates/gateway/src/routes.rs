@@ -67,6 +67,14 @@ pub fn router(state: AppState) -> Router {
             "/v1/health/features/silences/history",
             get(list_silence_history),
         )
+        .route(
+            "/v1/admin/chaos/overrides",
+            get(list_chaos_overrides).post(set_chaos_override),
+        )
+        .route(
+            "/v1/admin/chaos/overrides/{feature}",
+            axum::routing::delete(clear_chaos_override),
+        )
         .route("/v1/addresses", post(create_address))
         .route("/v1/withdrawals", post(submit_withdrawal))
         .route("/v1/withdrawals/{id}", get(get_withdrawal_status))
@@ -147,6 +155,14 @@ pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
         .route(
             "/v1/health/features/silences/history",
             get(list_silence_history),
+        )
+        .route(
+            "/v1/admin/chaos/overrides",
+            get(list_chaos_overrides).post(set_chaos_override),
+        )
+        .route(
+            "/v1/admin/chaos/overrides/{feature}",
+            axum::routing::delete(clear_chaos_override),
         )
         .route("/metrics", get(prometheus_metrics))
         .route("/v1/addresses", post(create_address))
@@ -280,10 +296,16 @@ struct HistoryQuery {
 #[derive(serde::Deserialize)]
 struct CreateSilenceRequest {
     feature: String,
-    /// Silence duration in seconds from now. Required — no
-    /// "forever" silences; an operator would forget it exists.
+    /// Silence duration in seconds from `starts_at` (or from now if
+    /// `starts_at` is omitted). Required — no "forever" silences;
+    /// an operator would forget one exists.
     duration_secs: i64,
     reason: String,
+    /// RFC 3339 start time. Omit for "silence immediately"; provide
+    /// a future timestamp to pre-schedule a maintenance window.
+    /// Must not be more than 30 days in the future.
+    #[serde(default)]
+    starts_at: Option<String>,
 }
 
 /// `GET /v1/health/features/silences` — every silence still live.
@@ -326,13 +348,50 @@ async fn create_health_silence(
     if req.reason.trim().is_empty() {
         return Err(ApiError::bad_request("reason must not be empty"));
     }
-    let expires_at = chrono::Utc::now() + chrono::Duration::seconds(req.duration_secs);
+    let now = chrono::Utc::now();
+    let starts_at = req
+        .starts_at
+        .as_deref()
+        .map(|s| chrono::DateTime::parse_from_rfc3339(s).map(|dt| dt.with_timezone(&chrono::Utc)))
+        .transpose()
+        .map_err(|e| ApiError::bad_request(&format!("starts_at must be RFC 3339: {e}")))?;
+    // Cap scheduled starts at 30 days out — anything further is
+    // likely a typo (year 2025 → 2026 off-by-one in the calendar)
+    // and we don't want a silence sitting dormant for months.
+    if let Some(start) = starts_at {
+        let thirty_days = chrono::Duration::days(30);
+        if start > now + thirty_days {
+            return Err(ApiError::bad_request(
+                "starts_at may not be more than 30 days in the future",
+            ));
+        }
+        if start < now - chrono::Duration::hours(1) {
+            return Err(ApiError::bad_request(
+                "starts_at may not be more than 1 hour in the past",
+            ));
+        }
+    }
+    let expires_at =
+        starts_at.unwrap_or(now) + chrono::Duration::seconds(req.duration_secs);
     let created_by = auth.0.user_id.to_string();
     let silence = state
         .db
-        .insert_readiness_silence(&req.feature, expires_at, &req.reason, &created_by)
+        .insert_readiness_silence(&req.feature, starts_at, expires_at, &req.reason, &created_by)
         .await
         .map_err(|e| ApiError::internal(&format!("silence insert: {e}")))?;
+    let audit = custody_db::audit::AuditEntry::readiness_silence_created(
+        &created_by,
+        &req.feature,
+        req.duration_secs,
+        &req.reason,
+    );
+    if let Err(e) = state.db.insert_audit_entry(&audit).await {
+        tracing::warn!(
+            target: "custody::readiness::alert",
+            error = %e,
+            "Silence audit write failed"
+        );
+    }
     tracing::warn!(
         target: "custody::readiness::alert",
         feature = %req.feature,
@@ -380,11 +439,153 @@ async fn end_health_silence(
     if !ended {
         return Err(ApiError::not_found("No active silence for that feature"));
     }
+    let audit = custody_db::audit::AuditEntry::readiness_silence_ended(
+        &auth.0.user_id.to_string(),
+        &feature,
+    );
+    if let Err(e) = state.db.insert_audit_entry(&audit).await {
+        tracing::warn!(
+            target: "custody::readiness::alert",
+            error = %e,
+            "Silence-end audit write failed"
+        );
+    }
     tracing::info!(
         target: "custody::readiness::alert",
         feature = %feature,
         ended_by = %auth.0.user_id,
         "Readiness alert silence ended early"
+    );
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(serde::Deserialize)]
+struct ChaosOverrideRequest {
+    /// Feature name, e.g. "scanner.ethereum". Must match a feature
+    /// name that appears in the readiness report — overrides on
+    /// non-existent features are silently dropped.
+    feature: String,
+    /// Target state. Only "degraded" and "misconfigured" make sense
+    /// here — a chaos drill that flips a feature to Ready doesn't
+    /// test any alerting path.
+    state: String,
+    /// Free-form note. Written verbatim into the degraded reason
+    /// (prefixed with "[chaos]") so incident responders looking at
+    /// the webhook payload see immediately that this wasn't real.
+    reason: String,
+}
+
+/// `GET /v1/admin/chaos/overrides` — list active overrides.
+async fn list_chaos_overrides(
+    _auth: crate::rbac_middleware::RequireAdmin,
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Json<serde_json::Value> {
+    let overrides = state.chaos_overrides.snapshot();
+    let count = overrides.len();
+    Json(serde_json::json!({
+        "overrides": overrides,
+        "count": count,
+    }))
+}
+
+/// `POST /v1/admin/chaos/overrides` — inject an override. The next
+/// refresh tick (≤60s, or call `POST /v1/health/features/refresh`
+/// to expedite) will apply it and fire the alerting pipeline as if
+/// the real vendor went down.
+async fn set_chaos_override(
+    auth: crate::rbac_middleware::RequireAdmin,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Json(req): Json<ChaosOverrideRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    use custody_common::readiness::FeatureState;
+    if req.feature.is_empty() {
+        return Err(ApiError::bad_request("feature must not be empty"));
+    }
+    if req.reason.trim().is_empty() {
+        return Err(ApiError::bad_request("reason must not be empty"));
+    }
+    let forced = match req.state.as_str() {
+        "degraded" => FeatureState::Degraded {
+            reason: req.reason.clone(),
+        },
+        "misconfigured" => FeatureState::Misconfigured {
+            missing: vec![format!("[chaos] {}", req.reason)],
+        },
+        other => {
+            return Err(ApiError::bad_request(&format!(
+                "state must be \"degraded\" or \"misconfigured\", got \"{other}\""
+            )));
+        }
+    };
+    state.chaos_overrides.set(
+        &req.feature,
+        forced,
+        &req.reason,
+        auth.0.user_id.to_string(),
+    );
+    let audit = custody_db::audit::AuditEntry::readiness_chaos_injected(
+        &auth.0.user_id.to_string(),
+        &req.feature,
+        &req.state,
+        &req.reason,
+    );
+    if let Err(e) = state.db.insert_audit_entry(&audit).await {
+        tracing::warn!(
+            target: "custody::readiness::chaos",
+            error = %e,
+            "Chaos audit write failed"
+        );
+    }
+    // Wake the refresh task so the operator doesn't wait up to 60s
+    // to see the alert fire.
+    state.readiness.request_refresh();
+    tracing::warn!(
+        target: "custody::readiness::chaos",
+        feature = %req.feature,
+        new_state = %req.state,
+        reason = %req.reason,
+        created_by = %auth.0.user_id,
+        "Chaos override injected — next refresh will fire alerts as if the feature had actually degraded"
+    );
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({
+            "applied": true,
+            "note": "Override set. Next refresh (≤60s) will apply it and fire the alert pipeline. \
+                     DELETE /v1/admin/chaos/overrides/{feature} to clear."
+        })),
+    ))
+}
+
+/// `DELETE /v1/admin/chaos/overrides/:feature` — remove an override.
+/// The next refresh will re-probe reality; the recovery path fires
+/// its "feature recovered" alert on that transition.
+async fn clear_chaos_override(
+    auth: crate::rbac_middleware::RequireAdmin,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(feature): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let cleared = state.chaos_overrides.clear(&feature);
+    if !cleared {
+        return Err(ApiError::not_found("No chaos override for that feature"));
+    }
+    let audit = custody_db::audit::AuditEntry::readiness_chaos_cleared(
+        &auth.0.user_id.to_string(),
+        &feature,
+    );
+    if let Err(e) = state.db.insert_audit_entry(&audit).await {
+        tracing::warn!(
+            target: "custody::readiness::chaos",
+            error = %e,
+            "Chaos-clear audit write failed"
+        );
+    }
+    state.readiness.request_refresh();
+    tracing::info!(
+        target: "custody::readiness::chaos",
+        feature = %feature,
+        cleared_by = %auth.0.user_id,
+        "Chaos override cleared — real probe state will be restored on next refresh"
     );
     Ok(StatusCode::NO_CONTENT)
 }

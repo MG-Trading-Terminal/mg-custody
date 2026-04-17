@@ -41,6 +41,17 @@ pub enum AuditOperation {
     WithdrawalOverride,
     /// RBAC permission denied (user tried to access resource above their role).
     PermissionDenied,
+    /// Operator created a readiness alert silence (planned
+    /// maintenance window). Alert-suppressing actions must leave a
+    /// trail so a postmortem can answer "was the alert suppressed
+    /// when it should have fired?".
+    ReadinessSilenceCreated,
+    /// Operator ended a silence early.
+    ReadinessSilenceEnded,
+    /// Chaos override injected (alert-pipeline drill).
+    ReadinessChaosInjected,
+    /// Chaos override cleared.
+    ReadinessChaosCleared,
 }
 
 /// A single audit log entry.
@@ -108,6 +119,83 @@ impl AuditEntry {
             chain: None,
             derivation_path: None,
             details: None,
+            prev_hash: None,
+        }
+    }
+
+    /// Create an audit entry for a readiness silence creation.
+    /// `details` carries the feature pattern, duration, and reason —
+    /// everything a postmortem needs to understand why alerts were
+    /// suppressed during a window.
+    pub fn readiness_silence_created(
+        actor: &str,
+        feature: &str,
+        duration_secs: i64,
+        reason: &str,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            timestamp: Utc::now(),
+            operation: AuditOperation::ReadinessSilenceCreated,
+            actor: actor.to_string(),
+            chain: None,
+            derivation_path: None,
+            details: Some(format!(
+                "feature={feature}, duration_secs={duration_secs}, reason={reason}"
+            )),
+            prev_hash: None,
+        }
+    }
+
+    /// Audit entry for an early-ended silence.
+    pub fn readiness_silence_ended(actor: &str, feature: &str) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            timestamp: Utc::now(),
+            operation: AuditOperation::ReadinessSilenceEnded,
+            actor: actor.to_string(),
+            chain: None,
+            derivation_path: None,
+            details: Some(format!("feature={feature}")),
+            prev_hash: None,
+        }
+    }
+
+    /// Audit entry for a chaos override being applied. These are
+    /// operational drills, not incidents — but the audit trail
+    /// still needs to distinguish "scanner.ethereum was marked
+    /// Degraded by the refresh task" from "scanner.ethereum was
+    /// degraded by a human, manually".
+    pub fn readiness_chaos_injected(
+        actor: &str,
+        feature: &str,
+        forced_state: &str,
+        reason: &str,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            timestamp: Utc::now(),
+            operation: AuditOperation::ReadinessChaosInjected,
+            actor: actor.to_string(),
+            chain: None,
+            derivation_path: None,
+            details: Some(format!(
+                "feature={feature}, forced_state={forced_state}, reason={reason}"
+            )),
+            prev_hash: None,
+        }
+    }
+
+    /// Audit entry for a chaos override being cleared.
+    pub fn readiness_chaos_cleared(actor: &str, feature: &str) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            timestamp: Utc::now(),
+            operation: AuditOperation::ReadinessChaosCleared,
+            actor: actor.to_string(),
+            chain: None,
+            derivation_path: None,
+            details: Some(format!("feature={feature}")),
             prev_hash: None,
         }
     }
