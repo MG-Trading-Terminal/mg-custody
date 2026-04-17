@@ -67,6 +67,15 @@ Security work done this session is real but the following remain open.
 Labeled by bite size so future-me knows where to start.
 
 ### Fixed since last published snapshot
+- **NFT routes stopped lying.** `GET /v1/nfts`, `GET /v1/nfts/{id}`,
+  `POST /v1/nfts`, `DELETE /v1/nfts/{id}` now hit the
+  `custodied_nfts` table (was: "empty list until DB is wired" / "TODO
+  insert"). All list/get calls are owner-scoped via join on
+  `vaults.owner_id`; register gates on vault ownership.
+  `POST /v1/nfts/{id}/transfer` prepares EVM calldata using the
+  owner's native-asset address and returns a `"prepared"` result
+  (Solana/BTC/Tron return 501). The old `"status: pending, Transfer
+  queued"` JSON was a fabrication — no queue existed.
 - **Removed hardcoded price fallback.** `PriceOracle::seed_fallback_prices()`
   planted BTC=$65k / ETH=$3.5k / SOL=$150 into the cache on startup,
   and the `/v1/user/portfolio` endpoint used a *fresh* seeded oracle

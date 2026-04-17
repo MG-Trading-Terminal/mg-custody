@@ -50,6 +50,36 @@ impl CustodyDb {
         Ok(())
     }
 
+    /// Find the user's deposit address for the native asset of `chain`.
+    ///
+    /// Used by the NFT transfer builder: ERC-721/1155 balances live at
+    /// the user's EVM address (which is the same derivation as ETH),
+    /// not in a separate per-NFT address, so "where does this NFT
+    /// live?" maps onto "what's this user's native-asset address on
+    /// this chain?"
+    pub async fn find_native_address_for_chain(
+        &self,
+        user_id: Uuid,
+        chain: Chain,
+    ) -> anyhow::Result<Option<String>> {
+        let native_symbol = match chain {
+            Chain::Bitcoin => "BTC",
+            Chain::Ethereum => "ETH",
+            Chain::Tron => "TRX",
+            Chain::Solana => "SOL",
+        };
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT address FROM addresses
+             WHERE user_id = $1 AND asset = $2 AND chain = $3",
+        )
+        .bind(user_id)
+        .bind(native_symbol)
+        .bind(chain.as_str())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(a,)| a))
+    }
+
     /// Get all known deposit addresses for a chain (used by scanner).
     pub async fn all_addresses_for_chain(&self, chain: Chain) -> anyhow::Result<Vec<String>> {
         let rows: Vec<(String,)> = sqlx::query_as(

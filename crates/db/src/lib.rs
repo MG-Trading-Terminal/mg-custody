@@ -12,6 +12,7 @@ pub mod login_history;
 pub mod statements;
 pub mod email_otp;
 pub mod safe_wallets;
+pub mod nfts;
 pub mod scheduled_withdrawals;
 pub mod api_keys;
 pub mod assets;
