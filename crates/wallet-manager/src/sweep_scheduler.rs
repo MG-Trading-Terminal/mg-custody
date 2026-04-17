@@ -65,8 +65,6 @@ impl SweepScheduler {
     pub async fn run(&self) -> Result<()> {
         tracing::info!("Starting sweep scheduler");
         loop {
-            // TODO: Query actual balances from DB/chain for each asset
-            // For now, just sleep
             if let Err(e) = self.tick().await {
                 tracing::error!(error = %e, "Sweep scheduler tick failed");
             }

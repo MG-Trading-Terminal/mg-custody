@@ -67,6 +67,24 @@ Security work done this session is real but the following remain open.
 Labeled by bite size so future-me knows where to start.
 
 ### Fixed since last published snapshot
+- **Removed `bc1q_hot_wallet_placeholder` fund-safety footgun.** The
+  UTXO consolidation scheduler in `server/main.rs` baked a literal
+  placeholder string as the sweep destination and logged "submitting
+  to pipeline" while the actual submit was a `TODO`. Now requires
+  `CUSTODY_HOT_WALLET__BTC_ADDRESS`; if unset the loop prints a
+  one-time disabled message instead of hourly lies. Candidate logs
+  explicitly say "NOT submitted — operator must consolidate manually"
+  until the `tx_type=consolidation` pipeline path lands.
+- **Push delivery stubs fail loudly.** `send_apns` and `send_web_push`
+  used to build the payload, log it, and return `Ok(())` — callers
+  saw every "send" as a success and `broadcast()` reported 100 %
+  reach while nothing reached the device. Both now bail with
+  "delivery not implemented in this build" so the broadcast success
+  counter reflects reality. FCM path was and remains real.
+- **Operational CLI stubs surface honest results.** `ops::list_utxos`
+  now actually queries `get_unspent_utxos`; `ops::consolidate_utxos`
+  returns an `Err` with the same "not wired" message (was
+  `Ok("consolidation planned")` doing nothing).
 - **Reconciliation no longer guarantees false positives.** The ETH
   balance-check capped on-chain queries at the first 50 addresses
   with `.take(50)` to duck rate limits, then compared that partial

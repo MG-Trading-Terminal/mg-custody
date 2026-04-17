@@ -246,11 +246,16 @@ impl PushNotificationService {
 
     /// Send via APNs (Apple Push Notification Service).
     ///
-    /// Real APNs requires HTTP/2 (h2 crate) and JWT signing.
-    /// This implementation logs the notification payload and returns Ok
-    /// for development and testing.
+    /// **Not wired.** Real APNs requires HTTP/2 (via `h2` or the `a2`
+    /// crate) plus JWT (p8) signing with the team's APNs key. None
+    /// of that is in the workspace. The prior implementation built
+    /// the payload, logged it, and returned `Ok(())` — callers read
+    /// that as a successful delivery and the broadcast success
+    /// counter was always == total devices, lying about reach.
     ///
-    /// Production replacement: use the `a2` crate or send HTTP/2 directly.
+    /// Returns `Err(NotImplemented)`-shaped error instead so the
+    /// caller can see zero-delivery and surface "APNs not wired"
+    /// instead of claiming the alert reached the iPhone.
     pub async fn send_apns(&self, device_token: &str, payload: &PushPayload) -> Result<()> {
         if device_token.is_empty() {
             bail!("APNs device token must not be empty");
@@ -259,29 +264,33 @@ impl PushNotificationService {
         let key_id = self.apns_key_id.as_deref().unwrap_or("<unset>");
         let apns_payload = build_apns_payload(payload);
 
-        tracing::info!(
+        tracing::warn!(
             platform = "ios",
             device_token_prefix = &device_token[..device_token.len().min(8)],
             key_id = %key_id,
             title = %payload.title,
             payload = ?apns_payload,
-            "APNs push notification (stubbed — HTTP/2 not implemented)"
+            "APNs push not dispatched — HTTP/2 + JWT signing not wired"
         );
 
-        // TODO: Replace with real APNs HTTP/2 request using the `a2` crate:
+        // When the a2 crate is added, replace this bail with:
         //   a2::Client::new(key, key_id, team_id, apns_url)
         //     .send(Notification { device_token, payload })
         //     .await?;
-
-        Ok(())
+        bail!(
+            "APNs delivery not implemented in this build. \
+             Attach the `a2` crate and wire JWT signing before relying on iOS alerts."
+        )
     }
 
     /// Send via Web Push (RFC 8030).
     ///
-    /// Real Web Push requires VAPID signing and encrypted payloads (RFC 8291).
-    /// This implementation logs the payload for development and testing.
-    ///
-    /// Production replacement: use the `web_push` crate with VAPID keys.
+    /// **Not wired.** Real Web Push needs VAPID signing (ECDSA over
+    /// P-256) plus per-message payload encryption (RFC 8291). The
+    /// `web_push` crate covers both but isn't in the workspace. The
+    /// prior implementation logged the payload and returned
+    /// `Ok(())`, which was indistinguishable from a real dispatch.
+    /// Returns `Err` so broadcast success counters don't lie.
     pub async fn send_web_push(&self, subscription_json: &str, payload: &PushPayload) -> Result<()> {
         if subscription_json.is_empty() {
             bail!("Web Push subscription JSON must not be empty");
@@ -289,18 +298,17 @@ impl PushNotificationService {
 
         let web_payload = build_web_push_payload(payload);
 
-        tracing::info!(
+        tracing::warn!(
             platform = "web",
             title = %payload.title,
             payload = ?web_payload,
-            "Web Push notification (stubbed — VAPID not implemented)"
+            "Web Push not dispatched — VAPID signing + payload encryption not wired"
         );
 
-        // TODO: Replace with real Web Push via `web_push` crate:
-        //   let subscription: WebPushSubscription = serde_json::from_str(subscription_json)?;
-        //   web_push::send(subscription, vapid_key, payload).await?;
-
-        Ok(())
+        bail!(
+            "Web Push delivery not implemented in this build. \
+             Attach the `web_push` crate and a VAPID key before relying on browser alerts."
+        )
     }
 
     /// Broadcast to multiple devices, logging any individual failures.

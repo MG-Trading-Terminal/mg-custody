@@ -906,16 +906,39 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // UTXO consolidation loop (daily at 03:00 UTC — when fees are typically low)
+    // UTXO consolidation scheduler — gated behind a real configured
+    // hot-wallet address.
+    //
+    // The previous implementation:
+    //   (a) used `"bc1q_hot_wallet_placeholder"` as the consolidation
+    //       destination — a string that is not a valid Bitcoin address
+    //       and could never sign/broadcast even if the pipeline call
+    //       below had been implemented.
+    //   (b) logged "UTXO consolidation planned — submitting to
+    //       pipeline" while the actual "submit" was a TODO comment.
+    //       Every operator log line claimed the job was doing work
+    //       it wasn't.
+    //
+    // Until `CUSTODY_HOT_WALLET__BTC_ADDRESS` is set AND the pipeline
+    // integration lands, skip the loop entirely and log-once. This
+    // way the operator sees a single honest "consolidation disabled"
+    // message instead of an hourly lie.
     {
         let consolidation_db = db.clone();
+        let configured_hot_address = std::env::var("CUSTODY_HOT_WALLET__BTC_ADDRESS").ok();
         tokio::spawn(async move {
-            tracing::info!("Starting UTXO consolidation scheduler");
+            let Some(hot_address) = configured_hot_address else {
+                tracing::warn!(
+                    "UTXO consolidation scheduler disabled — set CUSTODY_HOT_WALLET__BTC_ADDRESS \
+                     to enable (previous placeholder path was inactive + misleading)"
+                );
+                return;
+            };
+            tracing::info!(hot_address = %hot_address, "Starting UTXO consolidation scheduler");
             let policy = custody_utxo::consolidation::ConsolidationPolicy::default();
             loop {
-                tokio::time::sleep(Duration::from_secs(3600)).await; // check hourly
+                tokio::time::sleep(Duration::from_secs(3600)).await;
 
-                // Load current UTXOs from DB and convert to utxo crate types
                 let db_utxos = match consolidation_db.get_unspent_utxos().await {
                     Ok(u) => u,
                     Err(e) => {
@@ -935,7 +958,6 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }).collect();
 
-                // Check fee environment (use conservative 5 sat/vB for planning)
                 let fee_rate = 5u64;
                 let now = chrono::Utc::now();
 
@@ -943,19 +965,15 @@ async fn main() -> anyhow::Result<()> {
                     continue;
                 }
 
-                // Get hot wallet address for consolidation destination
-                let hot_address = "bc1q_hot_wallet_placeholder".to_string(); // TODO: derive from config
-
                 if let Some(plan) = custody_utxo::consolidation::plan_consolidation(&utxos, fee_rate, &hot_address, &policy) {
-                    tracing::info!(
+                    tracing::warn!(
                         inputs = plan.inputs.len(),
                         total_sats = plan.total_input_sats,
                         fee_sats = plan.estimated_fee_sats,
                         output_sats = plan.output_sats,
-                        "UTXO consolidation planned — submitting to pipeline"
+                        hot_address = %hot_address,
+                        "UTXO consolidation candidate identified — NOT submitted. Pipeline integration for tx_type=\"consolidation\" is not yet wired; operator must consolidate manually."
                     );
-                    // TODO: Create consolidation withdrawal and submit to pipeline
-                    // The withdrawal should have tx_type = "consolidation" to bypass circuit breaker
                 }
             }
         });

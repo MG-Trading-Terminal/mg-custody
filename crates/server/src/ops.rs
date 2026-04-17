@@ -40,21 +40,49 @@ pub async fn rescan_deposits(
 }
 
 /// UTXO management: list unspent outputs for Bitcoin.
+///
+/// Formats the `get_unspent_utxos` DB query for operator consumption.
+/// The `address` parameter filters the listing client-side — a future
+/// DB-side filter would be nicer but this keeps the path real today.
 pub async fn list_utxos(db: &CustodyDb, address: Option<&str>) -> Result<String> {
-    // TODO: Query UTXOs from DB
-    let _ = (db, address);
-    Ok("UTXO listing not yet connected to DB".into())
+    let rows = db.get_unspent_utxos().await?;
+    let filtered: Vec<_> = rows
+        .into_iter()
+        .filter(|r| address.is_none_or(|a| r.address.eq_ignore_ascii_case(a)))
+        .collect();
+    if filtered.is_empty() {
+        return Ok("No unspent UTXOs".into());
+    }
+    let total_sats: u64 = filtered.iter().map(|r| r.amount_sats as u64).sum();
+    let mut out = format!("{} UTXO(s), total {} sats:\n", filtered.len(), total_sats);
+    for r in &filtered {
+        out.push_str(&format!(
+            "  {}:{} {} sats {} conf {}{}\n",
+            r.txid, r.vout, r.amount_sats, r.confirmations, r.address,
+            if r.locked { " [locked]" } else { "" },
+        ));
+    }
+    Ok(out)
 }
 
 /// UTXO consolidation: merge small UTXOs into larger ones.
+///
+/// Returns an honest error until the pipeline wiring for
+/// `tx_type = "consolidation"` lands. Previously this returned
+/// `Ok("UTXO consolidation planned: ...")` and did nothing — an
+/// operator running the CLI subcommand would see a success line
+/// while no consolidation had been planned or broadcast.
 pub async fn consolidate_utxos(
-    db: &CustodyDb,
+    _db: &CustodyDb,
     max_inputs: usize,
     min_amount_sats: u64,
 ) -> Result<String> {
-    // TODO: Select small UTXOs, create consolidation tx, sign, broadcast
-    let _ = (db, max_inputs, min_amount_sats);
-    Ok(format!("UTXO consolidation planned: max {max_inputs} inputs, min {min_amount_sats} sats"))
+    let _ = (max_inputs, min_amount_sats);
+    anyhow::bail!(
+        "UTXO consolidation is not wired. The withdrawal pipeline does not yet accept \
+         tx_type=\"consolidation\" entries; the scheduler in server/main.rs logs candidates \
+         only. Do not run this expecting a broadcast."
+    )
 }
 
 /// Generate OpenAPI 3.0 spec for the custody API.
