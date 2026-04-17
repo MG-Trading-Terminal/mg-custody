@@ -67,13 +67,16 @@ Security work done this session is real but the following remain open.
 Labeled by bite size so future-me knows where to start.
 
 ### Fixed since last published snapshot
-- **FCM `send_fcm` stops shooting at a dead endpoint.** The legacy
-  `/fcm/send` URL Google shut down on 2024-07-22 was still the target
-  in the source; callers got an ambiguous 404 they couldn't fix
-  without a code change. The path now returns `Err` with a precise
-  "migrate to FCM HTTP v1" message, matching APNs/Web Push. FCM HTTP
-  v1 (OAuth2 bearer token minted from a service-account JSON) is
-  the concrete next step and called out in the error.
+- **FCM HTTP v1 now real.** New `FcmV1Client` mints an OAuth2 bearer
+  token by signing an RS256 JWT with the Google service-account
+  `private_key`, exchanges it at `oauth2.googleapis.com/token`, and
+  posts the message to `/v1/projects/{id}/messages:send`. Token is
+  cached and proactively refreshed 5 min before `expires_in`, so a
+  send burst never hits the expiry cliff. `build_fcm_v1_payload`
+  emits the required `{"message": {"token": ..., ...}}` shape.
+  `send_fcm` now delegates to the client (or errors cleanly if no
+  service account is loaded) — no more dead `/fcm/send` endpoint
+  calls.
 - **Real SMTP transport.** `EmailSender::Smtp` backed by `lettre`
   (tokio1 + rustls, no OpenSSL). Two TLS modes: implicit (port 465)
   and STARTTLS (port 587, no plaintext fallback — the build

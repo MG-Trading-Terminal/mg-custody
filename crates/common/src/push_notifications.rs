@@ -33,6 +33,9 @@ use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -172,14 +175,202 @@ impl PushPayload {
 // Push notification service
 // ---------------------------------------------------------------------------
 
-/// Push notification service — wraps FCM, APNs, and Web Push.
+// ---------------------------------------------------------------------------
+// FCM HTTP v1 — OAuth2 + per-project message send
+// ---------------------------------------------------------------------------
+//
+// The legacy /fcm/send endpoint (authorised by a server key) was shut
+// down by Google on 2024-07-22. The v1 endpoint takes a project-scoped
+// URL and a short-lived OAuth2 bearer token minted from a Google
+// service-account JSON.
+//
+// Flow (per https://firebase.google.com/docs/cloud-messaging/auth-server):
+//   1. Read the service-account JSON — we need `client_email`,
+//      `private_key` (PEM), and `project_id`.
+//   2. Build a JWT:
+//        header:  {alg:"RS256", typ:"JWT"}
+//        claims:  {iss, scope:"https://www.googleapis.com/auth/firebase.messaging",
+//                  aud:"https://oauth2.googleapis.com/token", iat, exp: iat+3600}
+//      signed with the service account's private key.
+//   3. POST to https://oauth2.googleapis.com/token
+//        grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer
+//        assertion={jwt}
+//      Response: {access_token, expires_in, token_type: "Bearer"}.
+//   4. POST the message to
+//        https://fcm.googleapis.com/v1/projects/{project_id}/messages:send
+//      with Authorization: Bearer {access_token}. Body shape:
+//        {"message": {"token": <device>, "notification": {...}, "data": {...}}}.
+
+/// Fields extracted from a Google service-account JSON file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FcmServiceAccount {
+    pub client_email: String,
+    pub private_key: String,
+    pub project_id: String,
+}
+
+impl FcmServiceAccount {
+    /// Parse a raw service-account JSON string.
+    pub fn from_json(raw: &str) -> Result<Self> {
+        let sa: FcmServiceAccount = serde_json::from_str(raw)
+            .context("parsing FCM service-account JSON")?;
+        if sa.client_email.is_empty() || sa.private_key.is_empty() || sa.project_id.is_empty() {
+            bail!("service-account JSON is missing client_email/private_key/project_id");
+        }
+        Ok(sa)
+    }
+}
+
+/// FCM HTTP v1 client. Caches the OAuth2 bearer token until it
+/// approaches expiry (we refresh 5 minutes before `expires_in` so a
+/// long send burst never crosses the cliff).
+pub struct FcmV1Client {
+    service_account: FcmServiceAccount,
+    http: reqwest::Client,
+    token_cache: RwLock<Option<CachedToken>>,
+}
+
+#[derive(Clone, Debug)]
+struct CachedToken {
+    access_token: String,
+    expires_at: Instant,
+}
+
+/// Window before actual expiry at which we proactively refresh the
+/// token. 5 minutes comfortably covers a multi-minute send burst.
+const TOKEN_REFRESH_SKEW: Duration = Duration::from_secs(300);
+
+impl FcmV1Client {
+    /// Construct the client from a parsed service account. Does not
+    /// touch the network; the first token mint happens lazily on the
+    /// first `send()`.
+    pub fn new(sa: FcmServiceAccount, http: reqwest::Client) -> Self {
+        Self {
+            service_account: sa,
+            http,
+            token_cache: RwLock::new(None),
+        }
+    }
+
+    /// Get a valid OAuth2 bearer token, minting or refreshing as needed.
+    async fn access_token(&self) -> Result<String> {
+        {
+            let guard = self.token_cache.read().await;
+            if let Some(cached) = guard.as_ref()
+                && cached.expires_at.saturating_duration_since(Instant::now()) > TOKEN_REFRESH_SKEW
+            {
+                return Ok(cached.access_token.clone());
+            }
+        }
+
+        let (token, expires_in) = self.mint_token().await?;
+        let expires_at = Instant::now() + Duration::from_secs(expires_in.max(60));
+        *self.token_cache.write().await = Some(CachedToken {
+            access_token: token.clone(),
+            expires_at,
+        });
+        Ok(token)
+    }
+
+    /// Sign a JWT with RS256 and exchange it at Google's OAuth2
+    /// endpoint for a short-lived access token.
+    async fn mint_token(&self) -> Result<(String, u64)> {
+        use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+
+        #[derive(Serialize)]
+        struct JwtClaims<'a> {
+            iss: &'a str,
+            scope: &'a str,
+            aud: &'a str,
+            iat: i64,
+            exp: i64,
+        }
+        let now = Utc::now().timestamp();
+        let claims = JwtClaims {
+            iss: &self.service_account.client_email,
+            scope: "https://www.googleapis.com/auth/firebase.messaging",
+            aud: "https://oauth2.googleapis.com/token",
+            iat: now,
+            exp: now + 3600,
+        };
+        let header = Header::new(Algorithm::RS256);
+        let key = EncodingKey::from_rsa_pem(self.service_account.private_key.as_bytes())
+            .context("FCM v1: service account private_key is not a valid RSA PEM")?;
+        let assertion = encode(&header, &claims, &key)
+            .context("FCM v1: JWT encoding failed")?;
+
+        #[derive(Deserialize)]
+        struct TokenResponse {
+            access_token: String,
+            expires_in: u64,
+        }
+        let resp = self
+            .http
+            .post("https://oauth2.googleapis.com/token")
+            .form(&[
+                ("grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"),
+                ("assertion", assertion.as_str()),
+            ])
+            .send()
+            .await
+            .context("FCM v1: OAuth2 token exchange request failed")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            bail!("FCM v1: OAuth2 token exchange returned {status}: {body}");
+        }
+        let parsed: TokenResponse = resp
+            .json()
+            .await
+            .context("FCM v1: OAuth2 token response was not JSON")?;
+        Ok((parsed.access_token, parsed.expires_in))
+    }
+
+    /// Send a single push via FCM HTTP v1.
+    pub async fn send(&self, device_token: &str, payload: &PushPayload) -> Result<()> {
+        if device_token.is_empty() {
+            bail!("FCM device token must not be empty");
+        }
+        let token = self.access_token().await?;
+        let url = format!(
+            "https://fcm.googleapis.com/v1/projects/{}/messages:send",
+            self.service_account.project_id,
+        );
+        let body = build_fcm_v1_payload(device_token, payload);
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", format!("Bearer {token}"))
+            .json(&body)
+            .send()
+            .await
+            .context("FCM v1: messages:send request failed")?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            bail!("FCM v1 send failed: HTTP {status}: {text}");
+        }
+        tracing::info!(
+            platform = "android",
+            project = %self.service_account.project_id,
+            title = %payload.title,
+            "Push notification sent via FCM v1"
+        );
+        Ok(())
+    }
+}
+
+/// Push notification service — wraps FCM v1, APNs, and Web Push.
 ///
 /// All fields are optional — the service gracefully skips unavailable providers.
-/// In production, FCM_SERVER_KEY and APNS credentials come from environment
-/// or HashiCorp Vault.
+/// In production, `fcm_v1` is built from a Google service-account JSON; APNs
+/// and Web Push credentials come from environment or HashiCorp Vault.
 pub struct PushNotificationService {
-    /// Firebase Cloud Messaging server key (legacy HTTP API).
-    pub fcm_server_key: Option<String>,
+    /// FCM HTTP v1 client (OAuth2-authenticated). `None` means the
+    /// Android path bails with a "not configured" error instead of
+    /// pretending to deliver.
+    pub fcm_v1: Option<Arc<FcmV1Client>>,
     /// APNs key ID (used to sign JWT for HTTP/2 APNs requests).
     pub apns_key_id: Option<String>,
     /// APNs team ID.
@@ -189,21 +380,26 @@ pub struct PushNotificationService {
 
 impl PushNotificationService {
     pub fn new(
-        fcm_server_key: Option<String>,
+        fcm_v1: Option<Arc<FcmV1Client>>,
         apns_key_id: Option<String>,
         apns_team_id: Option<String>,
     ) -> Self {
         Self {
-            fcm_server_key,
+            fcm_v1,
             apns_key_id,
             apns_team_id,
             client: reqwest::Client::new(),
         }
     }
 
-    /// Create a service with only FCM configured.
-    pub fn fcm_only(server_key: impl Into<String>) -> Self {
-        Self::new(Some(server_key.into()), None, None)
+    /// Create a service with only FCM v1 configured — convenience for
+    /// the common single-provider deployment.
+    pub fn fcm_only(sa: FcmServiceAccount) -> Self {
+        Self::new(
+            Some(Arc::new(FcmV1Client::new(sa, reqwest::Client::new()))),
+            None,
+            None,
+        )
     }
 
     /// Send a push notification to a single device.
@@ -217,41 +413,16 @@ impl PushNotificationService {
         }
     }
 
-    /// Send via FCM (Firebase Cloud Messaging).
-    ///
-    /// **Dead upstream.** The legacy `https://fcm.googleapis.com/fcm/send`
-    /// endpoint (what the `FCM_SERVER_KEY` authorises) was shut down by
-    /// Google on 2024-07-22. Any POST to it returns 404 / a deprecation
-    /// notice regardless of the server key. The FCM HTTP v1 migration
-    /// (OAuth2-bearer token minted from a service-account JSON +
-    /// `/v1/projects/{project}/messages:send`) is not yet in the
-    /// workspace, so calling this reliably fails — returning an
-    /// ambiguous HTTP error to the operator.
-    ///
-    /// Return `Err` with an explicit deprecation message so the operator
-    /// doesn't chase a 404 they can't fix without a code change. When the
-    /// v1 path lands, swap the body below for the service-account OAuth
-    /// flow and remove this early bail.
+    /// Send via FCM HTTP v1. Delegates to `FcmV1Client` if configured.
+    /// Returns `Err` when no service account is loaded — the broadcast
+    /// success counter will reflect real zero-delivery rather than
+    /// log-only "sends".
     pub async fn send_fcm(&self, device_token: &str, payload: &PushPayload) -> Result<()> {
-        let _key = self
-            .fcm_server_key
-            .as_deref()
-            .ok_or_else(|| anyhow::anyhow!("FCM server key not configured"))?;
-        if device_token.is_empty() {
-            bail!("FCM device token must not be empty");
-        }
-        let _body = build_fcm_payload(device_token, payload);
-
-        tracing::warn!(
-            platform = "android",
-            title = %payload.title,
-            "FCM push not dispatched — legacy /fcm/send endpoint shut down 2024-07-22; needs HTTP v1 migration"
-        );
-        bail!(
-            "FCM legacy endpoint shut down on 2024-07-22. Migrate to FCM HTTP v1 \
-             (OAuth2-bearer via a Google service-account JSON, POST to \
-             /v1/projects/{{project}}/messages:send) before re-enabling push."
-        )
+        let client = self
+            .fcm_v1
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("FCM HTTP v1 not configured (no service account)"))?;
+        client.send(device_token, payload).await
     }
 
     /// Send via APNs (Apple Push Notification Service).
@@ -353,9 +524,11 @@ impl PushNotificationService {
 // Payload formatters
 // ---------------------------------------------------------------------------
 
-/// Build the FCM legacy HTTP JSON payload.
-///
-/// Reference: https://firebase.google.com/docs/cloud-messaging/http-server-ref
+/// Build the FCM legacy HTTP JSON payload — kept only so existing
+/// unit tests that pin the historical shape still compile. Not used
+/// by any send path anymore; the legacy endpoint was shut down by
+/// Google on 2024-07-22. New code must use [`build_fcm_v1_payload`].
+#[allow(dead_code)]
 fn build_fcm_payload(device_token: &str, p: &PushPayload) -> serde_json::Value {
     serde_json::json!({
         "to": device_token,
@@ -368,6 +541,40 @@ fn build_fcm_payload(device_token: &str, p: &PushPayload) -> serde_json::Value {
         "data": p.data,
         "priority": "high",
         "content_available": true,
+    })
+}
+
+/// Build the FCM HTTP v1 `messages:send` request body.
+///
+/// v1 differs from legacy in shape, not just in auth:
+///   - Wraps everything in a top-level `message` object.
+///   - Uses `token` for the device addressee (was `to`).
+///   - Per-platform overrides (`android`, `apns`, `webpush`) sit under
+///     `message` alongside `notification` and `data`.
+///
+/// We keep the notification minimal (title/body) and pass the
+/// structured data map through verbatim so downstream code can
+/// act on action/IDs without a migration.
+///
+/// Reference: https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages
+pub fn build_fcm_v1_payload(device_token: &str, p: &PushPayload) -> serde_json::Value {
+    // FCM v1 requires `data` values to be strings — the map already is.
+    let android = serde_json::json!({
+        "priority": "HIGH",
+        "notification": {
+            "sound": p.sound.as_deref().unwrap_or("default"),
+        },
+    });
+    serde_json::json!({
+        "message": {
+            "token": device_token,
+            "notification": {
+                "title": p.title,
+                "body": p.body,
+            },
+            "data": p.data,
+            "android": android,
+        }
     })
 }
 
@@ -545,17 +752,62 @@ mod tests {
 
     // --- Service construction ---
 
+    /// A 2048-bit RSA PEM private key generated for test use only.
+    /// Matches the shape `jsonwebtoken::EncodingKey::from_rsa_pem`
+    /// expects; not a real Google credential.
+    const TEST_RSA_PEM: &str = "-----BEGIN RSA PRIVATE KEY-----\n\
+        MIIEowIBAAKCAQEAu1SU1LfVLPHCozMxH2Mo4lgOEePzNm0tRgeLezV6ffAt0gun\n\
+        VTLw7onLRnrq0/IzW7yWR7QkrmBL7jTKEn5u+qKhbwKfBstIs+bMY2Zkp18gnTxK\n\
+        Lxoe+g6oedlo3m2VTV0ttR/kMrqwrIs78NZ5RktdfkZJJgxVh3mLgn/cGf9KJ8cf\n\
+        END FAKE-----\n";
+
+    fn sample_service_account() -> FcmServiceAccount {
+        FcmServiceAccount {
+            client_email: "push-sa@example-project.iam.gserviceaccount.com".into(),
+            private_key: TEST_RSA_PEM.into(),
+            project_id: "example-project".into(),
+        }
+    }
+
     #[test]
-    fn service_fcm_only() {
-        let svc = PushNotificationService::fcm_only("test-server-key");
-        assert!(svc.fcm_server_key.is_some());
+    fn service_fcm_only_has_v1_client() {
+        let svc = PushNotificationService::fcm_only(sample_service_account());
+        assert!(svc.fcm_v1.is_some());
         assert!(svc.apns_key_id.is_none());
     }
 
     #[test]
     fn service_no_providers() {
         let svc = PushNotificationService::new(None, None, None);
-        assert!(svc.fcm_server_key.is_none());
+        assert!(svc.fcm_v1.is_none());
         assert!(svc.apns_key_id.is_none());
+    }
+
+    #[test]
+    fn fcm_service_account_rejects_empty_fields() {
+        let bad = r#"{"client_email":"","private_key":"","project_id":""}"#;
+        assert!(FcmServiceAccount::from_json(bad).is_err());
+    }
+
+    #[test]
+    fn fcm_v1_payload_has_message_wrapper() {
+        let p = PushPayload::simple("Title", "Body");
+        let v = build_fcm_v1_payload("device-abc", &p);
+        // Legacy used {"to": ...}; v1 must wrap everything under
+        // "message" with "token" (not "to").
+        assert!(v["message"]["token"] == "device-abc");
+        assert!(v["message"]["notification"]["title"] == "Title");
+        assert!(v["message"]["android"]["priority"] == "HIGH");
+        assert!(v["to"].is_null());
+    }
+
+    #[tokio::test]
+    async fn send_fcm_errors_when_v1_not_configured() {
+        let svc = PushNotificationService::new(None, None, None);
+        let err = svc
+            .send_fcm("token", &PushPayload::simple("x", "y"))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not configured"));
     }
 }

@@ -31,6 +31,7 @@ thiserror = { workspace = true }
 figment = { workspace = true }
 toml = "0.8"
 lettre = { workspace = true }
+jsonwebtoken = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
