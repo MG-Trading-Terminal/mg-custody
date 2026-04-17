@@ -18,7 +18,8 @@
 
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{header, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     routing::{post},
     Json, Router,
 };
@@ -313,7 +314,7 @@ async fn disable_totp(
 pub async fn verify_2fa_login(
     State(state): State<AppState>,
     Json(req): Json<Verify2faRequest>,
-) -> Result<(StatusCode, Json<Verify2faResponse>), ApiError> {
+) -> Result<Response, ApiError> {
     // Consume the pending token — single-use, 5-minute TTL.
     let user_id = state
         .db
@@ -409,7 +410,13 @@ pub async fn verify_2fa_login(
     let _ = state.db.update_last_login(user_id).await;
     tracing::info!(user_id = %user_id, "2FA login completed successfully");
 
-    Ok((
+    // Install the session cookie (HttpOnly; SameSite=Strict) alongside
+    // the body token so the SPA can rely on either path while we finish
+    // migrating off localStorage.
+    let cookie = crate::session_cookie::build_set_cookie(&token);
+    let cookie_val = HeaderValue::from_str(&cookie)
+        .map_err(|e| ApiError::internal(&format!("cookie header: {e}")))?;
+    let mut resp = (
         StatusCode::CREATED,
         Json(Verify2faResponse {
             token,
@@ -417,7 +424,10 @@ pub async fn verify_2fa_login(
             role: role_str,
             expires_in_seconds: 8 * 3600,
         }),
-    ))
+    )
+        .into_response();
+    resp.headers_mut().append(header::SET_COOKIE, cookie_val);
+    Ok(resp)
 }
 
 #[cfg(test)]

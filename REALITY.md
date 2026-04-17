@@ -66,6 +66,16 @@ or empty-state cards that never transition.
 Security work done this session is real but the following remain open.
 Labeled by bite size so future-me knows where to start.
 
+### Fixed since last published snapshot
+- Session tokens now ride an `HttpOnly; Secure; SameSite=Strict` cookie
+  instead of `localStorage`; an XSS on the dashboard can no longer
+  exfiltrate the session. Bearer-header path kept for HMAC/service
+  clients. Logout endpoint revokes + clears the cookie.
+- `EmailSender` abstraction wired; password reset and email
+  verification (OTP issue + confirm + status, plus registration-time
+  dispatch) now go through a real transport, not `tracing::info!`.
+- `detailed_health` / `circuit_breaker_status` endpoints are Admin-only.
+
 ### Fixed this session
 - 17 ownership-check bugs across `vault_routes`, `governance_routes`,
   `embedded_routes`, `webhook_mgmt_routes` (commits b770d00, 077c664).

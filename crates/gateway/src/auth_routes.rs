@@ -11,7 +11,8 @@
 
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
 };
@@ -73,8 +74,27 @@ pub fn auth_router() -> Router<AppState> {
     Router::new()
         .route("/v1/auth/sessions", post(login))
         .route("/v1/auth/sessions", get(list_sessions))
+        .route("/v1/auth/sessions/current", delete(logout_current))
         .route("/v1/auth/sessions/{token_prefix}", delete(revoke_session))
         .route("/v1/user/login-history", get(list_login_history))
+}
+
+/// Attach a `Set-Cookie` header carrying `token` to a JSON body.
+///
+/// Returns a full `Response` (instead of a tuple extractor) because
+/// axum's tuple form does not compose cleanly when the status code,
+/// header map, and JSON body all vary by branch.
+fn respond_with_cookie(
+    status: StatusCode,
+    token: &str,
+    body: LoginResponse,
+) -> Result<Response, ApiError> {
+    let cookie = crate::session_cookie::build_set_cookie(token);
+    let cookie_val = HeaderValue::from_str(&cookie)
+        .map_err(|e| ApiError::internal(&format!("cookie header: {e}")))?;
+    let mut resp = (status, Json(body)).into_response();
+    resp.headers_mut().append(header::SET_COOKIE, cookie_val);
+    Ok(resp)
 }
 
 /// POST /v1/auth/sessions — create session (login).
@@ -93,7 +113,7 @@ async fn login(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(req): Json<LoginRequest>,
-) -> Result<(StatusCode, Json<LoginResponse>), ApiError> {
+) -> Result<Response, ApiError> {
     // Extract request metadata for audit recording.
     let ip = headers
         .get("X-Forwarded-For")
@@ -206,6 +226,8 @@ async fn login(
             .record_login(user_id, &ip, &user_agent, "password", true, None)
             .await;
 
+        // 2FA pending — no full session yet, so no Set-Cookie. The
+        // pending_token is short-lived and lives in the JSON body only.
         return Ok((
             StatusCode::OK,
             Json(LoginResponse {
@@ -217,7 +239,8 @@ async fn login(
                 pending_token: Some(pending_token),
                 email_verified: None,
             }),
-        ));
+        )
+            .into_response());
     }
 
     // ── Session creation ──────────────────────────────────────────────────────
@@ -239,18 +262,53 @@ async fn login(
 
     tracing::info!(email = %req.email, role = %role_str, "User logged in");
 
-    Ok((
+    respond_with_cookie(
         StatusCode::CREATED,
-        Json(LoginResponse {
-            token: Some(token),
+        &token,
+        LoginResponse {
+            token: Some(token.clone()),
             user_id: Some(user_id),
             role: Some(role_str),
             expires_in_seconds: Some(8 * 3600),
             requires_2fa: false,
             pending_token: None,
             email_verified,
-        }),
-    ))
+        },
+    )
+}
+
+/// DELETE /v1/auth/sessions/current — log out the caller.
+///
+/// Revokes the session whose token arrived in the cookie (or the
+/// Authorization header, for script/CLI callers) and emits a
+/// `Set-Cookie: custody_session=; Max-Age=0` so the browser drops it
+/// even if the DB revoke races.
+async fn logout_current(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    let token = headers
+        .get("Cookie")
+        .and_then(|v| v.to_str().ok())
+        .and_then(crate::session_cookie::extract_session_token)
+        .map(|s| s.to_string())
+        .or_else(|| {
+            headers
+                .get("Authorization")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.strip_prefix("Bearer ").map(|t| t.to_string()))
+        });
+
+    if let Some(tok) = token {
+        let token_hash = sessions::hash_token(&tok);
+        let _ = state.db.revoke_session(&token_hash).await;
+    }
+
+    let cookie_val = HeaderValue::from_str(&crate::session_cookie::build_clear_cookie())
+        .map_err(|e| ApiError::internal(&format!("cookie header: {e}")))?;
+    let mut resp = Json(serde_json::json!({"status": "logged_out"})).into_response();
+    resp.headers_mut().append(header::SET_COOKIE, cookie_val);
+    Ok(resp)
 }
 
 /// GET /v1/user/login-history — list recent login events for the authenticated user.

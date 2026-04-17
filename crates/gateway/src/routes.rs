@@ -166,7 +166,12 @@ fn cors_layer() -> CorsLayer {
         .max_age(Duration::from_secs(3600));
 
     if let Some(origin) = allowed_origin {
+        // Split deployment — the SPA lives on a different host than
+        // the API. We must emit `Access-Control-Allow-Credentials: true`
+        // and an explicit origin (not `*`) for the browser to attach
+        // the session cookie to cross-origin requests.
         cors.allow_origin(origin.parse::<axum::http::HeaderValue>().expect("Invalid CUSTODY_CORS_ORIGIN"))
+            .allow_credentials(true)
     } else {
         // Default: same-origin only (no Access-Control-Allow-Origin header sent,
         // browser enforces same-origin policy automatically).

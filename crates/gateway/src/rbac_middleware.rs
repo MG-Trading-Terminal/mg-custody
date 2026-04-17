@@ -90,10 +90,24 @@ pub async fn rbac_auth(
         .unwrap_or_else(|| "unknown".into());
     let now = Utc::now();
 
-    // Try Bearer token auth first
-    if let Some(auth_header) = request.headers().get("Authorization")
-        && let Ok(header_str) = auth_header.to_str()
-        && let Some(token) = header_str.strip_prefix("Bearer ") {
+    // Extract the session token: prefer the HttpOnly cookie (the new,
+    // XSS-resistant path) and fall back to `Authorization: Bearer`
+    // (for service-to-service clients, CLI scripts, and the SPA until
+    // it finishes migrating off localStorage).
+    let cookie_token = request
+        .headers()
+        .get("Cookie")
+        .and_then(|v| v.to_str().ok())
+        .and_then(crate::session_cookie::extract_session_token)
+        .map(|t| t.to_string());
+
+    let header_token = request
+        .headers()
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.strip_prefix("Bearer ").map(|t| t.to_string()));
+
+    if let Some(token) = cookie_token.as_deref().or(header_token.as_deref()) {
         match rbac.db.load_session(token).await {
             Ok(Some(session)) => {
                 if !session.is_valid(now) {

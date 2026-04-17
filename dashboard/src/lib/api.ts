@@ -1,26 +1,24 @@
 /**
  * API client for MG Custody backend.
  *
- * All requests include the session Bearer token from localStorage.
- * Responses are typed JSON.
+ * The session token is carried in an HttpOnly cookie (`custody_session`)
+ * that the backend installs on login / verify-2fa. The browser attaches
+ * it automatically as long as `credentials: 'include'` is set, so we do
+ * NOT keep the raw token in JavaScript memory or localStorage — an XSS
+ * on the dashboard can't exfiltrate an HttpOnly cookie.
+ *
+ * We still keep a lightweight `authed` flag in localStorage so pages can
+ * tell, without a round-trip, whether the user is logged in. The flag is
+ * not a credential: losing it just triggers a harmless redirect.
  */
 
 const BASE_URL = '/';
-
-function getToken(): string | null {
-	if (typeof window === 'undefined') return null;
-	return localStorage.getItem('custody_token');
-}
+const AUTH_FLAG_KEY = 'custody_authed';
 
 function headers(): HeadersInit {
-	const h: Record<string, string> = {
+	return {
 		'Content-Type': 'application/json',
 	};
-	const token = getToken();
-	if (token) {
-		h['Authorization'] = `Bearer ${token}`;
-	}
-	return h;
 }
 
 async function request(method: string, path: string, body?: unknown): Promise<Response> {
@@ -28,16 +26,18 @@ async function request(method: string, path: string, body?: unknown): Promise<Re
 	const opts: RequestInit = {
 		method,
 		headers: headers(),
+		credentials: 'include',
 	};
 	if (body !== undefined) {
 		opts.body = JSON.stringify(body);
 	}
 	const resp = await fetch(url, opts);
 	if (resp.status === 401) {
-		// Session expired — clear token and redirect to login
-		localStorage.removeItem('custody_token');
-		if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-			window.location.href = '/login';
+		if (typeof window !== 'undefined') {
+			localStorage.removeItem(AUTH_FLAG_KEY);
+			if (!window.location.pathname.startsWith('/login')) {
+				window.location.href = '/login';
+			}
 		}
 	}
 	return resp;
@@ -75,15 +75,43 @@ export const api = {
 		if (!resp.ok) throw new Error(`API error: ${resp.status}`);
 	},
 
-	setToken(token: string) {
-		localStorage.setItem('custody_token', token);
+	/**
+	 * Record that the user just completed login. The actual token lives
+	 * in the HttpOnly cookie — this flag only drives client-side routing.
+	 * The `_token` argument is kept for call-site compatibility but is
+	 * intentionally unused (we never persist it).
+	 */
+	setToken(_token: string) {
+		if (typeof window !== 'undefined') {
+			localStorage.setItem(AUTH_FLAG_KEY, '1');
+		}
 	},
 
 	clearToken() {
-		localStorage.removeItem('custody_token');
+		if (typeof window !== 'undefined') {
+			localStorage.removeItem(AUTH_FLAG_KEY);
+			// Legacy key — clean up in case an older build left one behind.
+			localStorage.removeItem('custody_token');
+		}
+	},
+
+	/**
+	 * Server-side logout. Clears the HttpOnly cookie and revokes the
+	 * session record in the DB. Falls back to local cleanup if the
+	 * network call fails.
+	 */
+	async logout(): Promise<void> {
+		try {
+			await request('DELETE', '/v1/auth/sessions/current');
+		} catch {
+			// Server may be unreachable — the local flag below still
+			// kicks the user out on the next route guard check.
+		}
+		this.clearToken();
 	},
 
 	isAuthenticated(): boolean {
-		return !!getToken();
+		if (typeof window === 'undefined') return false;
+		return localStorage.getItem(AUTH_FLAG_KEY) === '1';
 	},
 };

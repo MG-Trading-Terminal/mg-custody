@@ -35,8 +35,8 @@
 		} catch { /* ignore */ }
 	}
 
-	function logout() {
-		api.clearToken();
+	async function logout() {
+		await api.logout();
 		userEmail = '';
 		userRole = 'viewer';
 		isLoggedIn = false;
