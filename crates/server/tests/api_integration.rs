@@ -56,6 +56,7 @@ fn build_app_no_db() -> axum::Router {
         frozen: FreezeFlag::new(),
         email: Arc::new(custody_common::email::EmailSender::noop()),
         travel_rule_provider: None,
+        readiness: std::sync::Arc::new(custody_common::readiness::ReadinessReport::new()),
     };
 
     // Use router() — no HMAC layer.
@@ -129,6 +130,7 @@ async fn build_app_with_db() -> Option<(axum::Router, CustodyDb)> {
         frozen: FreezeFlag::new(),
         email: Arc::new(custody_common::email::EmailSender::noop()),
         travel_rule_provider: None,
+        readiness: std::sync::Arc::new(custody_common::readiness::ReadinessReport::new()),
     };
 
     let app = custody_gateway::routes::router(state);

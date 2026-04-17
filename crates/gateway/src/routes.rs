@@ -40,6 +40,7 @@ pub fn router(state: AppState) -> Router {
             "/health".into(),
             "/health/chains".into(),
             "/health/deep".into(),
+            "/v1/health/features".into(),
             "/metrics".into(),
             "/v1/auth/sessions".into(),
             "/v1/auth/sessions/verify-2fa".into(),
@@ -51,6 +52,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/health/chains", get(health_chains))
         .route("/health/deep", get(crate::health::deep_health))
+        .route("/v1/health/features", get(health_features))
         .route("/v1/addresses", post(create_address))
         .route("/v1/withdrawals", post(submit_withdrawal))
         .route("/v1/withdrawals/{id}", get(get_withdrawal_status))
@@ -117,6 +119,7 @@ pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
         .route("/health", get(health))
         .route("/health/chains", get(health_chains))
         .route("/health/deep", get(crate::health::deep_health))
+        .route("/v1/health/features", get(health_features))
         .route("/metrics", get(prometheus_metrics))
         .route("/v1/addresses", post(create_address))
         .route("/v1/withdrawals", post(submit_withdrawal))
@@ -181,6 +184,29 @@ fn cors_layer() -> CorsLayer {
 }
 
 async fn health() -> &'static str { "ok" }
+
+/// `GET /v1/health/features` — honest feature readiness report.
+///
+/// Lists every feature the server was booted with plus its current
+/// state (`ready` / `disabled` / `misconfigured` / `degraded`) so
+/// operators can see at a glance what will work vs what silently
+/// won't. This is the counterpart to the startup log table — the
+/// JSON version that dashboards and monitoring can scrape.
+async fn health_features(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Json<serde_json::Value> {
+    let (ready, disabled, misc, degraded) = state.readiness.summary_counts();
+    Json(serde_json::json!({
+        "summary": {
+            "ready": ready,
+            "disabled": disabled,
+            "misconfigured": misc,
+            "degraded": degraded,
+            "total": state.readiness.features.len(),
+        },
+        "features": state.readiness.features,
+    }))
+}
 
 async fn prometheus_metrics() -> String {
     custody_common::prometheus_metrics::render_metrics()

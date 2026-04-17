@@ -67,6 +67,15 @@ Security work done this session is real but the following remain open.
 Labeled by bite size so future-me knows where to start.
 
 ### Fixed since last published snapshot
+- **Feature readiness report.** New `custody_common::readiness`
+  module + `GET /v1/health/features` + a formatted table printed at
+  startup. Every advanced feature (HSM, AML, push/*, Travel Rule,
+  MPC receiver, BTC consolidation, per-chain scanners, SMTP) now
+  reports a truthful state: `ready`, `disabled`, `misconfigured`
+  (with the list of missing env vars), or `degraded` (with the
+  probe error). Operators see at a glance what works and what's
+  waiting on config, instead of guessing. The same report is in
+  JSON at `/v1/health/features` for dashboards + monitoring.
 - **MPC multi-host ceremony plumbing complete.** `HttpTransport`
   could reach peers but nothing on the receiving end accepted the
   delivery — the ceremony was a one-way street. New

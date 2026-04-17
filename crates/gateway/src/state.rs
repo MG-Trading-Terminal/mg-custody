@@ -9,6 +9,7 @@ use custody_address_factory::{AddressAllocator, SeedBytes};
 use custody_common::email::EmailSender;
 use custody_common::emergency::FreezeFlag;
 use custody_common::events::EventBroadcaster;
+use custody_common::readiness::ReadinessReport;
 use custody_compliance::travel_rule::NotabeneProvider;
 use custody_db::CustodyDb;
 use custody_withdrawal_pipeline::WithdrawalPipeline;
@@ -35,4 +36,9 @@ pub struct AppState {
     /// persists the row, but flags the record `Required` (awaiting
     /// out-of-band exchange) instead of `Submitted`.
     pub travel_rule_provider: Option<Arc<NotabeneProvider>>,
+    /// Boot-time feature readiness report. Handlers gating on live
+    /// integrations should check `readiness.feature_ready("foo")` and
+    /// respond with 503 + the missing-config reason when not ready.
+    /// `GET /v1/health/features` serialises this verbatim.
+    pub readiness: Arc<ReadinessReport>,
 }

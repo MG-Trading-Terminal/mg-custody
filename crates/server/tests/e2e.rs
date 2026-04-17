@@ -45,6 +45,7 @@ async fn test_app() -> Option<axum::Router> {
         frozen: custody_common::emergency::FreezeFlag::new(),
         email: std::sync::Arc::new(custody_common::email::EmailSender::noop()),
         travel_rule_provider: None,
+        readiness: std::sync::Arc::new(custody_common::readiness::ReadinessReport::new()),
     };
 
     Some(custody_gateway::routes::router(state))

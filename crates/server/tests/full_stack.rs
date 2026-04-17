@@ -84,6 +84,7 @@ async fn full_stack_app() -> Option<(axum::Router, custody_db::CustodyDb)> {
         frozen: custody_common::emergency::FreezeFlag::new(),
         email: std::sync::Arc::new(custody_common::email::EmailSender::noop()),
         travel_rule_provider: None,
+        readiness: std::sync::Arc::new(custody_common::readiness::ReadinessReport::new()),
     };
 
     // Use router WITH middleware

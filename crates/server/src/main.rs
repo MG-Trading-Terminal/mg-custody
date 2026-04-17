@@ -909,6 +909,166 @@ async fn main() -> anyhow::Result<()> {
         "Email sender initialized"
     );
 
+    // ─── Feature readiness report ───────────────────────────────────
+    //
+    // Assemble a truthful readiness map. Anything that went through a
+    // successful construction above is Ready; anything whose env vars
+    // were absent is Disabled; partial config is Misconfigured; and
+    // any init that threw (we caught it and kept going) is Degraded.
+    // This block is purely observational — it does NOT try to probe
+    // the network further. Cold-start probes should happen earlier
+    // next to each subsystem; this just rolls them up.
+    let mut readiness = custody_common::readiness::ReadinessReport::new();
+    use custody_common::readiness::FeatureStatus;
+
+    // Email transport
+    match email_sender.transport_name() {
+        "smtp" => readiness.push(FeatureStatus::ready(
+            "email.smtp",
+            "Outbound email via lettre SMTP",
+        )),
+        "console" => readiness.push(FeatureStatus::disabled(
+            "email.smtp",
+            "Outbound email — currently printing to stdout (dev transport)",
+        )),
+        _ => readiness.push(FeatureStatus::disabled(
+            "email.smtp",
+            "Outbound email (noop transport)",
+        )),
+    }
+
+    // HSM signing backend
+    readiness.push(if std::env::var("HSM_LIB_PATH").is_ok() {
+        FeatureStatus::ready("signing.hsm", "PKCS#11 HSM signing (ETH/ERC-20/Tron/Solana)")
+    } else {
+        FeatureStatus::disabled(
+            "signing.hsm",
+            "PKCS#11 HSM signing. Set HSM_LIB_PATH + HSM_PIN to enable.",
+        )
+    });
+
+    // AML screening
+    {
+        let chainalysis = std::env::var("CUSTODY_CHAINALYSIS_API_KEY").ok().filter(|s| !s.is_empty());
+        let elliptic = std::env::var("CUSTODY_ELLIPTIC_API_KEY").ok().filter(|s| !s.is_empty());
+        if chainalysis.is_some() || elliptic.is_some() {
+            readiness.push(FeatureStatus::ready(
+                "screening.aml",
+                "AML screening (Chainalysis / Elliptic) on every withdrawal",
+            ));
+        } else {
+            readiness.push(FeatureStatus::disabled(
+                "screening.aml",
+                "AML screening. Set CUSTODY_CHAINALYSIS_API_KEY or CUSTODY_ELLIPTIC_API_KEY to enable.",
+            ));
+        }
+    }
+
+    // Push notifications
+    {
+        let fcm = std::env::var("CUSTODY_FCM__SERVICE_ACCOUNT_JSON").ok().filter(|s| !s.trim().is_empty());
+        let apns_keys = [
+            "CUSTODY_APNS__TEAM_ID",
+            "CUSTODY_APNS__KEY_ID",
+            "CUSTODY_APNS__KEY_P8",
+            "CUSTODY_APNS__BUNDLE_ID",
+        ];
+        let apns_present: Vec<&str> = apns_keys.iter()
+            .filter(|k| std::env::var(k).is_ok_and(|v| !v.is_empty())).copied().collect();
+        let apns_missing: Vec<String> = apns_keys.iter()
+            .filter(|k| !std::env::var(k).is_ok_and(|v| !v.is_empty())).map(|s| (*s).to_string()).collect();
+        let vapid_key = std::env::var("CUSTODY_VAPID__PRIVATE_KEY_PEM").ok().filter(|s| !s.is_empty());
+        let vapid_sub = std::env::var("CUSTODY_VAPID__SUBJECT").ok().filter(|s| !s.is_empty());
+
+        readiness.push(if fcm.is_some() {
+            FeatureStatus::ready("push.fcm", "FCM HTTP v1 (Android + background Web)")
+        } else {
+            FeatureStatus::disabled(
+                "push.fcm",
+                "FCM push. Set CUSTODY_FCM__SERVICE_ACCOUNT_JSON to enable.",
+            )
+        });
+
+        if apns_present.len() == apns_keys.len() {
+            readiness.push(FeatureStatus::ready("push.apns", "APNs (iOS) HTTP/2 + ES256 JWT"));
+        } else if apns_present.is_empty() {
+            readiness.push(FeatureStatus::disabled("push.apns", "APNs. Set all 4 CUSTODY_APNS__* env vars to enable."));
+        } else {
+            readiness.push(FeatureStatus::misconfigured(
+                "push.apns",
+                "APNs (partial config)",
+                apns_missing,
+            ));
+        }
+
+        readiness.push(match (vapid_key, vapid_sub) {
+            (Some(_), Some(_)) => FeatureStatus::ready("push.web", "Web Push (RFC 8291 + VAPID)"),
+            (None, None) => FeatureStatus::disabled(
+                "push.web",
+                "Web Push. Set CUSTODY_VAPID__PRIVATE_KEY_PEM + CUSTODY_VAPID__SUBJECT.",
+            ),
+            (key, sub) => FeatureStatus::misconfigured(
+                "push.web",
+                "Web Push (partial config)",
+                [
+                    (key.is_none()).then(|| "CUSTODY_VAPID__PRIVATE_KEY_PEM".to_string()),
+                    (sub.is_none()).then(|| "CUSTODY_VAPID__SUBJECT".to_string()),
+                ].into_iter().flatten().collect(),
+            ),
+        });
+    }
+
+    // Travel Rule
+    readiness.push(if travel_rule_provider.is_some() {
+        FeatureStatus::ready("travel_rule.notabene", "Travel Rule dispatch via Notabene")
+    } else {
+        FeatureStatus::disabled(
+            "travel_rule.notabene",
+            "Travel Rule. Set CUSTODY_TRAVELRULE__NOTABENE_API_KEY.",
+        )
+    });
+
+    // MPC multi-host receiver
+    readiness.push(if std::env::var("CUSTODY_MPC__ENABLED").ok().as_deref() == Some("true") {
+        FeatureStatus::ready("mpc.multi_host", "MPC receiver serving /mpc/message")
+    } else {
+        FeatureStatus::disabled(
+            "mpc.multi_host",
+            "MPC multi-host. Set CUSTODY_MPC__ENABLED=true + HMAC_SECRET + PEERS.",
+        )
+    });
+
+    // Bitcoin consolidation scheduler
+    readiness.push(if std::env::var("CUSTODY_HOT_WALLET__BTC_ADDRESS").is_ok() {
+        FeatureStatus::ready("consolidation.btc", "BTC hot-wallet consolidation scheduler + worker")
+    } else {
+        FeatureStatus::disabled(
+            "consolidation.btc",
+            "BTC consolidation. Set CUSTODY_HOT_WALLET__BTC_ADDRESS.",
+        )
+    });
+
+    // Chain scanners — these always attempt; actual reachability
+    // reports itself through /health/chains. Here we just mark
+    // whether a chain was configured at all.
+    for (name, present) in [
+        ("scanner.ethereum", config.chains.ethereum.is_some()),
+        ("scanner.bitcoin", config.chains.bitcoin.is_some()),
+        ("scanner.tron", config.chains.tron.is_some()),
+        ("scanner.solana", config.chains.solana.is_some()),
+    ] {
+        readiness.push(if present {
+            FeatureStatus::ready(name, "Chain scanner configured")
+        } else {
+            FeatureStatus::disabled(name, "Chain not present in config.chains.*")
+        });
+    }
+
+    // Print the human-readable table before AppState so operators see
+    // readiness before any other log noise.
+    custody_common::readiness::startup_log_report(&readiness);
+    let readiness = std::sync::Arc::new(readiness);
+
     // ─── Application State ───────────────────────────────────────────
     let app_state = AppState {
         db: db.clone(),
@@ -922,6 +1082,7 @@ async fn main() -> anyhow::Result<()> {
         frozen: freeze_flag,
         email: std::sync::Arc::new(email_sender),
         travel_rule_provider: travel_rule_provider.clone(),
+        readiness: readiness.clone(),
     };
 
     // Use middleware if HMAC secret is configured
