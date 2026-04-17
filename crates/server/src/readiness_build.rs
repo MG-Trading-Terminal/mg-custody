@@ -539,10 +539,20 @@ impl AlertState {
 /// `state` carries anti-flap cooldowns: a degradation/misconfiguration
 /// for the same feature within `ALERT_COOLDOWN` is suppressed.
 ///
+/// `silenced_features` is the set of feature names currently under
+/// an operator-created silence — those alerts are dropped entirely
+/// (no log, no webhook) during the silence window. Recovery events
+/// still fire because operators want the audible "it came back" even
+/// during a maintenance window.
+///
 /// Failures posting to the webhook are logged but not retried — a
 /// subsequent transition will try again; queueing alerts just means
 /// a paged oncall sees the incident twice instead of timed out.
-pub async fn fire_alerts(state: &mut AlertState, transitions: &[Transition<'_>]) {
+pub async fn fire_alerts(
+    state: &mut AlertState,
+    silenced_features: &std::collections::HashSet<String>,
+    transitions: &[Transition<'_>],
+) {
     if transitions.is_empty() {
         return;
     }
@@ -561,6 +571,14 @@ pub async fn fire_alerts(state: &mut AlertState, transitions: &[Transition<'_>])
     for t in transitions {
         match t {
             Transition::Degradation { feature, reason } => {
+                if silenced_features.contains(*feature) {
+                    tracing::debug!(
+                        target: "custody::readiness::alert",
+                        feature = %feature,
+                        "Degradation alert suppressed (silence active)"
+                    );
+                    continue;
+                }
                 if !state.should_fire(feature, "degradation") {
                     tracing::debug!(
                         target: "custody::readiness::alert",
@@ -578,6 +596,14 @@ pub async fn fire_alerts(state: &mut AlertState, transitions: &[Transition<'_>])
                 post_webhook(&client, &webhook, &now, "degradation", feature, Some(reason.as_str()), None).await;
             }
             Transition::Misconfiguration { feature, missing } => {
+                if silenced_features.contains(*feature) {
+                    tracing::debug!(
+                        target: "custody::readiness::alert",
+                        feature = %feature,
+                        "Misconfiguration alert suppressed (silence active)"
+                    );
+                    continue;
+                }
                 if !state.should_fire(feature, "misconfiguration") {
                     tracing::debug!(
                         target: "custody::readiness::alert",
@@ -596,7 +622,9 @@ pub async fn fire_alerts(state: &mut AlertState, transitions: &[Transition<'_>])
                 post_webhook(&client, &webhook, &now, "misconfiguration", feature, None, Some(&missing_str)).await;
             }
             Transition::Recovery { feature, summary } => {
-                // Recovery bypasses cooldown (see `should_fire` docs).
+                // Recovery bypasses cooldown AND silences — operators
+                // want the "it came back" signal even during a
+                // scheduled maintenance window.
                 state.should_fire(feature, "recovery");
                 tracing::info!(
                     target: "custody::readiness::alert",
@@ -744,6 +772,39 @@ mod tests {
         assert!(st.should_fire("scanner.ethereum", "recovery"));
         assert!(st.should_fire("scanner.ethereum", "recovery"));
         assert!(st.should_fire("scanner.ethereum", "recovery"));
+    }
+
+    #[tokio::test]
+    async fn fire_alerts_respects_silences() {
+        // Degradation on a silenced feature must not even try to
+        // write to the tracing target. We can't easily assert on
+        // tracing output without a subscriber fixture, but we CAN
+        // assert that the cooldown state remains untouched — an
+        // unsuppressed alert would tick the cooldown.
+        let mut alerts = AlertState::default();
+        let silenced: std::collections::HashSet<String> =
+            ["scanner.ethereum".to_string()].into_iter().collect();
+        let transitions = vec![Transition::Degradation {
+            feature: "scanner.ethereum",
+            reason: "unreachable".into(),
+        }];
+        fire_alerts(&mut alerts, &silenced, &transitions).await;
+        // Cooldown HashMap must be empty — silenced alerts never
+        // touch the cooldown tracker.
+        assert!(alerts.last_fired.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fire_alerts_ignores_empty_silence_set() {
+        let mut alerts = AlertState::default();
+        let silenced: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let transitions = vec![Transition::Degradation {
+            feature: "scanner.ethereum",
+            reason: "unreachable".into(),
+        }];
+        fire_alerts(&mut alerts, &silenced, &transitions).await;
+        // Cooldown should have one entry now (alert was fired).
+        assert_eq!(alerts.last_fired.len(), 1);
     }
 
     #[test]

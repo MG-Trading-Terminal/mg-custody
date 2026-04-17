@@ -131,6 +131,32 @@ pub fn require_feature(
     Err(ApiError::feature_unavailable(feature, &reason))
 }
 
+/// Semi-permissive variant of `require_feature` for fail-closed
+/// subsystems where "operator chose not to enable" is acceptable but
+/// "configured and broken" is not.
+///
+/// - `Ready`        → Ok (works as advertised)
+/// - `Disabled`     → Ok (operator opt-out; no silent failure, just
+///                        no enforcement)
+/// - `Misconfigured`→ Err (operator tried, didn't finish)
+/// - `Degraded`     → Err (vendor outage; can't honour the guarantee
+///                        the feature was configured to provide)
+///
+/// Use this for AML screening, travel rule dispatch, and any other
+/// compliance layer where bypassing a configured-but-broken provider
+/// is the bug we're trying to avoid.
+pub fn require_feature_not_broken(
+    readiness: &custody_common::readiness::ReadinessHandle,
+    feature: &str,
+) -> Result<(), ApiError> {
+    use custody_common::readiness::FeatureState;
+    let snap = readiness.snapshot();
+    match snap.feature(feature).map(|f| &f.state) {
+        Some(FeatureState::Ready) | Some(FeatureState::Disabled) | None => Ok(()),
+        Some(state) => Err(ApiError::feature_unavailable(feature, &state.reason())),
+    }
+}
+
 /// Map a `Chain` to its readiness feature name and require it to be
 /// `Ready`. Used by endpoints that need an actively-monitored chain
 /// (address generation — can't receive a deposit we don't scan;

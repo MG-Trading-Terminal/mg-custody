@@ -923,6 +923,38 @@ async fn main() -> anyhow::Result<()> {
     initial.export_prometheus_gauges();
     let readiness = custody_common::readiness::ReadinessHandle::new(initial);
 
+    // Retention for readiness_transitions — deletes rows older than
+    // 90 days once per hour. Without this the history table grows
+    // unbounded on any long-running deployment; with it, even a
+    // chronically flapping vendor stays bounded by
+    // "flap count × 90 days". One row per transition is cheap enough
+    // that we don't need to tune the retention down.
+    {
+        let retention_db = db.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(60 * 60));
+            // First tick fires immediately — prune on boot so a long
+            // downtime doesn't start with a giant table.
+            loop {
+                tick.tick().await;
+                let cutoff = chrono::Utc::now() - chrono::Duration::days(90);
+                match retention_db.prune_readiness_transitions(cutoff).await {
+                    Ok(0) => {}
+                    Ok(n) => tracing::info!(
+                        target: "custody::readiness::history",
+                        pruned = n,
+                        "Pruned readiness transition rows older than 90 days"
+                    ),
+                    Err(e) => tracing::warn!(
+                        target: "custody::readiness::history",
+                        error = %e,
+                        "Readiness transition retention prune failed"
+                    ),
+                }
+            }
+        });
+    }
+
     // Periodic refresh. A vendor going down between boot and the
     // first request would otherwise leave the report stuck on
     // `Ready`; rebuilding every 60s means handler gates flip to 503
@@ -957,6 +989,16 @@ async fn main() -> anyhow::Result<()> {
                 let previous = handle.snapshot();
                 let report = readiness_build::build(&cfg, &email, tr).await;
                 let transitions = readiness_build::diff_transitions(&previous, &report);
+                // Active silences — operator-created maintenance
+                // windows. Features in this set skip the alert
+                // channel but still appear in the history log.
+                let silenced: std::collections::HashSet<String> = history_db
+                    .list_active_silences()
+                    .await
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|s| s.feature)
+                    .collect();
                 // Persist each alertable transition BEFORE firing
                 // alerts — so the dashboard timeline is populated
                 // even if the webhook is flaky. DB failures here just
@@ -988,7 +1030,7 @@ async fn main() -> anyhow::Result<()> {
                         .insert_readiness_transition(feature, kind, reason)
                         .await;
                 }
-                readiness_build::fire_alerts(&mut alerts, &transitions).await;
+                readiness_build::fire_alerts(&mut alerts, &silenced, &transitions).await;
                 report.export_prometheus_gauges();
                 handle.replace(report);
             }

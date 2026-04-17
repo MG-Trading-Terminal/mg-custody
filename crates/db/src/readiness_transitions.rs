@@ -55,6 +55,20 @@ impl CustodyDb {
         }
     }
 
+    /// Delete transitions older than `before`. Called periodically
+    /// by the retention task; returns the number of rows pruned so
+    /// the task can log progress.
+    pub async fn prune_readiness_transitions(
+        &self,
+        before: DateTime<Utc>,
+    ) -> Result<u64, sqlx::Error> {
+        let r = sqlx::query("DELETE FROM readiness_transitions WHERE occurred_at < $1")
+            .bind(before)
+            .execute(&self.pool)
+            .await?;
+        Ok(r.rows_affected())
+    }
+
     /// Return transitions newer than `since`, newest first, capped
     /// at `limit`. `since = None` and `limit = 200` give the
     /// dashboard's default "recent incidents" view.

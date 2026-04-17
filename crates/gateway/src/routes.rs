@@ -15,7 +15,7 @@ use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
-use crate::errors::{require_chain_ready, ApiError};
+use crate::errors::{require_chain_ready, require_feature_not_broken, ApiError};
 use crate::rbac_middleware::{RequireViewer, RequireEditor, RequireSigner};
 use crate::state::AppState;
 
@@ -55,6 +55,14 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/health/features", get(health_features))
         .route("/v1/health/features/refresh", post(health_features_refresh))
         .route("/v1/health/features/history", get(health_features_history))
+        .route(
+            "/v1/health/features/silences",
+            get(list_health_silences).post(create_health_silence),
+        )
+        .route(
+            "/v1/health/features/silences/{feature}",
+            axum::routing::delete(end_health_silence),
+        )
         .route("/v1/addresses", post(create_address))
         .route("/v1/withdrawals", post(submit_withdrawal))
         .route("/v1/withdrawals/{id}", get(get_withdrawal_status))
@@ -124,6 +132,14 @@ pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
         .route("/v1/health/features", get(health_features))
         .route("/v1/health/features/refresh", post(health_features_refresh))
         .route("/v1/health/features/history", get(health_features_history))
+        .route(
+            "/v1/health/features/silences",
+            get(list_health_silences).post(create_health_silence),
+        )
+        .route(
+            "/v1/health/features/silences/{feature}",
+            axum::routing::delete(end_health_silence),
+        )
         .route("/metrics", get(prometheus_metrics))
         .route("/v1/addresses", post(create_address))
         .route("/v1/withdrawals", post(submit_withdrawal))
@@ -253,6 +269,97 @@ struct HistoryQuery {
     limit: Option<i64>,
 }
 
+#[derive(serde::Deserialize)]
+struct CreateSilenceRequest {
+    feature: String,
+    /// Silence duration in seconds from now. Required — no
+    /// "forever" silences; an operator would forget it exists.
+    duration_secs: i64,
+    reason: String,
+}
+
+/// `GET /v1/health/features/silences` — every silence still live.
+/// Dashboard uses this to render the badge on silenced rows.
+async fn list_health_silences(
+    _auth: crate::rbac_middleware::RequireAdmin,
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let rows = state
+        .db
+        .list_active_silences()
+        .await
+        .map_err(|e| ApiError::internal(&format!("silence list: {e}")))?;
+    let count = rows.len();
+    Ok(Json(serde_json::json!({
+        "silences": rows,
+        "count": count,
+    })))
+}
+
+/// `POST /v1/health/features/silences` — create one. Maximum 7 days
+/// per silence; longer maintenance windows need a conscious re-create.
+async fn create_health_silence(
+    auth: crate::rbac_middleware::RequireAdmin,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Json(req): Json<CreateSilenceRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    const MAX_SECS: i64 = 7 * 24 * 60 * 60;
+    if req.feature.is_empty() {
+        return Err(ApiError::bad_request("feature must not be empty"));
+    }
+    if req.duration_secs <= 0 {
+        return Err(ApiError::bad_request("duration_secs must be positive"));
+    }
+    if req.duration_secs > MAX_SECS {
+        return Err(ApiError::bad_request(
+            "duration_secs may not exceed 7 days (604800)",
+        ));
+    }
+    if req.reason.trim().is_empty() {
+        return Err(ApiError::bad_request("reason must not be empty"));
+    }
+    let expires_at = chrono::Utc::now() + chrono::Duration::seconds(req.duration_secs);
+    let created_by = auth.0.user_id.to_string();
+    let silence = state
+        .db
+        .insert_readiness_silence(&req.feature, expires_at, &req.reason, &created_by)
+        .await
+        .map_err(|e| ApiError::internal(&format!("silence insert: {e}")))?;
+    tracing::warn!(
+        target: "custody::readiness::alert",
+        feature = %req.feature,
+        expires_at = %expires_at,
+        reason = %req.reason,
+        created_by = %created_by,
+        "Readiness alert silence created"
+    );
+    Ok((StatusCode::CREATED, Json(serde_json::json!(silence))))
+}
+
+/// `DELETE /v1/health/features/silences/:feature` — end an active
+/// silence early (planned maintenance finished ahead of schedule).
+async fn end_health_silence(
+    auth: crate::rbac_middleware::RequireAdmin,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(feature): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let ended = state
+        .db
+        .end_readiness_silence(&feature)
+        .await
+        .map_err(|e| ApiError::internal(&format!("silence end: {e}")))?;
+    if !ended {
+        return Err(ApiError::not_found("No active silence for that feature"));
+    }
+    tracing::info!(
+        target: "custody::readiness::alert",
+        feature = %feature,
+        ended_by = %auth.0.user_id,
+        "Readiness alert silence ended early"
+    );
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn health_features(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Json<serde_json::Value> {
@@ -332,6 +439,16 @@ async fn submit_withdrawal(
     // row sits in Received forever and the user thinks we're
     // processing.
     require_chain_ready(&state.readiness, req.chain)?;
+
+    // Fail-closed on AML screening. If an operator configured a
+    // vendor (Chainalysis / Elliptic) and it's currently unreachable,
+    // we refuse to accept the withdrawal rather than silently bypass
+    // screening. Explicitly-unconfigured screening (Disabled) is
+    // respected — operator opt-out is not the same as a vendor
+    // outage. This distinction is the whole reason
+    // `require_feature_not_broken` exists instead of a blanket
+    // `require_feature`.
+    require_feature_not_broken(&state.readiness, "screening.aml")?;
 
     // Validate and normalise the destination address using the chain-specific checksum.
     let validated_addr = custody_common::address_checksum::validate_address(&req.address, req.chain)

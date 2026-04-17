@@ -26,10 +26,21 @@
 		occurred_at: string;
 	}
 
+	interface Silence {
+		id: number;
+		feature: string;
+		expires_at: string;
+		reason: string;
+		created_by: string;
+		created_at: string;
+	}
+
 	let features = $state<Feature[]>([]);
 	let summary = $state({ ready: 0, disabled: 0, misconfigured: 0, degraded: 0, total: 0 });
 	let history = $state<Transition[]>([]);
 	let historyErr = $state('');
+	let silences = $state<Silence[]>([]);
+	let silenceErr = $state('');
 	let loading = $state(true);
 	let error = $state('');
 	let lastLoaded = $state<Date | null>(null);
@@ -65,6 +76,47 @@
 			historyErr = '';
 		} catch (e) {
 			historyErr = e instanceof Error ? e.message : 'Failed to load history';
+		}
+		loadSilences();
+	}
+
+	async function loadSilences() {
+		try {
+			const data = await api.getJson<{ silences: Silence[] }>('/v1/health/features/silences');
+			silences = data.silences ?? [];
+			silenceErr = '';
+		} catch (e) {
+			silenceErr = e instanceof Error ? e.message : 'Failed to load silences';
+		}
+	}
+
+	let silencedNames = $derived(new Set(silences.map(s => s.feature)));
+
+	async function createSilence(feature: string, hours: number) {
+		const reason = prompt(
+			`Silence "${feature}" alerts for ${hours}h. Reason (audit log, required):`,
+			'maintenance'
+		);
+		if (!reason || !reason.trim()) return;
+		try {
+			await api.post('/v1/health/features/silences', {
+				feature,
+				duration_secs: hours * 3600,
+				reason: reason.trim(),
+			});
+			await loadSilences();
+		} catch (e) {
+			alert(e instanceof Error ? e.message : 'Failed to create silence');
+		}
+	}
+
+	async function endSilence(feature: string) {
+		if (!confirm(`End silence for "${feature}" now?`)) return;
+		try {
+			await api.del(`/v1/health/features/silences/${encodeURIComponent(feature)}`);
+			await loadSilences();
+		} catch (e) {
+			alert(e instanceof Error ? e.message : 'Failed to end silence');
 		}
 	}
 
@@ -203,15 +255,30 @@
 	{:else}
 		<div class="feature-list">
 			{#each filtered as f (f.name)}
-				<article class="feature feature-{f.state}">
+				<article class="feature feature-{f.state}" class:feature-silenced={silencedNames.has(f.name)}>
 					<div class="feature-left">
 						<span class="state-pill state-{f.state}">{stateLabel(f.state)}</span>
 						<div class="feature-info">
-							<div class="feature-name">{f.name}</div>
+							<div class="feature-name">
+								{f.name}
+								{#if silencedNames.has(f.name)}
+									<span class="silenced-badge" title="Alerts silenced — live state still enforced by handler gates">SILENCED</span>
+								{/if}
+							</div>
 							<div class="feature-summary">{f.summary}</div>
 						</div>
 					</div>
-					<div class="feature-reason" title={reasonFor(f)}>{reasonFor(f)}</div>
+					<div class="feature-right">
+						<div class="feature-reason" title={reasonFor(f)}>{reasonFor(f)}</div>
+						<div class="feature-actions">
+							{#if silencedNames.has(f.name)}
+								<button class="btn-tiny" onclick={() => endSilence(f.name)} title="End silence now">Unmute</button>
+							{:else}
+								<button class="btn-tiny" onclick={() => createSilence(f.name, 1)} title="Silence alerts for 1 hour">Silence 1h</button>
+								<button class="btn-tiny" onclick={() => createSilence(f.name, 24)} title="Silence alerts for 24 hours">24h</button>
+							{/if}
+						</div>
+					</div>
 				</article>
 			{/each}
 		</div>
@@ -364,10 +431,37 @@
 		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 	}
 
+	.feature-right {
+		display: flex; flex-direction: column; align-items: flex-end;
+		gap: 6px; min-width: 0;
+	}
 	.feature-reason {
 		color: var(--fg); font-size: 0.82rem;
 		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 		font-family: var(--font-mono);
+		max-width: 100%;
+	}
+	.feature-actions { display: flex; gap: 4px; }
+	.btn-tiny {
+		padding: 2px 8px; font-size: 0.72rem;
+		background: var(--surface-2); color: var(--fg-muted);
+		border: 1px solid var(--border); border-radius: var(--r-sm);
+		cursor: pointer;
+		transition: background 0.15s, color 0.15s;
+	}
+	.btn-tiny:hover { background: var(--surface-3); color: var(--fg); }
+
+	.feature-silenced { opacity: 0.75; }
+	.silenced-badge {
+		display: inline-block;
+		margin-left: 6px;
+		padding: 1px 6px;
+		background: var(--yellow-soft);
+		color: var(--yellow);
+		border-radius: var(--r-full);
+		font-size: 0.6rem; font-weight: 700;
+		letter-spacing: 0.08em;
+		vertical-align: middle;
 	}
 
 	@media (max-width: 720px) {

@@ -14,7 +14,7 @@ use rust_decimal::Decimal;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::errors::{require_chain_ready, ApiError};
+use crate::errors::{require_chain_ready, require_feature_not_broken, ApiError};
 use crate::rbac_middleware::{RequireAdmin, RequireEditor, RequireSigner, RequireViewer};
 use crate::state::AppState;
 
@@ -239,6 +239,11 @@ async fn batch_withdraw(
     for chain in batch_chains {
         require_chain_ready(&state.readiness, chain)?;
     }
+
+    // Fail-closed on screening for the same reason as the single-
+    // submit path — no bypass when the vendor is configured but
+    // unreachable.
+    require_feature_not_broken(&state.readiness, "screening.aml")?;
 
     let batch_id = req.batch_id.unwrap_or_else(|| Uuid::new_v4().to_string());
 
