@@ -99,6 +99,86 @@ pub fn eth_address(seed: &[u8; 64], index: u32) -> Result<Address> {
     Ok(signer.address())
 }
 
+/// Build the unsigned `TxEip1559` for an ETH transfer. Factored out
+/// so both the seed-signing and HSM-signing paths share the same
+/// request shape.
+fn build_eth_transfer_tx(params: &EthTransferParams) -> TxEip1559 {
+    TxEip1559 {
+        chain_id: params.chain_id,
+        nonce: params.nonce,
+        gas_limit: params.gas_limit,
+        max_fee_per_gas: params.max_fee_per_gas,
+        max_priority_fee_per_gas: params.max_priority_fee_per_gas,
+        to: TxKind::Call(params.to),
+        value: params.value_wei,
+        input: Bytes::new(),
+        access_list: Default::default(),
+    }
+}
+
+/// Build the unsigned `TxEip1559` for an ERC-20 transfer.
+fn build_erc20_transfer_tx(params: &Erc20TransferParams, input: Bytes) -> TxEip1559 {
+    TxEip1559 {
+        chain_id: params.chain_id,
+        nonce: params.nonce,
+        gas_limit: params.gas_limit,
+        max_fee_per_gas: params.max_fee_per_gas,
+        max_priority_fee_per_gas: params.max_priority_fee_per_gas,
+        to: TxKind::Call(params.token_contract),
+        value: U256::ZERO,
+        input,
+        access_list: Default::default(),
+    }
+}
+
+/// Attach an externally-produced `r || s || v` (65 bytes) signature
+/// to a `TxEip1559` and emit the RLP-encoded signed transaction.
+///
+/// This is the sign-once-off-box step for HSM / MPC / signer-service
+/// paths: caller computes the signature hash via
+/// `SignableTransaction::signature_hash`, hands the 32-byte digest to
+/// the backend, and passes the resulting signature bytes back here.
+/// The backend's `v` must be 0 or 1 (pure recovery id) — EIP-1559
+/// does NOT re-derive `v` from chain_id.
+pub fn finalize_eth_signed_tx(tx: TxEip1559, sig_65: &[u8]) -> Result<Vec<u8>> {
+    use alloy::primitives::Signature;
+    if sig_65.len() != 65 {
+        anyhow::bail!("expected 65-byte (r||s||v) signature, got {}", sig_65.len());
+    }
+    let mut r = [0u8; 32];
+    let mut s = [0u8; 32];
+    r.copy_from_slice(&sig_65[..32]);
+    s.copy_from_slice(&sig_65[32..64]);
+    let v = sig_65[64];
+    if v > 1 {
+        anyhow::bail!("EIP-1559 signature v must be 0 or 1, got {v}");
+    }
+    let sig = Signature::new(U256::from_be_bytes(r), U256::from_be_bytes(s), v == 1);
+    let signed = tx.into_signed(sig);
+    let envelope = alloy::consensus::transaction::TxEnvelope::from(signed);
+    let mut buf = Vec::new();
+    Encodable2718::encode_2718(&envelope, &mut buf);
+    Ok(buf)
+}
+
+/// Build the signature hash an external signer (HSM / MPC / signer
+/// service) must sign for an ETH native transfer. Caller combines
+/// the hash with the backend to produce a 65-byte `r||s||v`, then
+/// calls `finalize_eth_signed_tx` with the same `TxEip1559`.
+pub fn prepare_eth_transfer(params: &EthTransferParams) -> (TxEip1559, [u8; 32]) {
+    let tx = build_eth_transfer_tx(params);
+    let hash = tx.signature_hash().0;
+    (tx, hash)
+}
+
+/// Same, for ERC-20 transfers.
+pub fn prepare_erc20_transfer(params: &Erc20TransferParams) -> (TxEip1559, [u8; 32]) {
+    let calldata = encode_erc20_transfer_calldata(params.to, params.amount);
+    let tx = build_erc20_transfer_tx(params, calldata);
+    let hash = tx.signature_hash().0;
+    (tx, hash)
+}
+
 /// Sign an EIP-1559 ETH native transfer.
 ///
 /// Returns the RLP-encoded signed transaction ready for `eth_sendRawTransaction`.
