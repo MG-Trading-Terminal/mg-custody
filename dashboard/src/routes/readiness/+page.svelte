@@ -18,8 +18,18 @@
 		features: Feature[];
 	}
 
+	interface Transition {
+		id: number;
+		feature: string;
+		kind: 'degradation' | 'misconfiguration' | 'recovery';
+		reason: string | null;
+		occurred_at: string;
+	}
+
 	let features = $state<Feature[]>([]);
 	let summary = $state({ ready: 0, disabled: 0, misconfigured: 0, degraded: 0, total: 0 });
+	let history = $state<Transition[]>([]);
+	let historyErr = $state('');
 	let loading = $state(true);
 	let error = $state('');
 	let lastLoaded = $state<Date | null>(null);
@@ -42,6 +52,19 @@
 			error = e instanceof Error ? e.message : 'Failed to load readiness report';
 		} finally {
 			loading = false;
+		}
+		loadHistory();
+	}
+
+	async function loadHistory() {
+		try {
+			const data = await api.getJson<{ transitions: Transition[] }>(
+				'/v1/health/features/history?limit=50'
+			);
+			history = data.transitions ?? [];
+			historyErr = '';
+		} catch (e) {
+			historyErr = e instanceof Error ? e.message : 'Failed to load history';
 		}
 	}
 
@@ -98,6 +121,19 @@
 	function fmtTime(d: Date | null): string {
 		if (!d) return '—';
 		return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+	}
+
+	function fmtOccurred(iso: string): string {
+		const d = new Date(iso);
+		const diff = (Date.now() - d.getTime()) / 1000;
+		if (diff < 60) return 'just now';
+		if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+		if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+		return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+	}
+
+	function kindLabel(k: Transition['kind']): string {
+		return { degradation: 'DEGRADED', misconfiguration: 'MISCONFIG', recovery: 'RECOVERED' }[k];
 	}
 </script>
 
@@ -180,6 +216,29 @@
 			{/each}
 		</div>
 	{/if}
+
+	<section class="history-section">
+		<header class="history-head">
+			<h2>Recent incidents</h2>
+			<span class="history-hint">Last 50 transitions — degradations, misconfigurations, recoveries.</span>
+		</header>
+		{#if historyErr}
+			<div class="banner banner-error">{historyErr}</div>
+		{:else if history.length === 0}
+			<div class="empty empty-small">No transitions recorded yet. Incidents will appear here as features change state.</div>
+		{:else}
+			<ul class="history-list">
+				{#each history as t (t.id)}
+					<li class="history-row history-{t.kind}">
+						<span class="history-kind kind-{t.kind}">{kindLabel(t.kind)}</span>
+						<span class="history-feature mono">{t.feature}</span>
+						<span class="history-reason" title={t.reason ?? ''}>{t.reason ?? '—'}</span>
+						<span class="history-when">{fmtOccurred(t.occurred_at)}</span>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</section>
 </div>
 
 <style>
@@ -314,5 +373,60 @@
 	@media (max-width: 720px) {
 		.feature { grid-template-columns: 1fr; gap: 6px; }
 		.feature-reason { white-space: normal; }
+	}
+
+	.history-section {
+		margin-top: var(--sp-8);
+		display: flex; flex-direction: column; gap: var(--sp-3);
+	}
+	.history-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+	.history-head h2 { margin: 0; font-size: 1.1rem; letter-spacing: -0.015em; }
+	.history-hint { color: var(--fg-muted); font-size: 0.8rem; }
+
+	.empty-small { padding: var(--sp-4); font-size: 0.86rem; }
+
+	.history-list {
+		list-style: none; padding: 0; margin: 0;
+		display: flex; flex-direction: column; gap: 4px;
+	}
+	.history-row {
+		display: grid;
+		grid-template-columns: 110px minmax(180px, 220px) 1fr 90px;
+		align-items: center; gap: var(--sp-3);
+		padding: 8px 14px;
+		background: var(--surface); border: 1px solid var(--border);
+		border-radius: var(--r-md);
+		font-size: 0.84rem;
+	}
+	.history-degradation       { border-left: 3px solid var(--red); }
+	.history-misconfiguration  { border-left: 3px solid var(--yellow); }
+	.history-recovery          { border-left: 3px solid var(--green); }
+
+	.history-kind {
+		padding: 2px 8px; border-radius: var(--r-sm);
+		font-size: 0.64rem; font-weight: 700;
+		letter-spacing: 0.06em; text-transform: uppercase;
+		text-align: center;
+	}
+	.kind-degradation      { background: var(--red-soft);    color: var(--red); }
+	.kind-misconfiguration { background: var(--yellow-soft); color: var(--yellow); }
+	.kind-recovery         { background: var(--green-soft);  color: var(--green); }
+
+	.history-feature {
+		color: var(--fg-strong); font-weight: 600;
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+	}
+	.history-reason {
+		color: var(--fg-muted);
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+	}
+	.history-when {
+		color: var(--fg-muted); font-size: 0.78rem;
+		text-align: right; font-family: var(--font-mono);
+	}
+
+	@media (max-width: 720px) {
+		.history-row { grid-template-columns: auto 1fr; gap: 6px; }
+		.history-reason, .history-when { grid-column: 1 / -1; text-align: left; }
 	}
 </style>

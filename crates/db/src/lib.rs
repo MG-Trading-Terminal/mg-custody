@@ -14,6 +14,7 @@ pub mod email_otp;
 pub mod safe_wallets;
 pub mod nfts;
 pub mod push_tokens;
+pub mod readiness_transitions;
 pub mod swap_executions;
 pub mod consolidation_jobs;
 pub mod staking_positions;

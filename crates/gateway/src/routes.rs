@@ -54,6 +54,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health/deep", get(crate::health::deep_health))
         .route("/v1/health/features", get(health_features))
         .route("/v1/health/features/refresh", post(health_features_refresh))
+        .route("/v1/health/features/history", get(health_features_history))
         .route("/v1/addresses", post(create_address))
         .route("/v1/withdrawals", post(submit_withdrawal))
         .route("/v1/withdrawals/{id}", get(get_withdrawal_status))
@@ -122,6 +123,7 @@ pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
         .route("/health/deep", get(crate::health::deep_health))
         .route("/v1/health/features", get(health_features))
         .route("/v1/health/features/refresh", post(health_features_refresh))
+        .route("/v1/health/features/history", get(health_features_history))
         .route("/metrics", get(prometheus_metrics))
         .route("/v1/addresses", post(create_address))
         .route("/v1/withdrawals", post(submit_withdrawal))
@@ -215,6 +217,40 @@ async fn health_features_refresh(
                      Poll GET /v1/health/features for the updated report.",
         })),
     )
+}
+
+/// `GET /v1/health/features/history?since=<rfc3339>&limit=<int>` —
+/// past readiness transitions persisted to `readiness_transitions`.
+/// Default: latest 200 rows across all features. Admin-only so the
+/// incident history isn't world-readable.
+async fn health_features_history(
+    _auth: crate::rbac_middleware::RequireAdmin,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<HistoryQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let limit = q.limit.unwrap_or(200).clamp(1, 1000);
+    let since = q
+        .since
+        .as_deref()
+        .map(|s| chrono::DateTime::parse_from_rfc3339(s).map(|dt| dt.with_timezone(&chrono::Utc)))
+        .transpose()
+        .map_err(|e| ApiError::bad_request(&format!("since must be RFC 3339: {e}")))?;
+    let rows = state
+        .db
+        .list_readiness_transitions(since, limit)
+        .await
+        .map_err(|e| ApiError::internal(&format!("history query: {e}")))?;
+    let count = rows.len();
+    Ok(Json(serde_json::json!({
+        "transitions": rows,
+        "count": count,
+    })))
+}
+
+#[derive(serde::Deserialize)]
+struct HistoryQuery {
+    since: Option<String>,
+    limit: Option<i64>,
 }
 
 async fn health_features(

@@ -29,6 +29,10 @@ pub async fn build(
     email_sender: &EmailSender,
     travel_rule_configured: bool,
 ) -> ReadinessReport {
+    // Record wall-clock duration in a Prometheus histogram so drifting
+    // vendor latency surfaces on the dashboard even when every probe
+    // still passes.
+    let _timer = custody_common::prometheus_metrics::READINESS_BUILD_DURATION.start_timer();
     let mut readiness = ReadinessReport::new();
 
     // Email transport. For smtp mode we do a full EHLO + (STARTTLS or
@@ -488,6 +492,41 @@ pub fn diff_transitions<'a>(
     out
 }
 
+/// Per-(feature, kind) last-alert timestamps. Held across refresh
+/// ticks so a flapping feature doesn't page oncall every minute.
+#[derive(Default)]
+pub struct AlertState {
+    last_fired: std::collections::HashMap<(String, &'static str), std::time::Instant>,
+}
+
+/// How long to wait before re-alerting on the same (feature, kind).
+/// Five minutes is a compromise: long enough that a noisy flapping
+/// vendor coalesces into one page per cluster of bounces, short
+/// enough that a genuine second outage after a brief recovery still
+/// pages oncall.
+pub const ALERT_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+impl AlertState {
+    /// Return true if we should fire this alert now (i.e. cooldown
+    /// has elapsed) and record that we did. Recovery alerts never
+    /// cool down — they're cheap signal, and a "service recovered"
+    /// message after each flap isn't as noisy as a page.
+    fn should_fire(&mut self, feature: &str, kind: &'static str) -> bool {
+        if kind == "recovery" {
+            return true;
+        }
+        let key = (feature.to_string(), kind);
+        let now = std::time::Instant::now();
+        match self.last_fired.get(&key) {
+            Some(prev) if now.duration_since(*prev) < ALERT_COOLDOWN => false,
+            _ => {
+                self.last_fired.insert(key, now);
+                true
+            }
+        }
+    }
+}
+
 /// Fire each transition to:
 ///   1. `tracing::error!` (degradation/misconfiguration) or
 ///      `tracing::info!` (recovery) on the `custody::readiness::alert`
@@ -497,10 +536,13 @@ pub fn diff_transitions<'a>(
 ///      Slack/PagerDuty/Opsgenie incoming webhooks can parse it with
 ///      their standard templates.
 ///
+/// `state` carries anti-flap cooldowns: a degradation/misconfiguration
+/// for the same feature within `ALERT_COOLDOWN` is suppressed.
+///
 /// Failures posting to the webhook are logged but not retried — a
 /// subsequent transition will try again; queueing alerts just means
 /// a paged oncall sees the incident twice instead of timed out.
-pub async fn fire_alerts(transitions: &[Transition<'_>]) {
+pub async fn fire_alerts(state: &mut AlertState, transitions: &[Transition<'_>]) {
     if transitions.is_empty() {
         return;
     }
@@ -519,6 +561,14 @@ pub async fn fire_alerts(transitions: &[Transition<'_>]) {
     for t in transitions {
         match t {
             Transition::Degradation { feature, reason } => {
+                if !state.should_fire(feature, "degradation") {
+                    tracing::debug!(
+                        target: "custody::readiness::alert",
+                        feature = %feature,
+                        "Degradation alert suppressed (cooldown active)"
+                    );
+                    continue;
+                }
                 tracing::error!(
                     target: "custody::readiness::alert",
                     feature = %feature,
@@ -528,6 +578,14 @@ pub async fn fire_alerts(transitions: &[Transition<'_>]) {
                 post_webhook(&client, &webhook, &now, "degradation", feature, Some(reason.as_str()), None).await;
             }
             Transition::Misconfiguration { feature, missing } => {
+                if !state.should_fire(feature, "misconfiguration") {
+                    tracing::debug!(
+                        target: "custody::readiness::alert",
+                        feature = %feature,
+                        "Misconfiguration alert suppressed (cooldown active)"
+                    );
+                    continue;
+                }
                 tracing::error!(
                     target: "custody::readiness::alert",
                     feature = %feature,
@@ -538,6 +596,8 @@ pub async fn fire_alerts(transitions: &[Transition<'_>]) {
                 post_webhook(&client, &webhook, &now, "misconfiguration", feature, None, Some(&missing_str)).await;
             }
             Transition::Recovery { feature, summary } => {
+                // Recovery bypasses cooldown (see `should_fire` docs).
+                state.should_fire(feature, "recovery");
                 tracing::info!(
                     target: "custody::readiness::alert",
                     feature = %feature,
@@ -661,6 +721,29 @@ mod tests {
         )]);
         let t = diff_transitions(&old, &new);
         assert!(t.is_empty());
+    }
+
+    #[test]
+    fn alert_state_cooldown_suppresses_duplicate() {
+        let mut st = AlertState::default();
+        // First fire is allowed.
+        assert!(st.should_fire("scanner.ethereum", "degradation"));
+        // Second fire immediately after is suppressed.
+        assert!(!st.should_fire("scanner.ethereum", "degradation"));
+        // Different kind is tracked separately.
+        assert!(st.should_fire("scanner.ethereum", "misconfiguration"));
+        // Different feature is tracked separately.
+        assert!(st.should_fire("scanner.bitcoin", "degradation"));
+    }
+
+    #[test]
+    fn alert_state_recovery_always_fires() {
+        let mut st = AlertState::default();
+        // Recovery bypasses cooldown — a feature that bounces up and
+        // down should still log each recovery.
+        assert!(st.should_fire("scanner.ethereum", "recovery"));
+        assert!(st.should_fire("scanner.ethereum", "recovery"));
+        assert!(st.should_fire("scanner.ethereum", "recovery"));
     }
 
     #[test]

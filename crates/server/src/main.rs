@@ -937,9 +937,13 @@ async fn main() -> anyhow::Result<()> {
         let cfg = config.clone();
         let email = email_sender.clone();
         let tr = travel_rule_configured;
+        let history_db = db.clone();
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
             tick.tick().await; // skip the immediate first tick — boot already built one
+            // Anti-flap cooldowns live on this task — one HashMap,
+            // never shared, no lock needed.
+            let mut alerts = readiness_build::AlertState::default();
             loop {
                 tokio::select! {
                     _ = tick.tick() => {}
@@ -953,7 +957,38 @@ async fn main() -> anyhow::Result<()> {
                 let previous = handle.snapshot();
                 let report = readiness_build::build(&cfg, &email, tr).await;
                 let transitions = readiness_build::diff_transitions(&previous, &report);
-                readiness_build::fire_alerts(&transitions).await;
+                // Persist each alertable transition BEFORE firing
+                // alerts — so the dashboard timeline is populated
+                // even if the webhook is flaky. DB failures here just
+                // log; they don't block the live state update.
+                for t in &transitions {
+                    let (feature, kind, reason) = match t {
+                        readiness_build::Transition::Degradation { feature, reason } => {
+                            (*feature, "degradation", Some(reason.as_str()))
+                        }
+                        readiness_build::Transition::Misconfiguration { feature, missing } => {
+                            // Persist the missing-keys list as the
+                            // reason so the dashboard timeline shows
+                            // WHICH knobs were unset.
+                            let joined = missing.join(", ");
+                            history_db
+                                .insert_readiness_transition(
+                                    feature,
+                                    "misconfiguration",
+                                    Some(&joined),
+                                )
+                                .await;
+                            continue;
+                        }
+                        readiness_build::Transition::Recovery { feature, .. } => {
+                            (*feature, "recovery", None)
+                        }
+                    };
+                    history_db
+                        .insert_readiness_transition(feature, kind, reason)
+                        .await;
+                }
+                readiness_build::fire_alerts(&mut alerts, &transitions).await;
                 report.export_prometheus_gauges();
                 handle.replace(report);
             }

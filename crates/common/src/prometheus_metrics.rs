@@ -209,6 +209,18 @@ pub static READINESS_LAST_REFRESH_SECONDS: Lazy<prometheus::Gauge> = Lazy::new(|
     ).unwrap()
 });
 
+/// Wall-clock duration of a full readiness probe sweep (every
+/// feature probed back-to-back). Slow builds surface vendor latency
+/// creep: if the 99th percentile drifts up over a week, an upstream
+/// API is getting slower even if every probe still passes.
+pub static READINESS_BUILD_DURATION: Lazy<prometheus::Histogram> = Lazy::new(|| {
+    prometheus::register_histogram!(
+        "custody_readiness_build_duration_seconds",
+        "Wall-clock duration of a full readiness probe sweep",
+        vec![0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]
+    ).unwrap()
+});
+
 // ── API request metrics ───────────────────────────────────────────
 
 /// Histogram of HTTP API request durations, labelled by method and path.
