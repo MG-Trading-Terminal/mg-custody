@@ -153,6 +153,7 @@ impl ConfirmationTracker {
                 let event = custody_common::CustodyEvent::WithdrawalConfirmed {
                     withdrawal_id: withdrawal.id,
                     exchange_withdrawal_id: withdrawal.exchange_withdrawal_id,
+                    user_id: Some(withdrawal.user_id),
                     tx_hash: withdrawal.tx_hash.unwrap_or_default(),
                     block_height,
                     confirmations,

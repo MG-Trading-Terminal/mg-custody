@@ -491,6 +491,7 @@ mod tests {
         let evt = CustodyEvent::WithdrawalFailed {
             withdrawal_id: Uuid::nil(),
             exchange_withdrawal_id: Uuid::nil(),
+            user_id: None,
             reason: "out of gas".into(),
         };
         let ws = custody_event_to_ws_event(&evt);

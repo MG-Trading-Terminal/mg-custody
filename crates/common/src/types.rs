@@ -275,6 +275,10 @@ pub enum CustodyEvent {
     WithdrawalBroadcast {
         withdrawal_id: Uuid,
         exchange_withdrawal_id: Uuid,
+        /// Custody user the withdrawal belongs to. Added so the
+        /// push-alert subscriber can route alerts without a DB lookup.
+        #[serde(default)]
+        user_id: Option<Uuid>,
         tx_hash: String,
         asset: Asset,
         chain: Chain,
@@ -284,6 +288,8 @@ pub enum CustodyEvent {
     WithdrawalConfirmed {
         withdrawal_id: Uuid,
         exchange_withdrawal_id: Uuid,
+        #[serde(default)]
+        user_id: Option<Uuid>,
         tx_hash: String,
         block_height: u64,
         confirmations: u64,
@@ -291,6 +297,8 @@ pub enum CustodyEvent {
     WithdrawalFailed {
         withdrawal_id: Uuid,
         exchange_withdrawal_id: Uuid,
+        #[serde(default)]
+        user_id: Option<Uuid>,
         reason: String,
     },
 }
@@ -466,6 +474,7 @@ mod tests {
         let event = CustodyEvent::WithdrawalFailed {
             withdrawal_id: Uuid::nil(),
             exchange_withdrawal_id: Uuid::nil(),
+            user_id: None,
             reason: "out of gas".into(),
         };
         let json = serde_json::to_string(&event).unwrap();

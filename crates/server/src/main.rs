@@ -707,29 +707,75 @@ async fn main() -> anyhow::Result<()> {
                                 )),
                             ),
                             custody_common::CustodyEvent::WithdrawalFailed {
-                                withdrawal_id, reason, ..
+                                withdrawal_id, reason, user_id, ..
                             } => {
-                                let title = "Withdrawal Failed";
-                                let body = format!("Withdrawal {withdrawal_id} failed: {reason}");
                                 let mut data = std::collections::HashMap::new();
                                 data.insert("action".into(), "withdrawal_failed".into());
                                 data.insert("withdrawal_id".into(), withdrawal_id.to_string());
-                                let user_id = match push_db.find_withdrawal(*withdrawal_id).await {
-                                    Ok(Some(w)) => Some(w.user_id),
-                                    _ => None,
+                                // Prefer user_id from the event; fall back to DB lookup
+                                // for older emit sites that haven't been updated yet.
+                                let uid = match *user_id {
+                                    Some(u) => Some(u),
+                                    None => match push_db.find_withdrawal(*withdrawal_id).await {
+                                        Ok(Some(w)) => Some(w.user_id),
+                                        _ => None,
+                                    },
                                 };
                                 (
-                                    user_id,
+                                    uid,
                                     Some(custody_common::push_notifications::PushPayload {
-                                        title: title.into(),
-                                        body,
+                                        title: "Withdrawal Failed".into(),
+                                        body: format!("Withdrawal {withdrawal_id} failed: {reason}"),
                                         data,
                                         badge: None,
                                         sound: Some("critical".into()),
                                     }),
                                 )
                             }
-                            _ => (None, None),
+                            custody_common::CustodyEvent::WithdrawalBroadcast {
+                                withdrawal_id, tx_hash, asset, amount, user_id, ..
+                            } => {
+                                let mut data = std::collections::HashMap::new();
+                                data.insert("action".into(), "withdrawal_broadcast".into());
+                                data.insert("withdrawal_id".into(), withdrawal_id.to_string());
+                                data.insert("tx_hash".into(), tx_hash.clone());
+                                let uid = match *user_id {
+                                    Some(u) => Some(u),
+                                    None => push_db.find_withdrawal(*withdrawal_id).await.ok().flatten().map(|w| w.user_id),
+                                };
+                                (
+                                    uid,
+                                    Some(custody_common::push_notifications::PushPayload {
+                                        title: "Withdrawal Broadcast".into(),
+                                        body: format!("{amount} {} sent, awaiting confirmations", asset.as_str()),
+                                        data,
+                                        badge: None,
+                                        sound: None,
+                                    }),
+                                )
+                            }
+                            custody_common::CustodyEvent::WithdrawalConfirmed {
+                                withdrawal_id, tx_hash, confirmations, user_id, ..
+                            } => {
+                                let mut data = std::collections::HashMap::new();
+                                data.insert("action".into(), "withdrawal_confirmed".into());
+                                data.insert("withdrawal_id".into(), withdrawal_id.to_string());
+                                data.insert("tx_hash".into(), tx_hash.clone());
+                                let uid = match *user_id {
+                                    Some(u) => Some(u),
+                                    None => push_db.find_withdrawal(*withdrawal_id).await.ok().flatten().map(|w| w.user_id),
+                                };
+                                (
+                                    uid,
+                                    Some(custody_common::push_notifications::PushPayload {
+                                        title: "Withdrawal Confirmed".into(),
+                                        body: format!("{confirmations} confirmations reached"),
+                                        data,
+                                        badge: None,
+                                        sound: None,
+                                    }),
+                                )
+                            }
                         };
 
                         if let (Some(uid), Some(payload)) = (user_id_opt, payload_opt) {

@@ -136,6 +136,7 @@ mod tests {
         let event = CustodyEvent::WithdrawalFailed {
             withdrawal_id: Uuid::new_v4(),
             exchange_withdrawal_id: Uuid::new_v4(),
+            user_id: None,
             reason: "test".into(),
         };
 
@@ -177,6 +178,7 @@ mod tests {
         let withdrawal = CustodyEvent::WithdrawalFailed {
             withdrawal_id: Uuid::new_v4(),
             exchange_withdrawal_id: Uuid::new_v4(),
+            user_id: None,
             reason: "test".into(),
         };
         assert!(!filter.matches(&withdrawal));

@@ -868,6 +868,7 @@ impl WithdrawalPipeline {
                         .with_label_values(&[w.chain.as_str(), "broadcast"]).inc();
                     self.fire_webhook(&CustodyEvent::WithdrawalBroadcast {
                         withdrawal_id: w.id, exchange_withdrawal_id: w.exchange_withdrawal_id,
+                        user_id: Some(w.user_id),
                         tx_hash, asset: w.asset.clone(), chain: w.chain,
                         amount: w.amount, fee: w.fee.unwrap_or(Decimal::ZERO),
                     }).await;
@@ -924,6 +925,7 @@ impl WithdrawalPipeline {
 
                         self.fire_webhook(&CustodyEvent::WithdrawalConfirmed {
                             withdrawal_id: w.id, exchange_withdrawal_id: w.exchange_withdrawal_id,
+                            user_id: Some(w.user_id),
                             tx_hash: tx_hash.clone(), block_height: st.block_number,
                             confirmations: st.confirmations,
                         }).await;
@@ -936,6 +938,7 @@ impl WithdrawalPipeline {
                     self.db.update_withdrawal_status(w.id, WithdrawalStatus::Failed).await?;
                     self.fire_webhook(&CustodyEvent::WithdrawalFailed {
                         withdrawal_id: w.id, exchange_withdrawal_id: w.exchange_withdrawal_id,
+                        user_id: Some(w.user_id),
                         reason: "Transaction reverted".into(),
                     }).await;
                 }
