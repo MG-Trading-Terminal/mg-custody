@@ -262,6 +262,7 @@ async fn submit_withdrawal(
         signed_at: None, broadcast_at: None, confirmed_at: None, delay_release_at: None,
         memo: req.memo.clone(),
         destination_tag: req.destination_tag,
+        depends_on_withdrawal_id: None,
     };
 
     state.db.insert_withdrawal(&withdrawal).await

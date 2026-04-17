@@ -69,8 +69,8 @@ impl CustodyDb {
             "INSERT INTO withdrawals (id, exchange_withdrawal_id, user_id, vault_id, asset, chain,
              destination_address, amount, fee, status, wallet_tier, tx_hash, block_height,
              confirmations, error_message, created_at, signed_at, broadcast_at, confirmed_at,
-             delay_release_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+             delay_release_at, memo, destination_tag, depends_on_withdrawal_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
              ON CONFLICT (exchange_withdrawal_id) DO NOTHING",
         )
         .bind(w.id)
@@ -93,6 +93,9 @@ impl CustodyDb {
         .bind(w.broadcast_at)
         .bind(w.confirmed_at)
         .bind(w.delay_release_at)
+        .bind(&w.memo)
+        .bind(w.destination_tag.map(|t| t as i64))
+        .bind(w.depends_on_withdrawal_id)
         .execute(&self.pool)
         .await?;
 
@@ -310,6 +313,12 @@ struct WithdrawalRow {
     broadcast_at: Option<chrono::DateTime<chrono::Utc>>,
     confirmed_at: Option<chrono::DateTime<chrono::Utc>>,
     delay_release_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[sqlx(default)]
+    memo: Option<String>,
+    #[sqlx(default)]
+    destination_tag: Option<i64>,
+    #[sqlx(default)]
+    depends_on_withdrawal_id: Option<Uuid>,
 }
 
 impl WithdrawalRow {
@@ -351,10 +360,9 @@ impl WithdrawalRow {
             broadcast_at: self.broadcast_at,
             confirmed_at: self.confirmed_at,
             delay_release_at: self.delay_release_at,
-            // memo and destination_tag are populated when the migration has run;
-            // default to None if the column is absent (pre-migration rows).
-            memo: None,
-            destination_tag: None,
+            memo: self.memo,
+            destination_tag: self.destination_tag.map(|t| t as u64),
+            depends_on_withdrawal_id: self.depends_on_withdrawal_id,
         }
     }
 }

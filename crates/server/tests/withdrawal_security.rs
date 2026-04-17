@@ -53,6 +53,7 @@ fn test_withdrawal(chain: Chain, address: &str, amount: rust_decimal::Decimal) -
         delay_release_at: None,
         memo: None,
         destination_tag: None,
+                depends_on_withdrawal_id: None,
     }
 }
 

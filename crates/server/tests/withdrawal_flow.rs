@@ -170,6 +170,7 @@ async fn withdrawal_validation_rejects_bad_address() {
         created_at: chrono::Utc::now(),
         signed_at: None, broadcast_at: None, confirmed_at: None, delay_release_at: None,
                 memo: None, destination_tag: None,
+                depends_on_withdrawal_id: None,
     };
     db.insert_withdrawal(&w).await.unwrap();
 
@@ -211,6 +212,7 @@ async fn withdrawal_circuit_breaker_blocks_large() {
         created_at: chrono::Utc::now(),
         signed_at: None, broadcast_at: None, confirmed_at: None, delay_release_at: None,
                 memo: None, destination_tag: None,
+                depends_on_withdrawal_id: None,
     };
     db.insert_withdrawal(&w).await.unwrap();
 

@@ -129,6 +129,7 @@ async fn idempotent_withdrawal_submission() {
         error_message: None, created_at: chrono::Utc::now(),
         signed_at: None, broadcast_at: None, confirmed_at: None, delay_release_at: None,
                 memo: None, destination_tag: None,
+                depends_on_withdrawal_id: None,
     };
 
     // Insert twice with same exchange_id

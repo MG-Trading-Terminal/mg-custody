@@ -118,6 +118,7 @@ async fn main() -> anyhow::Result<()> {
                 ("032_swap_executions", include_str!("../../db/migrations/032_swap_executions.sql")),
                 ("033_consolidation_jobs", include_str!("../../db/migrations/033_consolidation_jobs.sql")),
                 ("034_staking_positions", include_str!("../../db/migrations/034_staking_positions.sql")),
+                ("035_withdrawal_depends_on", include_str!("../../db/migrations/035_withdrawal_depends_on.sql")),
             ];
             for (name, sql) in migrations {
                 if let Err(e) = sqlx::raw_sql(sql).execute(&pool).await {
@@ -1625,6 +1626,7 @@ async fn main() -> anyhow::Result<()> {
                         delay_release_at: None,
                         memo: None,
                         destination_tag: None,
+                depends_on_withdrawal_id: None,
                     };
 
                     match sched_db.insert_withdrawal(&w).await {

@@ -187,6 +187,7 @@ impl GasStationService {
             delay_release_at: None,
             memo: None,
             destination_tag: None,
+                depends_on_withdrawal_id: None,
         };
 
         // ON CONFLICT DO NOTHING ensures idempotency: if this key already

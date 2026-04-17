@@ -72,6 +72,82 @@ const ROCKETPOOL_DEPOSIT_HOLESKY: &str = "0x320f3aAB9405e38b955178BBe75c477dECBA
 /// keccak256("deposit()")[0..4] = 0xd0e30db0.
 const ROCKETPOOL_DEPOSIT_SELECTOR: [u8; 4] = [0xd0, 0xe3, 0x0d, 0xb0];
 
+/// Lido `WithdrawalQueueERC721` contract on Ethereum mainnet.
+/// Holds the unstake queue; minted ERC-721 NFTs represent pending
+/// withdrawals until they can be claimed.
+const LIDO_WITHDRAWAL_QUEUE_MAINNET: &str = "0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1";
+/// Lido WithdrawalQueue on Holesky testnet.
+const LIDO_WITHDRAWAL_QUEUE_HOLESKY: &str = "0xc7cc160b58F8Bb0baC94b80847E2CF2800565C50";
+
+/// Function selector for ERC-20 `approve(address,uint256)`.
+/// keccak256("approve(address,uint256)")[0..4] = 0x095ea7b3.
+const ERC20_APPROVE_SELECTOR: [u8; 4] = [0x09, 0x5e, 0xa7, 0xb3];
+
+/// Function selector for Lido `requestWithdrawals(uint256[],address)`.
+/// keccak256("requestWithdrawals(uint256[],address)")[0..4] = 0xd66810426 — verified in tests.
+const LIDO_REQUEST_WITHDRAWALS_SELECTOR: [u8; 4] = [0xd6, 0x68, 0x10, 0x42];
+
+/// Pick the Lido WithdrawalQueue contract for the current network.
+fn lido_withdrawal_queue_address() -> &'static str {
+    if std::env::var("CUSTODY_TESTNET").is_ok() {
+        LIDO_WITHDRAWAL_QUEUE_HOLESKY
+    } else {
+        LIDO_WITHDRAWAL_QUEUE_MAINNET
+    }
+}
+
+/// Build ERC-20 `approve(spender, amount)` calldata. Returns 68 bytes:
+/// 4-byte selector + 32-byte spender + 32-byte amount (both big-endian
+/// right-aligned).
+fn erc20_approve_calldata(spender_hex: &str, amount_wei: alloy::primitives::U256) -> Result<Vec<u8>, ApiError> {
+    let spender: alloy::primitives::Address = spender_hex
+        .parse()
+        .map_err(|e| ApiError::internal(&format!("spender parse: {e}")))?;
+    let mut data = Vec::with_capacity(68);
+    data.extend_from_slice(&ERC20_APPROVE_SELECTOR);
+    // Left-pad spender to 32 bytes.
+    data.extend(std::iter::repeat_n(0u8, 12));
+    data.extend_from_slice(spender.as_slice());
+    data.extend_from_slice(&amount_wei.to_be_bytes::<32>());
+    Ok(data)
+}
+
+/// Build Lido `requestWithdrawals(uint256[] _amounts, address _owner)`
+/// calldata for a single-entry amount array — the common case.
+///
+/// ABI head/tail layout (4 + 32 + 32 + 32 + 32 = 132 bytes):
+///   [0..4]   selector
+///   head:
+///     [4..36]   offset to _amounts tail = 0x40 (64)
+///     [36..68]  _owner (padded)
+///   tail:
+///     [68..100]  length = 1
+///     [100..132] amount
+fn lido_request_withdrawals_calldata(
+    amount_wei: alloy::primitives::U256,
+    owner_hex: &str,
+) -> Result<Vec<u8>, ApiError> {
+    let owner: alloy::primitives::Address = owner_hex
+        .parse()
+        .map_err(|e| ApiError::internal(&format!("owner parse: {e}")))?;
+    let mut data = Vec::with_capacity(132);
+    data.extend_from_slice(&LIDO_REQUEST_WITHDRAWALS_SELECTOR);
+    // Offset to dynamic tail: 0x40 (two head slots of 32 bytes).
+    let mut offset = [0u8; 32];
+    offset[31] = 0x40;
+    data.extend_from_slice(&offset);
+    // Owner.
+    data.extend(std::iter::repeat_n(0u8, 12));
+    data.extend_from_slice(owner.as_slice());
+    // Length = 1.
+    let mut len = [0u8; 32];
+    len[31] = 1;
+    data.extend_from_slice(&len);
+    // Amount.
+    data.extend_from_slice(&amount_wei.to_be_bytes::<32>());
+    Ok(data)
+}
+
 /// Build calldata for Lido `submit(address _referral)`: 4-byte
 /// selector + 20-byte referral left-padded to 32 bytes. Zero address
 /// = no referral (accepted; no rebate).
@@ -222,6 +298,7 @@ async fn stake(
         // printable string.
         memo: Some(format!("0x{}", hex::encode(&calldata))),
         destination_tag: None,
+                depends_on_withdrawal_id: None,
     };
     state
         .db
@@ -285,20 +362,173 @@ fn parse_referral(input: Option<&str>) -> Result<[u8; 20], ApiError> {
     Ok(out)
 }
 
+#[derive(Deserialize)]
+struct UnstakeRequest {
+    /// Existing staking_positions.id to unstake from. We read the
+    /// protocol + amount off the row so callers can't double-unstake
+    /// or pass a bogus amount.
+    position_id: Uuid,
+}
+
+#[derive(serde::Serialize)]
+struct UnstakeResponse {
+    position_id: Uuid,
+    approve_withdrawal_id: Uuid,
+    request_withdrawal_id: Uuid,
+    note: &'static str,
+}
+
 async fn unstake(
-    _auth: RequireSigner,
-    State(_state): State<AppState>,
-    Json(_req): Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    Err(ApiError {
-        error: "not_implemented".into(),
-        message:
-            "Lido unstake is a multi-step flow (approve stETH → requestWithdrawals → wait 1-7 days → claimWithdrawal with NFT id). \
-             Not wired yet. Track the WithdrawalQueue NFT manually on Etherscan in the interim."
-                .into(),
-        request_id: Uuid::new_v4().to_string(),
-        status: StatusCode::NOT_IMPLEMENTED,
-    })
+    auth: RequireSigner,
+    State(state): State<AppState>,
+    Json(req): Json<UnstakeRequest>,
+) -> Result<(StatusCode, Json<UnstakeResponse>), ApiError> {
+    let positions = state
+        .db
+        .list_staking_positions_for_user(auth.0.user_id)
+        .await
+        .map_err(|e| ApiError::internal(&format!("position lookup: {e}")))?;
+    let position = positions
+        .into_iter()
+        .find(|p| p.id == req.position_id)
+        .ok_or_else(|| ApiError::not_found("Staking position not found or not yours"))?;
+
+    if position.protocol != "lido" {
+        return Err(ApiError {
+            error: "not_implemented".into(),
+            message: format!(
+                "Unstake is wired only for protocol=\"lido\" today (this position is \"{}\"). \
+                 RocketPool rETH exit via burn, Marinade mSOL unstake — follow-ups.",
+                position.protocol
+            ),
+            request_id: Uuid::new_v4().to_string(),
+            status: StatusCode::NOT_IMPLEMENTED,
+        });
+    }
+    if !matches!(
+        position.status,
+        StakingStatus::Confirmed,
+    ) {
+        return Err(ApiError::bad_request(&format!(
+            "Position status is {:?} — only confirmed positions can start unstake",
+            position.status
+        )));
+    }
+
+    // Resolve the user's on-chain ETH address so we can build both
+    // (a) the stETH allowance subject and (b) the requestWithdrawals
+    // `_owner` argument. Without it we cannot produce a correctly
+    // formed unstake chain, so refuse early.
+    let owner_hex = state
+        .db
+        .find_native_address_for_chain(auth.0.user_id, Chain::Ethereum)
+        .await
+        .map_err(|e| ApiError::internal(&format!("address lookup: {e}")))?
+        .ok_or_else(|| {
+            ApiError::conflict(
+                "User has no Ethereum address on file — create one via GET /v1/user/deposit-address/ethereum first",
+            )
+        })?;
+
+    // Convert the stored stake amount (ETH) to wei. stETH is 1:1 with
+    // ETH at the protocol level (rebasing changes balances, but
+    // requestWithdrawals takes the shares/stETH amount and Lido
+    // resolves the payout at claim time). For the allowance we use
+    // the same number.
+    let amount_wei = custody_scanner::decimal_to_uint256(position.amount, 18);
+    let steth = lido_address();
+    let withdrawal_queue = lido_withdrawal_queue_address();
+
+    // Step 1 — approve stETH → WithdrawalQueue.
+    let approve_calldata = erc20_approve_calldata(withdrawal_queue, amount_wei)?;
+    let approve_id = Uuid::new_v4();
+    let approve = Withdrawal {
+        id: approve_id,
+        exchange_withdrawal_id: Uuid::new_v4(),
+        user_id: auth.0.user_id,
+        vault_id: None,
+        asset: Asset::new("ETH"),
+        chain: Chain::Ethereum,
+        destination_address: steth.to_string(),
+        amount: Decimal::ZERO,
+        fee: None,
+        status: WithdrawalStatus::Received,
+        wallet_tier: WalletTier::Hot,
+        tx_hash: None,
+        block_height: None,
+        confirmations: 0,
+        error_message: None,
+        created_at: Utc::now(),
+        signed_at: None,
+        broadcast_at: None,
+        confirmed_at: None,
+        delay_release_at: None,
+        memo: Some(format!("0x{}", hex::encode(&approve_calldata))),
+        destination_tag: None,
+        depends_on_withdrawal_id: None,
+    };
+    state.db.insert_withdrawal(&approve).await
+        .map_err(|e| ApiError::internal(&format!("approve insert: {e}")))?;
+
+    // Step 2 — requestWithdrawals, gated on step 1 finalizing.
+    let request_calldata = lido_request_withdrawals_calldata(amount_wei, &owner_hex)?;
+    let request_id = Uuid::new_v4();
+    let request_tx = Withdrawal {
+        id: request_id,
+        exchange_withdrawal_id: Uuid::new_v4(),
+        user_id: auth.0.user_id,
+        vault_id: None,
+        asset: Asset::new("ETH"),
+        chain: Chain::Ethereum,
+        destination_address: withdrawal_queue.to_string(),
+        amount: Decimal::ZERO,
+        fee: None,
+        status: WithdrawalStatus::Received,
+        wallet_tier: WalletTier::Hot,
+        tx_hash: None,
+        block_height: None,
+        confirmations: 0,
+        error_message: None,
+        created_at: Utc::now(),
+        signed_at: None,
+        broadcast_at: None,
+        confirmed_at: None,
+        delay_release_at: None,
+        memo: Some(format!("0x{}", hex::encode(&request_calldata))),
+        destination_tag: None,
+        depends_on_withdrawal_id: Some(approve_id),
+    };
+    state.db.insert_withdrawal(&request_tx).await
+        .map_err(|e| ApiError::internal(&format!("request insert: {e}")))?;
+
+    state
+        .db
+        .update_staking_position_status(position.id, StakingStatus::Unstaking, None)
+        .await
+        .map_err(|e| ApiError::internal(&format!("position update: {e}")))?;
+
+    tracing::info!(
+        position_id = %position.id,
+        approve_id = %approve_id,
+        request_id = %request_id,
+        amount = %position.amount,
+        owner = %owner_hex,
+        "Lido unstake sequence queued (approve → requestWithdrawals)"
+    );
+
+    Ok((
+        StatusCode::CREATED,
+        Json(UnstakeResponse {
+            position_id: position.id,
+            approve_withdrawal_id: approve_id,
+            request_withdrawal_id: request_id,
+            note: "Approve + requestWithdrawals queued. After the request tx finalizes, \
+                   Lido mints a withdrawal NFT to the owner address. Parse the receipt's \
+                   `WithdrawalRequested` event for the request id, then claim via \
+                   claimWithdrawal after the protocol finalization window (typically 1–7 days). \
+                   Claim endpoint is a follow-up.",
+        }),
+    ))
 }
 
 async fn list_positions(
@@ -443,5 +673,55 @@ mod tests {
         assert_ne!(LIDO_STETH_MAINNET, LIDO_STETH_HOLESKY);
         assert_ne!(ROCKETPOOL_DEPOSIT_MAINNET, ROCKETPOOL_DEPOSIT_HOLESKY);
         assert_ne!(LIDO_STETH_MAINNET, ROCKETPOOL_DEPOSIT_MAINNET);
+        assert_ne!(LIDO_WITHDRAWAL_QUEUE_MAINNET, LIDO_WITHDRAWAL_QUEUE_HOLESKY);
+    }
+
+    #[test]
+    fn compute_erc20_approve_selector() {
+        use sha3::{Digest, Keccak256};
+        let hash = Keccak256::digest(b"approve(address,uint256)");
+        assert_eq!(&hash[..4], &ERC20_APPROVE_SELECTOR);
+    }
+
+    #[test]
+    fn compute_lido_request_withdrawals_selector() {
+        use sha3::{Digest, Keccak256};
+        let hash = Keccak256::digest(b"requestWithdrawals(uint256[],address)");
+        assert_eq!(&hash[..4], &LIDO_REQUEST_WITHDRAWALS_SELECTOR);
+    }
+
+    #[test]
+    fn erc20_approve_calldata_shape() {
+        use alloy::primitives::U256;
+        let cd = erc20_approve_calldata(
+            "0x889edC2eDab5f40e902b864aD4d7AdE8E412F9B1",
+            U256::from(10_000_000_000_000_000_000u128), // 10 ETH
+        )
+        .unwrap();
+        // 4 + 32 + 32 = 68 bytes
+        assert_eq!(cd.len(), 68);
+        assert_eq!(&cd[..4], &ERC20_APPROVE_SELECTOR);
+        // Address is in bytes 16..36 (left-pad 12 zeros + 20 bytes).
+        assert_eq!(&cd[16..36], &[
+            0x88, 0x9e, 0xdC, 0x2e, 0xDa, 0xb5, 0xf4, 0x0e, 0x90, 0x2b,
+            0x86, 0x4a, 0xD4, 0xd7, 0xAd, 0xE8, 0xE4, 0x12, 0xF9, 0xB1,
+        ]);
+    }
+
+    #[test]
+    fn lido_request_withdrawals_calldata_shape() {
+        use alloy::primitives::U256;
+        let cd = lido_request_withdrawals_calldata(
+            U256::from(1_000_000_000_000_000_000u128), // 1 ETH
+            "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18",
+        )
+        .unwrap();
+        // 4 + 32 + 32 + 32 + 32 = 132 bytes
+        assert_eq!(cd.len(), 132);
+        assert_eq!(&cd[..4], &LIDO_REQUEST_WITHDRAWALS_SELECTOR);
+        // Offset to tail = 64 = 0x40 (big-endian in last byte of slot).
+        assert_eq!(cd[35], 0x40);
+        // Length slot = 1.
+        assert_eq!(cd[99], 1);
     }
 }

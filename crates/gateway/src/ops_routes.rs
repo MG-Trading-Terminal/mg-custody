@@ -349,6 +349,7 @@ async fn batch_withdraw(
                 delay_release_at: None,
                 memo: None,
                 destination_tag: None,
+                depends_on_withdrawal_id: None,
             };
             new_withdrawals.push(w);
         }

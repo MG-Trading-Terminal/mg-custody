@@ -254,6 +254,49 @@ impl WithdrawalPipeline {
 
     async fn process_validated(&self) -> Result<()> {
         for w in self.db.withdrawals_by_status(WithdrawalStatus::Validated).await? {
+            // Dependency gate. When a withdrawal is part of a
+            // multi-step flow (Lido unstake, Uniswap approve+swap,
+            // …) we refuse to sign it until its predecessor is
+            // Finalized. If the predecessor is Failed we fail this
+            // one the same way so partial sequences don't half-execute.
+            if let Some(dep_id) = w.depends_on_withdrawal_id {
+                match self.db.find_withdrawal(dep_id).await? {
+                    Some(dep) => match dep.status {
+                        WithdrawalStatus::Finalized | WithdrawalStatus::Confirming => {
+                            // Finalized = required confirmations reached; Confirming
+                            // = broadcast and at least one confirmation. Allow
+                            // proceeding at Confirming too so multi-step chains
+                            // don't stall waiting for the full confirmation depth
+                            // of the leading tx. Adjust if an operator wants
+                            // strict-Finalized semantics.
+                        }
+                        WithdrawalStatus::Failed | WithdrawalStatus::Cancelled => {
+                            tracing::error!(
+                                id = %w.id, dep = %dep_id, dep_status = ?dep.status,
+                                "Dependency terminated unsuccessfully — failing dependent"
+                            );
+                            self.db.update_withdrawal_status(w.id, WithdrawalStatus::Failed).await?;
+                            continue;
+                        }
+                        _ => {
+                            tracing::debug!(
+                                id = %w.id, dep = %dep_id, dep_status = ?dep.status,
+                                "Dependency not yet finalized — skipping this tick"
+                            );
+                            continue;
+                        }
+                    },
+                    None => {
+                        tracing::warn!(
+                            id = %w.id, dep = %dep_id,
+                            "depends_on_withdrawal_id points at a missing row — failing"
+                        );
+                        self.db.update_withdrawal_status(w.id, WithdrawalStatus::Failed).await?;
+                        continue;
+                    }
+                }
+            }
+
             // Sanctions check
             if let Some(ref checker) = self.sanctions_checker {
                 let result = checker.check(&w.destination_address);

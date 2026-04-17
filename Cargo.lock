@@ -2090,6 +2090,7 @@ dependencies = [
 name = "custody-gateway"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "anyhow",
  "argon2",
  "axum",
@@ -2099,6 +2100,7 @@ dependencies = [
  "custody-compliance",
  "custody-db",
  "custody-reconciliation",
+ "custody-scanner",
  "custody-signing",
  "custody-wallet-manager",
  "custody-withdrawal-pipeline",

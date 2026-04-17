@@ -166,6 +166,7 @@ async fn withdrawal_lifecycle() {
         delay_release_at: None,
         memo: None,
         destination_tag: None,
+                depends_on_withdrawal_id: None,
     };
 
     // Insert
@@ -265,6 +266,7 @@ async fn outflow_tracking() {
         created_at: chrono::Utc::now(),
         signed_at: None, broadcast_at: None, confirmed_at: None, delay_release_at: None,
         memo: None, destination_tag: None,
+                depends_on_withdrawal_id: None,
     };
     db.insert_withdrawal(&w).await.unwrap();
 

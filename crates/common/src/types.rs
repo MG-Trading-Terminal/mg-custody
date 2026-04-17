@@ -220,6 +220,12 @@ pub struct Withdrawal {
     pub memo: Option<String>,
     /// Numeric destination tag (XRP-specific).
     pub destination_tag: Option<u64>,
+    /// Withdrawal this one must wait for before being signed.
+    /// `Some(id)` holds the row at Validated until the dependency
+    /// row is Finalized. Used by multi-step flows (Lido unstake:
+    /// stETH approve → requestWithdrawals; Uniswap: approve → swap).
+    #[serde(default)]
+    pub depends_on_withdrawal_id: Option<Uuid>,
 }
 
 // ---------------------------------------------------------------------------
