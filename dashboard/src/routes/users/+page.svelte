@@ -2,6 +2,7 @@
 	import { api } from '$lib/api';
 	import { onMount } from 'svelte';
 	import { icon } from '$lib/icons/ui';
+	import { t, locale } from '$lib/i18n';
 
 	interface WorkspaceUser {
 		id: string;
@@ -104,12 +105,12 @@
 	}
 
 	function fmtDate(s: string | null): string {
-		if (!s) return 'Never';
+		if (!s) return t('users.never');
 		const d = new Date(s);
 		const diff = Date.now() - d.getTime();
 		const dd = Math.floor(diff / 86_400_000);
-		if (dd === 0) return 'Today';
-		if (dd === 1) return 'Yesterday';
+		if (dd === 0) return t('users.today');
+		if (dd === 1) return t('users.yesterday');
 		if (dd < 7) return `${dd} days ago`;
 		return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 	}
@@ -135,20 +136,20 @@
 <!-- ═══ Head ═══ -->
 <div class="page-head">
 	<div>
-		<h1>Team</h1>
-		<p class="page-sub">Workspace members, roles, and permissions. Role hierarchy: Owner &gt; Admin &gt; Signer &gt; Editor &gt; Viewer.</p>
+		<h1>{$locale, t('users.title')}</h1>
+		<p class="page-sub">{$locale, t('users.subtitle')}</p>
 	</div>
 	<button class="btn btn-primary" onclick={() => { showInvite = true; inviteError = ''; }}>
 		<span>{@html icon('plus', 14)}</span>
-		<span>Invite member</span>
+		<span>{$locale, t('users.invite')}</span>
 	</button>
 </div>
 
 <section class="stat-strip">
-	<div class="stat-tile"><span class="stat-label">Total</span><span class="stat-value mono">{stats.total}</span></div>
-	<div class="stat-tile"><span class="stat-label">Active</span><span class="stat-value mono tone-ok">{stats.active}</span></div>
-	<div class="stat-tile"><span class="stat-label">Admins</span><span class="stat-value mono">{stats.admins}</span></div>
-	<div class="stat-tile"><span class="stat-label">Signers</span><span class="stat-value mono">{stats.signers}</span></div>
+	<div class="stat-tile"><span class="stat-label">{$locale, t('users.stat_total')}</span><span class="stat-value mono">{stats.total}</span></div>
+	<div class="stat-tile"><span class="stat-label">{$locale, t('users.stat_active')}</span><span class="stat-value mono tone-ok">{stats.active}</span></div>
+	<div class="stat-tile"><span class="stat-label">{$locale, t('users.stat_admins')}</span><span class="stat-value mono">{stats.admins}</span></div>
+	<div class="stat-tile"><span class="stat-label">{$locale, t('users.stat_signers')}</span><span class="stat-value mono">{stats.signers}</span></div>
 </section>
 
 {#if error}
@@ -163,7 +164,7 @@
 <section class="filter-bar">
 	<div class="search-wrap">
 		<span class="search-icon">{@html icon('search', 14)}</span>
-		<input type="text" bind:value={searchQuery} placeholder="Search by email…" />
+		<input type="text" bind:value={searchQuery} placeholder={($locale, t('users.search_hint'))} />
 	</div>
 	<div class="role-filter">
 		<button class="chip-btn" class:active={roleFilter === 'all'} onclick={() => roleFilter = 'all'}>All</button>
@@ -180,7 +181,7 @@
 <section class="panel">
 	<header class="panel-head">
 		<div>
-			<h2>Members</h2>
+			<h2>{$locale, t('users.members')}</h2>
 			<p class="panel-sub">{filtered.length} of {users.length}</p>
 		</div>
 	</header>
@@ -194,19 +195,19 @@
 		<div class="panel-empty">
 			<span class="empty-mark">{@html icon('users', 22)}</span>
 			<div>
-				<p class="empty-title">{users.length === 0 ? 'No team members yet' : 'No matches'}</p>
-				<p class="muted">{users.length === 0 ? 'Invite colleagues to collaborate on custody operations.' : 'Adjust search or role filter.'}</p>
+				<p class="empty-title">{users.length === 0 ? ($locale, t('users.no_members')) : ($locale, t('users.no_match'))}</p>
+				<p class="muted">{users.length === 0 ? ($locale, t('users.no_members_sub')) : ($locale, t('users.no_match_sub'))}</p>
 			</div>
 		</div>
 	{:else}
 		<table class="data-table">
 			<thead>
 				<tr>
-					<th>Member</th>
-					<th>Role</th>
-					<th>Status</th>
-					<th class="num">Last active</th>
-					<th class="num">Joined</th>
+					<th>{$locale, t('users.col_member')}</th>
+					<th>{$locale, t('users.col_role')}</th>
+					<th>{$locale, t('users.col_status')}</th>
+					<th class="num">{$locale, t('users.col_last')}</th>
+					<th class="num">{$locale, t('users.col_joined')}</th>
 					<th></th>
 				</tr>
 			</thead>
@@ -261,7 +262,7 @@
 	<div class="overlay" role="presentation" onclick={() => showInvite = false} onkeydown={(e) => e.key === 'Escape' && (showInvite = false)}>
 		<div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
 			<header class="modal-head">
-				<h3>Invite team member</h3>
+				<h3>{$locale, t('users.invite_title')}</h3>
 				<button class="icon-btn" onclick={() => showInvite = false}>{@html icon('x', 16)}</button>
 			</header>
 
@@ -305,7 +306,7 @@
 				<div class="modal-actions">
 					<button type="button" class="btn btn-ghost" onclick={() => showInvite = false}>Cancel</button>
 					<button type="submit" class="btn btn-primary" disabled={inviting}>
-						{#if inviting}<span class="spinner"></span><span>Sending…</span>{:else}<span>Send invite</span>{/if}
+						{#if inviting}<span class="spinner"></span><span>{$locale, t('users.sending')}</span>{:else}<span>{$locale, t('users.send_invite')}</span>{/if}
 					</button>
 				</div>
 			</form>

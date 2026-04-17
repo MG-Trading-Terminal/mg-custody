@@ -2,6 +2,7 @@
 	import { api } from '$lib/api';
 	import { chainIcon } from '$lib/icons/tokens';
 	import { icon } from '$lib/icons/ui';
+	import { t, locale } from '$lib/i18n';
 
 	interface DerivedAddress {
 		index: number;
@@ -87,14 +88,14 @@
 
 <div class="page-head">
 	<div>
-		<h1>HD derivation tree</h1>
-		<p class="page-sub">Deterministic address generation from the workspace master seed. Every address is reproducible given the path and seed.</p>
+		<h1>{$locale, t('derivation.title')}</h1>
+		<p class="page-sub">{$locale, t('derivation.subtitle')}</p>
 	</div>
 </div>
 
 <section class="controls">
 	<div class="field">
-		<label for="d-chain">Chain</label>
+		<label for="d-chain">{$locale, t('derivation.chain')}</label>
 		<div class="select-wrap">
 			<span class="select-icon">{@html chainIcon(chain, 16)}</span>
 			<select id="d-chain" bind:value={chain}>
@@ -112,10 +113,10 @@
 	<button class="btn btn-primary" onclick={loadTree} disabled={loading}>
 		{#if loading}
 			<span class="spinner"></span>
-			<span>Deriving…</span>
+			<span>{$locale, t('derivation.deriving')}</span>
 		{:else}
 			<span>{@html icon('derivation', 14)}</span>
-			<span>Derive addresses</span>
+			<span>{$locale, t('derivation.derive')}</span>
 		{/if}
 	</button>
 </section>
@@ -138,19 +139,19 @@
 {#if tree && stats}
 	<section class="stat-strip">
 		<div class="stat-tile">
-			<span class="stat-label">Base path</span>
+			<span class="stat-label">{$locale, t('derivation.stat_base')}</span>
 			<span class="stat-value mono path-val">{tree.base_path}</span>
 		</div>
 		<div class="stat-tile">
-			<span class="stat-label">Derived</span>
+			<span class="stat-label">{$locale, t('derivation.stat_derived')}</span>
 			<span class="stat-value mono">{stats.total}</span>
 		</div>
 		<div class="stat-tile">
-			<span class="stat-label">Used</span>
+			<span class="stat-label">{$locale, t('derivation.stat_used')}</span>
 			<span class="stat-value mono tone-ok">{stats.used}</span>
 		</div>
 		<div class="stat-tile">
-			<span class="stat-label">Unused</span>
+			<span class="stat-label">{$locale, t('derivation.stat_unused')}</span>
 			<span class="stat-value mono muted">{stats.unused}</span>
 		</div>
 	</section>
@@ -162,7 +163,7 @@
 					<span class="chain-ico">{@html chainIcon(tree.chain, 16)}</span>
 					{tree.chain} addresses
 				</h2>
-				<p class="panel-sub">Each row is reproducible from the master seed using the shown BIP32/SLIP-0010 path.</p>
+				<p class="panel-sub">{$locale, t('derivation.addr_table_sub')}</p>
 			</div>
 		</header>
 
@@ -170,9 +171,9 @@
 			<thead>
 				<tr>
 					<th class="num">#</th>
-					<th>Derivation path</th>
-					<th>Address</th>
-					<th>Status</th>
+					<th>{$locale, t('derivation.col_path')}</th>
+					<th>{$locale, t('derivation.col_address')}</th>
+					<th>{$locale, t('derivation.col_status')}</th>
 					<th></th>
 				</tr>
 			</thead>
@@ -195,9 +196,9 @@
 						</td>
 						<td>
 							{#if a.used}
-								<span class="chip tone-ok"><span class="chip-dot"></span>Used</span>
+								<span class="chip tone-ok"><span class="chip-dot"></span>{$locale, t('derivation.status_used')}</span>
 							{:else}
-								<span class="chip tone-muted">Unused</span>
+								<span class="chip tone-muted">{$locale, t('derivation.status_unused')}</span>
 							{/if}
 						</td>
 						<td>
@@ -206,7 +207,7 @@
 									<span class="spinner sm-spin"></span>
 								{:else}
 									<span>{@html icon('shield-check', 12)}</span>
-									<span>Verify</span>
+									<span>{$locale, t('derivation.verify')}</span>
 								{/if}
 							</button>
 						</td>

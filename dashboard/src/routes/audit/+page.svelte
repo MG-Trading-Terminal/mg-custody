@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import { icon } from '$lib/icons/ui';
+	import { t, locale } from '$lib/i18n';
 
 	interface AuditEntry {
 		id: string;
@@ -98,16 +99,16 @@
 <!-- ═══ Head ═══ -->
 <div class="page-head">
 	<div>
-		<h1>Audit log</h1>
-		<p class="page-sub">Append-only, tamper-evident record of every privileged operation. Hash-chained with SHA-256.</p>
+		<h1>{$locale, t('audit.title')}</h1>
+		<p class="page-sub">{$locale, t('audit.subtitle')}</p>
 	</div>
 	<button class="btn btn-secondary" onclick={verifyIntegrity} disabled={verifying}>
 		{#if verifying}
 			<span class="spinner sm"></span>
-			<span>Verifying chain…</span>
+			<span>{$locale, t('audit.verifying')}</span>
 		{:else}
 			<span>{@html icon('shield-check', 14)}</span>
-			<span>Verify chain integrity</span>
+			<span>{$locale, t('audit.verify')}</span>
 		{/if}
 	</button>
 </div>
@@ -120,12 +121,12 @@
 		</span>
 		<div class="integrity-body">
 			{#if integrityResult.ok}
-				<span class="integrity-title">Hash chain verified</span>
+				<span class="integrity-title">{$locale, t('audit.verified')}</span>
 				<span class="integrity-sub">
 					<span class="mono">{integrityResult.checked.toLocaleString()}</span> entries checked — no tampering detected
 				</span>
 			{:else}
-				<span class="integrity-title">Integrity compromised</span>
+				<span class="integrity-title">{$locale, t('audit.failed')}</span>
 				<span class="integrity-sub">
 					{integrityResult.message}
 					{#if integrityResult.first_broken_id}
@@ -145,7 +146,7 @@
 		<input
 			type="text"
 			bind:value={filterSearch}
-			placeholder="Search by actor, resource, or ID…"
+			placeholder={($locale, t('audit.search_hint'))}
 			onkeydown={(e) => { if (e.key === 'Enter') load(); }}
 		/>
 	</div>
@@ -179,12 +180,12 @@
 <section class="panel">
 	<header class="panel-head">
 		<div>
-			<h2>Event stream</h2>
+			<h2>{$locale, t('audit.stream')}</h2>
 			<p class="panel-sub">{loading ? 'Loading…' : `${entries.length} event${entries.length === 1 ? '' : 's'}`}</p>
 		</div>
 		<span class="hash-chip mono">
 			<span>{@html icon('git-branch', 12)}</span>
-			<span>SHA-256 chain</span>
+			<span>{$locale, t('audit.chain_label')}</span>
 		</span>
 	</header>
 
@@ -196,8 +197,8 @@
 		<div class="panel-empty">
 			<span class="empty-mark">{@html icon('audit', 22)}</span>
 			<div>
-				<p class="empty-title">No audit entries</p>
-				<p class="muted">Adjust filters or wait for system activity.</p>
+				<p class="empty-title">{$locale, t('audit.no_events')}</p>
+				<p class="muted">{$locale, t('audit.no_events_sub')}</p>
 			</div>
 		</div>
 	{:else}

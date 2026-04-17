@@ -3,6 +3,7 @@
 	import { api } from '$lib/api';
 	import { chainIcon } from '$lib/icons/tokens';
 	import { icon } from '$lib/icons/ui';
+	import { t, locale } from '$lib/i18n';
 
 	interface DetailedChainHealth {
 		status: string;
@@ -77,8 +78,8 @@
 <!-- ═══ Head ═══ -->
 <div class="page-head">
 	<div>
-		<h1>System</h1>
-		<p class="page-sub">Runtime telemetry, chain infrastructure, and configuration reference.</p>
+		<h1>{$locale, t('settings.title')}</h1>
+		<p class="page-sub">{$locale, t('settings.subtitle')}</p>
 	</div>
 	<button class="btn btn-ghost" onclick={load}>
 		<span>{@html icon('refresh', 14)}</span>
@@ -95,24 +96,24 @@
 	{@const sys = detailedHealth.system}
 	<section class="kpi-grid">
 		<div class="kpi">
-			<span class="kpi-label">Uptime</span>
+			<span class="kpi-label">{$locale, t('settings.kpi_uptime')}</span>
 			<span class="kpi-value mono">{fmtUptime(sys.uptime_seconds)}</span>
 		</div>
 		<div class="kpi">
-			<span class="kpi-label">DB pool</span>
+			<span class="kpi-label">{$locale, t('settings.kpi_dbpool')}</span>
 			<span class="kpi-value mono">{sys.db_pool_active}<span class="of">/{sys.db_pool_size}</span></span>
 			<span class="kpi-hint muted tiny">active / max</span>
 		</div>
 		<div class="kpi">
-			<span class="kpi-label">Memory</span>
+			<span class="kpi-label">{$locale, t('settings.kpi_memory')}</span>
 			<span class="kpi-value mono">{sys.memory_mb > 0 ? `${sys.memory_mb}` : '—'}<span class="of">{sys.memory_mb > 0 ? ' MB' : ''}</span></span>
 		</div>
 		<div class="kpi">
-			<span class="kpi-label">Pending webhooks</span>
+			<span class="kpi-label">{$locale, t('settings.kpi_webhooks')}</span>
 			<span class="kpi-value mono" class:tone-warn={sys.pending_webhooks > 0}>{sys.pending_webhooks}</span>
 		</div>
 		<div class="kpi">
-			<span class="kpi-label">Circuit breaker</span>
+			<span class="kpi-label">{$locale, t('settings.kpi_cb')}</span>
 			<span class="kpi-value">
 				{#if sys.circuit_breaker === 'normal'}
 					<span class="chip tone-ok"><span class="chip-dot"></span>Operational</span>
@@ -127,8 +128,8 @@
 	<section class="panel">
 		<header class="panel-head">
 			<div>
-				<h2>Chain infrastructure</h2>
-				<p class="panel-sub">RPC endpoints and scanner health per network</p>
+				<h2>{$locale, t('settings.chain_infra')}</h2>
+				<p class="panel-sub">{$locale, t('settings.chain_infra_sub')}</p>
 			</div>
 			<span class="badge-count">{Object.keys(detailedHealth.chains).length}</span>
 		</header>
@@ -150,29 +151,29 @@
 
 					<div class="chain-metrics">
 						<div>
-							<span class="metric-label">Scanner block</span>
+							<span class="metric-label">{$locale, t('settings.metric_scanner_block')}</span>
 							<span class="metric-val mono">{ch.scanner_block?.toLocaleString() ?? '—'}</span>
 						</div>
 						<div>
-							<span class="metric-label">Lag</span>
+							<span class="metric-label">{$locale, t('settings.metric_lag')}</span>
 							<span class="metric-val mono tone-{lagTone(ch.scanner_lag)}">
 								{ch.scanner_lag != null ? `${ch.scanner_lag} blk` : '—'}
 							</span>
 						</div>
 						<div>
-							<span class="metric-label">RPC latency</span>
+							<span class="metric-label">{$locale, t('settings.metric_rpc_lat')}</span>
 							<span class="metric-val mono">{fmtLat(ch.avg_rpc_latency_ms)}</span>
 						</div>
 						<div>
-							<span class="metric-label">Error rate</span>
+							<span class="metric-label">{$locale, t('settings.metric_err_rate')}</span>
 							<span class="metric-val mono" class:tone-warn={ch.error_rate_pct > 1}>{ch.error_rate_pct.toFixed(2)}%</span>
 						</div>
 						<div>
-							<span class="metric-label">Deposits · 24h</span>
+							<span class="metric-label">{$locale, t('settings.metric_dep_24h')}</span>
 							<span class="metric-val mono">{ch.deposits_today}</span>
 						</div>
 						<div>
-							<span class="metric-label">Withdrawals · 24h</span>
+							<span class="metric-label">{$locale, t('settings.metric_wd_24h')}</span>
 							<span class="metric-val mono">{ch.withdrawals_today}</span>
 						</div>
 					</div>
@@ -190,11 +191,11 @@
 	<section class="panel">
 		<header class="panel-head">
 			<div>
-				<h2>Webhook events</h2>
-				<p class="panel-sub">Exchange receives these events via signed HTTP callbacks</p>
+				<h2>{$locale, t('settings.webhook_events')}</h2>
+				<p class="panel-sub">{$locale, t('settings.webhook_events_sub')}</p>
 			</div>
 			<a href="/webhooks" class="btn btn-ghost">
-				<span>Manage endpoints</span>
+				<span>{$locale, t('settings.manage_endpoints')}</span>
 				<span>{@html icon('chevron-right', 12)}</span>
 			</a>
 		</header>
@@ -242,8 +243,8 @@
 		<div class="panel-empty">
 			<span class="empty-mark">{@html icon('alert-triangle', 22)}</span>
 			<div>
-				<p class="empty-title">System telemetry unavailable</p>
-				<p class="muted">The detailed health endpoint did not respond. Core endpoints may still be operational.</p>
+				<p class="empty-title">{$locale, t('settings.unavailable')}</p>
+				<p class="muted">{$locale, t('settings.unavailable_sub')}</p>
 			</div>
 		</div>
 	</div>

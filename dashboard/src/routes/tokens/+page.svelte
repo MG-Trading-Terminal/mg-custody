@@ -3,6 +3,7 @@
 	import { api } from '$lib/api';
 	import { tokenIcon, chainIcon, hasTokenIcon } from '$lib/icons/tokens';
 	import { icon } from '$lib/icons/ui';
+	import { t, locale } from '$lib/i18n';
 
 	interface TokenInfo {
 		id: string;
@@ -102,20 +103,20 @@
 
 <div class="page-head">
 	<div>
-		<h1>Tokens</h1>
-		<p class="page-sub">Supported assets across all networks. Import custom tokens by contract address.</p>
+		<h1>{$locale, t('tokens.title')}</h1>
+		<p class="page-sub">{$locale, t('tokens.subtitle')}</p>
 	</div>
 	<button class="btn btn-primary" onclick={() => { showImport = true; importError = ''; }}>
 		<span>{@html icon('plus', 14)}</span>
-		<span>Import token</span>
+		<span>{$locale, t('tokens.import')}</span>
 	</button>
 </div>
 
 <section class="stat-strip">
-	<div class="stat-tile"><span class="stat-label">Total</span><span class="stat-value mono">{stats.total}</span></div>
-	<div class="stat-tile"><span class="stat-label">Native</span><span class="stat-value mono">{stats.native}</span></div>
-	<div class="stat-tile"><span class="stat-label">Stablecoins</span><span class="stat-value mono tone-ok">{stats.stable}</span></div>
-	<div class="stat-tile"><span class="stat-label">ERC-20 / TRC-20 / SPL</span><span class="stat-value mono">{stats.erc20}</span></div>
+	<div class="stat-tile"><span class="stat-label">{$locale, t('tokens.stat_total')}</span><span class="stat-value mono">{stats.total}</span></div>
+	<div class="stat-tile"><span class="stat-label">{$locale, t('tokens.stat_native')}</span><span class="stat-value mono">{stats.native}</span></div>
+	<div class="stat-tile"><span class="stat-label">{$locale, t('tokens.stat_stable')}</span><span class="stat-value mono tone-ok">{stats.stable}</span></div>
+	<div class="stat-tile"><span class="stat-label">{$locale, t('tokens.stat_other')}</span><span class="stat-value mono">{stats.erc20}</span></div>
 </section>
 
 {#if error}
@@ -144,7 +145,7 @@
 <section class="panel">
 	<header class="panel-head">
 		<div>
-			<h2>Token registry</h2>
+			<h2>{$locale, t('tokens.registry')}</h2>
 			<p class="panel-sub">{loading ? 'Loading…' : `${filtered.length} of ${tokens.length}`}</p>
 		</div>
 	</header>
@@ -199,11 +200,11 @@
 						<td class="num mono">{token.decimals}</td>
 						<td>
 							{#if token.is_native}
-								<span class="type-chip native">Native</span>
+								<span class="type-chip native">{$locale, t('tokens.type_native')}</span>
 							{:else if token.is_stablecoin}
-								<span class="type-chip stable">Stablecoin</span>
+								<span class="type-chip stable">{$locale, t('tokens.type_stable')}</span>
 							{:else}
-								<span class="type-chip token">Token</span>
+								<span class="type-chip token">{$locale, t('tokens.type_token')}</span>
 							{/if}
 						</td>
 						<td>
@@ -224,7 +225,7 @@
 	<div class="overlay" role="presentation" onclick={() => showImport = false} onkeydown={(e) => e.key === 'Escape' && (showImport = false)}>
 		<div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
 			<header class="modal-head">
-				<h3>Import token</h3>
+				<h3>{$locale, t('tokens.import')}</h3>
 				<button class="icon-btn" onclick={() => showImport = false}>{@html icon('x', 16)}</button>
 			</header>
 
@@ -281,7 +282,7 @@
 			<div class="modal-actions">
 				<button class="btn btn-ghost" onclick={() => showImport = false}>Cancel</button>
 				<button class="btn btn-primary" onclick={importToken} disabled={importing}>
-					{#if importing}<span class="spinner"></span><span>Importing…</span>{:else}<span>Import token</span>{/if}
+					{#if importing}<span class="spinner"></span><span>{$locale, t('tokens.importing')}</span>{:else}<span>{$locale, t('tokens.import')}</span>{/if}
 				</button>
 			</div>
 		</div>

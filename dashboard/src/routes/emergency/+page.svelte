@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import { icon } from '$lib/icons/ui';
+	import { t, locale } from '$lib/i18n';
 
 	interface FreezeStatus {
 		frozen: boolean;
@@ -113,8 +114,8 @@
 <!-- ═══ Head ═══ -->
 <div class="page-head">
 	<div>
-		<h1>Emergency</h1>
-		<p class="page-sub">Owner-level kill-switches and manual withdrawal overrides. Every action is written to the immutable audit log.</p>
+		<h1>{$locale, t('emergency.title')}</h1>
+		<p class="page-sub">{$locale, t('emergency.subtitle')}</p>
 	</div>
 </div>
 
@@ -122,8 +123,8 @@
 <div class="warning-banner">
 	<span class="warn-icon">{@html icon('alert-triangle', 18)}</span>
 	<div>
-		<span class="warn-title">Owner-only operations</span>
-		<span class="warn-sub">These controls bypass normal approval flows. Use only during verified incidents — all changes are irreversible from this interface.</span>
+		<span class="warn-title">{$locale, t('emergency.warning')}</span>
+		<span class="warn-sub">{$locale, t('emergency.warning_sub')}</span>
 	</div>
 </div>
 
@@ -133,9 +134,9 @@
 		<div>
 			<h2>
 				<span class="panel-icon">{@html icon('shield', 14)}</span>
-				System state
+				{$locale, t('emergency.state')}
 			</h2>
-			<p class="panel-sub">Global freeze halts all signing and withdrawal processing</p>
+			<p class="panel-sub">{$locale, t('emergency.state_sub')}</p>
 		</div>
 
 		{#if loading}
@@ -144,12 +145,12 @@
 			{#if status.frozen}
 				<span class="state-badge frozen">
 					<span class="dot"></span>
-					<span>FROZEN</span>
+					<span>{$locale, t('emergency.frozen')}</span>
 				</span>
 			{:else}
 				<span class="state-badge ok">
 					<span class="dot"></span>
-					<span>OPERATIONAL</span>
+					<span>{$locale, t('emergency.operational')}</span>
 				</span>
 			{/if}
 		{:else}
@@ -164,7 +165,7 @@
 
 		<div class="freeze-form">
 			<div class="field">
-				<label for="freeze-reason">Reason (required — written to audit log)</label>
+				<label for="freeze-reason">{$locale, t('emergency.reason')}</label>
 				<input
 					id="freeze-reason"
 					type="text"
@@ -181,10 +182,10 @@
 				>
 					{#if working === 'freeze'}
 						<span class="spinner"></span>
-						<span>Freezing…</span>
+						<span>{$locale, t('emergency.freezing')}</span>
 					{:else}
 						<span>{@html icon('alert-triangle', 14)}</span>
-						<span>Freeze all operations</span>
+						<span>{$locale, t('emergency.freeze')}</span>
 					{/if}
 				</button>
 				<button
@@ -194,10 +195,10 @@
 				>
 					{#if working === 'unfreeze'}
 						<span class="spinner"></span>
-						<span>Unfreezing…</span>
+						<span>{$locale, t('emergency.unfreezing')}</span>
 					{:else}
 						<span>{@html icon('check', 14)}</span>
-						<span>Unfreeze</span>
+						<span>{$locale, t('emergency.unfreeze')}</span>
 					{/if}
 				</button>
 				<button class="btn btn-ghost" onclick={loadStatus}>
@@ -228,20 +229,20 @@
 		<div>
 			<h2>
 				<span class="panel-icon">{@html icon('sliders', 14)}</span>
-				Withdrawal override
+				{$locale, t('emergency.override')}
 			</h2>
-			<p class="panel-sub">Force-complete or cancel a stuck withdrawal when on-chain state has been independently verified</p>
+			<p class="panel-sub">{$locale, t('emergency.override_sub')}</p>
 		</div>
 	</header>
 
 	<div class="panel-body">
 		<div class="field">
-			<label for="ovr-id">Withdrawal ID</label>
+			<label for="ovr-id">{$locale, t('emergency.wd_id')}</label>
 			<input id="ovr-id" type="text" bind:value={overrideId} placeholder="UUID" class="mono" />
 		</div>
 
 		<div class="field">
-			<label for="ovr-reason">Justification (mandatory — written to audit log)</label>
+			<label for="ovr-reason">{$locale, t('emergency.justification')}</label>
 			<textarea
 				id="ovr-reason"
 				bind:value={overrideReason}
@@ -254,19 +255,19 @@
 			<button class="btn btn-success" onclick={forceComplete} disabled={overrideWorking !== null}>
 				{#if overrideWorking === 'complete'}
 					<span class="spinner"></span>
-					<span>Working…</span>
+					<span>{$locale, t('emergency.working')}</span>
 				{:else}
 					<span>{@html icon('check', 14)}</span>
-					<span>Force-complete</span>
+					<span>{$locale, t('emergency.force_complete')}</span>
 				{/if}
 			</button>
 			<button class="btn btn-danger" onclick={forceCancel} disabled={overrideWorking !== null}>
 				{#if overrideWorking === 'cancel'}
 					<span class="spinner"></span>
-					<span>Working…</span>
+					<span>{$locale, t('emergency.working')}</span>
 				{:else}
 					<span>{@html icon('x', 14)}</span>
-					<span>Force-cancel</span>
+					<span>{$locale, t('emergency.force_cancel')}</span>
 				{/if}
 			</button>
 		</div>
@@ -282,7 +283,7 @@
 			<div class="result-card">
 				<header class="result-head">
 					<span>{@html icon('check', 14)}</span>
-					<span>Override applied</span>
+					<span>{$locale, t('emergency.override_applied')}</span>
 				</header>
 				<dl class="result-list">
 					<div><dt>Withdrawal</dt><dd class="mono">{overrideResult.withdrawal_id}</dd></div>

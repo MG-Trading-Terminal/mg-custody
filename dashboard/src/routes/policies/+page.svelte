@@ -2,6 +2,7 @@
 	import { api } from '$lib/api';
 	import { onMount } from 'svelte';
 	import { icon } from '$lib/icons/ui';
+	import { t, locale } from '$lib/i18n';
 
 	interface PolicyRule {
 		id: string;
@@ -79,12 +80,12 @@
 <!-- ═══ Head ═══ -->
 <div class="page-head">
 	<div>
-		<h1>Policies</h1>
-		<p class="page-sub">Rule engine, approval tiers, and circuit breaker limits for all outflows.</p>
+		<h1>{$locale, t('policies.title')}</h1>
+		<p class="page-sub">{$locale, t('policies.subtitle')}</p>
 	</div>
 	<button class="btn btn-primary" disabled>
 		<span>{@html icon('plus', 14)}</span>
-		<span>New rule</span>
+		<span>{$locale, t('policies.new_rule')}</span>
 	</button>
 </div>
 
@@ -101,18 +102,18 @@
 		<div>
 			<h2>
 				<span class="info-icon">{@html icon('shield', 14)}</span>
-				Circuit breaker
+				{$locale, t('policies.cb_title')}
 			</h2>
-			<p class="panel-sub">Automated kill-switch for abnormal outflow rates</p>
+			<p class="panel-sub">{$locale, t('policies.cb_sub')}</p>
 		</div>
 		{#if cbStatus}
 			{#if cbStatus.is_tripped}
-				<span class="status-badge tripped"><span class="dot"></span>Tripped</span>
+				<span class="status-badge tripped"><span class="dot"></span>{$locale, t('policies.cb_tripped')}</span>
 			{:else}
-				<span class="status-badge normal"><span class="dot"></span>Operational</span>
+				<span class="status-badge normal"><span class="dot"></span>{$locale, t('policies.cb_normal')}</span>
 			{/if}
 		{:else}
-			<span class="status-badge unknown"><span class="dot"></span>Unknown</span>
+			<span class="status-badge unknown"><span class="dot"></span>{$locale, t('policies.cb_unknown')}</span>
 		{/if}
 	</header>
 
@@ -120,7 +121,7 @@
 		<div class="trip-banner">
 			<span class="trip-icon">{@html icon('alert-triangle', 18)}</span>
 			<div>
-				<span class="trip-title">Withdrawals halted</span>
+				<span class="trip-title">{$locale, t('policies.cb_halted')}</span>
 				<span class="trip-reason">{cbStatus.trip_reason ?? 'Automated trip — requires admin override to resume.'}</span>
 			</div>
 		</div>
@@ -129,14 +130,14 @@
 	{#if cbStatus}
 		<div class="cb-grid">
 			<div class="cb-tile">
-				<span class="cb-label">Per-transaction cap</span>
+				<span class="cb-label">{$locale, t('policies.cb_per_tx')}</span>
 				<span class="cb-value mono">{fmtUsd(cbStatus.single_tx_limit_usd)}</span>
-				<span class="cb-hint muted tiny">Hard ceiling per outflow</span>
+				<span class="cb-hint muted tiny">{$locale, t('policies.cb_per_tx_hint')}</span>
 			</div>
 
 			<div class="cb-tile">
 				<div class="cb-row">
-					<span class="cb-label">Hourly usage</span>
+					<span class="cb-label">{$locale, t('policies.cb_hourly')}</span>
 					<span class="cb-pct tone-{barTone(hourlyPct)}">{hourlyPct.toFixed(1)}%</span>
 				</div>
 				<div class="cb-meter">
@@ -149,7 +150,7 @@
 
 			<div class="cb-tile">
 				<div class="cb-row">
-					<span class="cb-label">Daily usage</span>
+					<span class="cb-label">{$locale, t('policies.cb_daily')}</span>
 					<span class="cb-pct tone-{barTone(dailyPct)}">{dailyPct.toFixed(1)}%</span>
 				</div>
 				<div class="cb-meter">
@@ -166,7 +167,7 @@
 		</div>
 	{:else}
 		<div class="panel-body">
-			<p class="muted">Circuit breaker status unavailable.</p>
+			<p class="muted">{$locale, t('policies.cb_unavailable')}</p>
 		</div>
 	{/if}
 </section>
@@ -175,8 +176,8 @@
 <section class="panel">
 	<header class="panel-head">
 		<div>
-			<h2>Approval tiers</h2>
-			<p class="panel-sub">Thresholds are applied per withdrawal. FIDO2 required for Tier 2+.</p>
+			<h2>{$locale, t('policies.tiers')}</h2>
+			<p class="panel-sub">{$locale, t('policies.tiers_sub')}</p>
 		</div>
 	</header>
 
@@ -189,7 +190,7 @@
 					<span class="tier-approval muted">{t.approval}</span>
 				</div>
 				<div class="tier-delay">
-					<span class="tiny muted">Delay</span>
+					<span class="tiny muted">{$locale, t('policies.tier_delay')}</span>
 					<span class="mono">{t.delay}</span>
 				</div>
 				<span class="tier-bar"></span>
@@ -202,8 +203,8 @@
 <section class="panel">
 	<header class="panel-head">
 		<div>
-			<h2>Custom rules</h2>
-			<p class="panel-sub">Per-asset / per-destination overrides evaluated top-down, first-match-wins</p>
+			<h2>{$locale, t('policies.custom')}</h2>
+			<p class="panel-sub">{$locale, t('policies.custom_sub')}</p>
 		</div>
 		<span class="badge-count">{rules.length}</span>
 	</header>
@@ -217,7 +218,7 @@
 		<div class="panel-empty">
 			<span class="empty-mark">{@html icon('policies', 22)}</span>
 			<div>
-				<p class="empty-title">No custom rules configured</p>
+				<p class="empty-title">{$locale, t('policies.no_rules')}</p>
 				<p class="muted">Default tier logic applies to all withdrawals. Add rules for asset-specific or destination-specific overrides.</p>
 			</div>
 		</div>
@@ -226,10 +227,10 @@
 			<thead>
 				<tr>
 					<th class="num">#</th>
-					<th>Name</th>
-					<th>Conditions</th>
-					<th>Action</th>
-					<th>State</th>
+					<th>{$locale, t('policies.col_name')}</th>
+					<th>{$locale, t('policies.col_conditions')}</th>
+					<th>{$locale, t('policies.col_action')}</th>
+					<th>{$locale, t('policies.col_state')}</th>
 				</tr>
 			</thead>
 			<tbody>
@@ -241,9 +242,9 @@
 						<td><span class="action-badge">{rule.action}</span></td>
 						<td>
 							{#if rule.enabled}
-								<span class="chip tone-ok"><span class="chip-dot"></span>Active</span>
+								<span class="chip tone-ok"><span class="chip-dot"></span>{$locale, t('policies.state_active')}</span>
 							{:else}
-								<span class="chip tone-muted">Disabled</span>
+								<span class="chip tone-muted">{$locale, t('policies.state_disabled')}</span>
 							{/if}
 						</td>
 					</tr>

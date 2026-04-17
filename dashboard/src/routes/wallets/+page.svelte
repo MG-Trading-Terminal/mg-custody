@@ -3,6 +3,7 @@
 	import { api } from '$lib/api';
 	import { chainIcon } from '$lib/icons/tokens';
 	import { icon } from '$lib/icons/ui';
+	import { t, locale } from '$lib/i18n';
 
 	interface Vault {
 		id: string;
@@ -126,35 +127,35 @@
 <!-- ═══════════ Header ═══════════ -->
 <div class="page-head">
 	<div>
-		<h1>Wallets</h1>
-		<p class="page-sub">Vaults are logical groupings of addresses. Hot/warm/cold tiering controls fund segregation.</p>
+		<h1>{$locale, t('wallets.title')}</h1>
+		<p class="page-sub">{$locale, t('wallets.subtitle')}</p>
 	</div>
 	<button class="btn btn-primary" onclick={() => { showModal = true; createErr = ''; }}>
 		<span>{@html icon('plus', 14)}</span>
-		<span>New vault</span>
+		<span>{$locale, t('wallets.new')}</span>
 	</button>
 </div>
 
 <!-- ═══════════ Stats ═══════════ -->
 <section class="stat-strip">
 	<div class="stat-tile">
-		<span class="stat-label">Vaults</span>
+		<span class="stat-label">{$locale, t('wallets.stat_vaults')}</span>
 		<span class="stat-value mono">{stats.total}</span>
 	</div>
 	<div class="stat-tile">
-		<span class="stat-label">Accounts</span>
+		<span class="stat-label">{$locale, t('wallets.stat_accounts')}</span>
 		<span class="stat-value mono">{stats.accounts}</span>
 	</div>
 	<div class="stat-tile">
-		<span class="stat-label">Hot tier</span>
+		<span class="stat-label">{$locale, t('wallets.stat_hot')}</span>
 		<span class="stat-value mono tone-hot">{stats.hot}</span>
 	</div>
 	<div class="stat-tile">
-		<span class="stat-label">Warm tier</span>
+		<span class="stat-label">{$locale, t('wallets.stat_warm')}</span>
 		<span class="stat-value mono tone-warm">{stats.warm}</span>
 	</div>
 	<div class="stat-tile">
-		<span class="stat-label">Cold tier</span>
+		<span class="stat-label">{$locale, t('wallets.stat_cold')}</span>
 		<span class="stat-value mono tone-cold">{stats.cold}</span>
 	</div>
 </section>
@@ -171,8 +172,8 @@
 <section class="panel">
 	<header class="panel-head">
 		<div>
-			<h2>Vaults</h2>
-			<p class="panel-sub">Click to see accounts and balances</p>
+			<h2>{$locale, t('wallets.list_title')}</h2>
+			<p class="panel-sub">{$locale, t('wallets.list_sub')}</p>
 		</div>
 	</header>
 
@@ -186,24 +187,24 @@
 		<div class="panel-empty">
 			<span class="empty-mark">{@html icon('wallets', 22)}</span>
 			<div>
-				<p class="empty-title">No vaults yet</p>
-				<p class="muted">Create your first vault to group addresses by purpose (trading, operations, cold storage).</p>
+				<p class="empty-title">{$locale, t('wallets.no_vaults')}</p>
+				<p class="muted">{$locale, t('wallets.no_vaults_sub')}</p>
 			</div>
 			<button class="btn btn-primary" onclick={() => { showModal = true; createErr = ''; }}>
 				<span>{@html icon('plus', 14)}</span>
-				<span>Create vault</span>
+				<span>{$locale, t('wallets.create')}</span>
 			</button>
 		</div>
 	{:else}
 		<table class="data-table">
 			<thead>
 				<tr>
-					<th>Vault</th>
-					<th>Tier</th>
-					<th class="num">Accounts</th>
-					<th class="num">Balance</th>
-					<th>Auto-fuel</th>
-					<th class="num">Created</th>
+					<th>{$locale, t('wallets.col_vault')}</th>
+					<th>{$locale, t('wallets.tier')}</th>
+					<th class="num">{$locale, t('wallets.col_accounts')}</th>
+					<th class="num">{$locale, t('wallets.col_balance')}</th>
+					<th>{$locale, t('wallets.col_fuel')}</th>
+					<th class="num">{$locale, t('wallets.col_created')}</th>
 					<th></th>
 				</tr>
 			</thead>
@@ -226,10 +227,10 @@
 							{#if v.auto_fuel}
 								<span class="chip tone-ok">
 									<span class="chip-dot"></span>
-									Enabled
+									{$locale, t('wallets.fuel_on')}
 								</span>
 							{:else}
-								<span class="chip tone-muted">Disabled</span>
+								<span class="chip tone-muted">{$locale, t('wallets.fuel_off')}</span>
 							{/if}
 						</td>
 						<td class="num mono muted">{fmtDate(v.created_at)}</td>
@@ -261,7 +262,7 @@
 		<div class="drawer-meta">
 			<div><span class="meta-label">Tier</span><span class="tier-pill tone-{tierTone(selectedVault.tier)}">{tierLabel(selectedVault.tier)}</span></div>
 			<div><span class="meta-label">Accounts</span><span class="mono">{selectedVault.account_count}</span></div>
-			<div><span class="meta-label">Auto-fuel</span><span>{selectedVault.auto_fuel ? 'Enabled' : 'Disabled'}</span></div>
+			<div><span class="meta-label">{$locale, t('wallets.col_fuel')}</span><span>{selectedVault.auto_fuel ? ($locale, t('wallets.fuel_on')) : ($locale, t('wallets.fuel_off'))}</span></div>
 		</div>
 
 		<div class="drawer-body">
@@ -275,7 +276,7 @@
 				<div class="skel-line"></div>
 			{:else if accounts.length === 0}
 				<div class="empty-inline">
-					<p class="muted">No accounts in this vault yet.</p>
+					<p class="muted">{$locale, t('wallets.no_accounts')}</p>
 				</div>
 			{:else}
 				<ul class="account-list">
@@ -308,18 +309,18 @@
 	<div class="overlay" role="presentation" onclick={() => showModal = false} onkeydown={(e) => e.key === 'Escape' && (showModal = false)}>
 		<div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()} onkeydown={() => {}}>
 			<header class="modal-head">
-				<h3>Create vault</h3>
+				<h3>{$locale, t('wallets.create')}</h3>
 				<button class="icon-btn" onclick={() => showModal = false}>{@html icon('x', 16)}</button>
 			</header>
 
 			<div class="modal-body">
 				<div class="field">
-					<label for="v-name">Name</label>
+					<label for="v-name">{$locale, t('wallets.name')}</label>
 					<input id="v-name" bind:value={newName} placeholder="e.g. Trading Hot" />
 				</div>
 
 				<div class="field">
-					<label>Tier</label>
+					<label>{$locale, t('wallets.tier')}</label>
 					<div class="tier-picker">
 						{#each ['hot','warm','cold'] as t}
 							<button
@@ -341,8 +342,8 @@
 				<label class="check-row">
 					<input type="checkbox" bind:checked={newAutoFuel} />
 					<div>
-						<span class="check-label">Auto-fuel accounts</span>
-						<span class="muted tiny">Automatically top up Tron Energy / ETH gas from gas station</span>
+						<span class="check-label">{$locale, t('wallets.auto_fuel')}</span>
+						<span class="muted tiny">{$locale, t('wallets.auto_fuel_sub')}</span>
 					</div>
 				</label>
 
@@ -357,7 +358,7 @@
 			<div class="modal-actions">
 				<button class="btn btn-ghost" onclick={() => showModal = false}>Cancel</button>
 				<button class="btn btn-primary" onclick={createVault} disabled={creating}>
-					{#if creating}<span class="spinner"></span><span>Creating…</span>{:else}<span>Create vault</span>{/if}
+					{#if creating}<span class="spinner"></span><span>{$locale, t('wallets.creating')}</span>{:else}<span>{$locale, t('wallets.create')}</span>{/if}
 				</button>
 			</div>
 		</div>

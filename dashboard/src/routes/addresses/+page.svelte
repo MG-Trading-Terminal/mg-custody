@@ -3,6 +3,7 @@
 	import { api } from '$lib/api';
 	import { chainIcon } from '$lib/icons/tokens';
 	import { icon } from '$lib/icons/ui';
+	import { t, locale } from '$lib/i18n';
 
 	interface Address {
 		address: string;
@@ -75,8 +76,8 @@
 <!-- ═══ Head ═══ -->
 <div class="page-head">
 	<div>
-		<h1>Addresses</h1>
-		<p class="page-sub">Deterministic per-user addresses. Whitelist to pre-authorize destinations for lower-tier withdrawals.</p>
+		<h1>{$locale, t('addresses.title')}</h1>
+		<p class="page-sub">{$locale, t('addresses.subtitle')}</p>
 	</div>
 </div>
 
@@ -94,11 +95,11 @@
 <section class="filter-bar">
 	<div class="search-wrap">
 		<span class="search-icon">{@html icon('search', 14)}</span>
-		<input type="text" bind:value={searchQuery} placeholder="Search by address or user ID…" />
+		<input type="text" bind:value={searchQuery} placeholder={($locale, t('addresses.search'))} />
 	</div>
 	<label class="toggle">
 		<input type="checkbox" bind:checked={showWhitelistOnly} />
-		<span>Whitelisted only</span>
+		<span>{$locale, t('addresses.whitelist_only')}</span>
 	</label>
 	<div class="stats-chip">
 		<span class="muted">Total</span>
@@ -142,11 +143,11 @@
 		<table class="data-table">
 			<thead>
 				<tr>
-					<th>Address</th>
-					<th>Label</th>
-					<th>User</th>
-					<th>Whitelist</th>
-					<th class="num">Created</th>
+					<th>{$locale, t('addresses.col_address')}</th>
+					<th>{$locale, t('addresses.col_label')}</th>
+					<th>{$locale, t('addresses.col_user')}</th>
+					<th>{$locale, t('addresses.col_whitelist')}</th>
+					<th class="num">{$locale, t('addresses.col_created')}</th>
 					<th></th>
 				</tr>
 			</thead>
@@ -168,9 +169,9 @@
 						<td class="mono muted">{a.user_id.slice(0, 8)}</td>
 						<td>
 							{#if a.whitelisted}
-								<span class="chip tone-ok"><span class="chip-dot"></span>Whitelisted</span>
+								<span class="chip tone-ok"><span class="chip-dot"></span>{$locale, t('addresses.whitelisted')}</span>
 							{:else}
-								<span class="muted tiny">Not whitelisted</span>
+								<span class="muted tiny">{$locale, t('addresses.not_whitelisted')}</span>
 							{/if}
 						</td>
 						<td class="num mono muted">{fmtDate(a.created_at)}</td>
