@@ -127,6 +127,26 @@ pub enum SmtpTls {
 /// short connection pool — `lettre` caches the TLS handshake at the
 /// pool level so this is cheap in the steady state.
 impl SmtpConfig {
+    /// Cold-start probe. Builds the real transport and asks lettre's
+    /// `test_connection()` to do a full EHLO + (STARTTLS or implicit
+    /// TLS) + AUTH if creds are set, then disconnect. Unlike the
+    /// TCP-only probe in `common::readiness`, this catches:
+    ///   - bad credentials
+    ///   - server that refuses STARTTLS when configured Required
+    ///   - wrong port (implicit TLS vs. STARTTLS mismatch)
+    /// Returns the short error string on failure for the readiness
+    /// report.
+    pub async fn probe_connection(&self) -> Result<(), String> {
+        let transport = self
+            .build_transport()
+            .map_err(|e| format!("build transport: {e}"))?;
+        match transport.test_connection().await {
+            Ok(true) => Ok(()),
+            Ok(false) => Err("SMTP server did not respond to NOOP".into()),
+            Err(e) => Err(format!("SMTP handshake: {e}")),
+        }
+    }
+
     fn build_transport(&self) -> Result<lettre::AsyncSmtpTransport<lettre::Tokio1Executor>, EmailError> {
         let mut builder = match self.tls {
             SmtpTls::Wrapper => {

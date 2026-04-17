@@ -27,7 +27,7 @@ use custody_common::vault::TransactionFilter;
 use custody_reconciliation::{BalanceLeaf, generate_proof, merkle_root};
 
 use crate::auth_routes::hash_password;
-use crate::errors::ApiError;
+use crate::errors::{require_chain_ready, ApiError};
 use crate::rbac_middleware::{RequireEditor, RequireViewer};
 use crate::state::AppState;
 
@@ -292,6 +292,10 @@ async fn deposit_address(
             )))
         }
     };
+
+    // Refuse to issue a deposit address for a chain whose scanner
+    // isn't ready — we'd just be handing the user a black hole.
+    require_chain_ready(&state.readiness, chain)?;
 
     let native_asset = Asset::new(match chain {
         Chain::Bitcoin => "BTC",
@@ -689,6 +693,10 @@ async fn deposit_address_qr(
             )))
         }
     };
+
+    // Same gate as the JSON endpoint — don't render a QR for a chain
+    // we can't monitor.
+    require_chain_ready(&state.readiness, chain)?;
 
     let native_asset = custody_common::Asset::new(match chain {
         custody_common::Chain::Bitcoin => "BTC",

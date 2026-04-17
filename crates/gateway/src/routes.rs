@@ -15,7 +15,7 @@ use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
-use crate::errors::ApiError;
+use crate::errors::{require_chain_ready, ApiError};
 use crate::rbac_middleware::{RequireViewer, RequireEditor, RequireSigner};
 use crate::state::AppState;
 
@@ -231,6 +231,10 @@ async fn create_address(
     let rid = Uuid::new_v4();
     tracing::info!(rid = %rid, user_id = %req.user_id, asset = %req.asset, chain = %req.chain, "create_address");
 
+    // Refuse to hand out an address we can't monitor. Otherwise a
+    // user deposits, the scanner is dark, the deposit is lost.
+    require_chain_ready(&state.readiness, req.chain)?;
+
     let address = state.address_allocator
         .get_or_create(&state.seed, req.user_id, &req.asset, req.chain)
         .await
@@ -250,7 +254,8 @@ async fn submit_withdrawal(
     let rid = Uuid::new_v4();
     tracing::info!(rid = %rid, id = %req.withdrawal_id, asset = %req.asset, "submit_withdrawal");
 
-    // Idempotency check
+    // Idempotency check — allowed even when the scanner is down, so a
+    // retry sees the same custody_ref.
     let existing = state.db.find_withdrawal_by_exchange_id(req.withdrawal_id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?;
 
@@ -259,6 +264,12 @@ async fn submit_withdrawal(
             custody_ref: existing.id, status: existing.status,
         })));
     }
+
+    // For a fresh submission we need the chain scanner + broadcaster
+    // reachable. Accepting a withdrawal we can't broadcast means the
+    // row sits in Received forever and the user thinks we're
+    // processing.
+    require_chain_ready(&state.readiness, req.chain)?;
 
     // Validate and normalise the destination address using the chain-specific checksum.
     let validated_addr = custody_common::address_checksum::validate_address(&req.address, req.chain)

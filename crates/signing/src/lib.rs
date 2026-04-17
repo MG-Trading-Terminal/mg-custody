@@ -56,6 +56,6 @@ pub trait SigningBackend: Send + Sync {
 }
 
 pub use encrypted_store::{encrypt_seed, decrypt_seed, Password};
-pub use pkcs11::{Pkcs11SigningBackend, Pkcs11SigningConfig};
+pub use pkcs11::{probe_pkcs11, Pkcs11SigningBackend, Pkcs11SigningConfig};
 pub use shamir::{split_3_of_5, reconstruct_3_of_5, Share};
 pub use software::{SoftwareSigningBackend, HsmSigningBackend};

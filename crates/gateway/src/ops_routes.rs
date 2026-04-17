@@ -14,7 +14,7 @@ use rust_decimal::Decimal;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::errors::ApiError;
+use crate::errors::{require_chain_ready, ApiError};
 use crate::rbac_middleware::{RequireAdmin, RequireEditor, RequireSigner, RequireViewer};
 use crate::state::AppState;
 
@@ -225,6 +225,19 @@ async fn batch_withdraw(
             "Batch cannot exceed {BATCH_MAX_SIZE} withdrawals (got {})",
             req.withdrawals.len()
         )));
+    }
+
+    // Gate: each distinct chain in the batch must have its scanner
+    // ready. Refuse the WHOLE batch if any chain is unavailable — a
+    // partial accept would split one logical batch across different
+    // outcomes and operators would have to reconcile manually.
+    let mut batch_chains: std::collections::HashSet<custody_common::Chain> =
+        std::collections::HashSet::new();
+    for item in &req.withdrawals {
+        batch_chains.insert(item.chain);
+    }
+    for chain in batch_chains {
+        require_chain_ready(&state.readiness, chain)?;
     }
 
     let batch_id = req.batch_id.unwrap_or_else(|| Uuid::new_v4().to_string());

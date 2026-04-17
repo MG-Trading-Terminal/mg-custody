@@ -128,6 +128,24 @@ pub fn require_feature(
     Err(ApiError::feature_unavailable(feature, &reason))
 }
 
+/// Map a `Chain` to its readiness feature name and require it to be
+/// `Ready`. Used by endpoints that need an actively-monitored chain
+/// (address generation — can't receive a deposit we don't scan;
+/// withdrawal submission — can't broadcast without an RPC).
+pub fn require_chain_ready(
+    readiness: &custody_common::readiness::ReadinessReport,
+    chain: custody_common::Chain,
+) -> Result<(), ApiError> {
+    use custody_common::Chain;
+    let feature = match chain {
+        Chain::Bitcoin => "scanner.bitcoin",
+        Chain::Ethereum => "scanner.ethereum",
+        Chain::Tron => "scanner.tron",
+        Chain::Solana => "scanner.solana",
+    };
+    require_feature(readiness, feature)
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = self.status;

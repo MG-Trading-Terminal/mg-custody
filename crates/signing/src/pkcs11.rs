@@ -67,6 +67,42 @@ pub struct Pkcs11SigningConfig {
     pub label_prefix: String,
 }
 
+/// Cold-start probe for the PKCS#11 library + slot.
+///
+/// Validates that:
+///   1. The `.so`/`.dylib` at `library_path` exists and loads.
+///   2. `C_Initialize` succeeds.
+///   3. The slot list contains `slot_id` with a token present.
+///
+/// Does NOT log in — an invalid PIN would be counted against lockout
+/// counters on the HSM, and we only want a passive reachability check.
+/// Returns the short reason string on failure so the readiness report
+/// can surface it verbatim.
+pub fn probe_pkcs11(library_path: &str, slot_id: u64) -> Result<(), String> {
+    if library_path.is_empty() {
+        return Err("HSM_LIB_PATH is empty".into());
+    }
+    if !std::path::Path::new(library_path).exists() {
+        return Err(format!("HSM_LIB_PATH does not exist: {library_path}"));
+    }
+    let ctx = Pkcs11::new(library_path)
+        .map_err(|e| format!("Pkcs11::new({library_path}): {e}"))?;
+    ctx.initialize(CInitializeArgs::OsThreads)
+        .map_err(|e| format!("C_Initialize: {e}"))?;
+    let slots = ctx
+        .get_slots_with_token()
+        .map_err(|e| format!("C_GetSlotList: {e}"))?;
+    let target = cryptoki::slot::Slot::try_from(slot_id)
+        .map_err(|e| format!("slot_id {slot_id} invalid: {e}"))?;
+    if !slots.iter().any(|s| *s == target) {
+        return Err(format!(
+            "slot {slot_id} not present among token-bearing slots ({} available)",
+            slots.len()
+        ));
+    }
+    Ok(())
+}
+
 impl Pkcs11SigningConfig {
     /// Convenience — SoftHSM2 on Linux with a zero PIN for dev rigs.
     pub fn softhsm2() -> Self {

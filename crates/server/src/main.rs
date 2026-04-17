@@ -921,20 +921,17 @@ async fn main() -> anyhow::Result<()> {
     let mut readiness = custody_common::readiness::ReadinessReport::new();
     use custody_common::readiness::FeatureStatus;
 
-    // Email transport. For smtp mode we probe the TCP connection so a
-    // misconfigured host surfaces as Degraded at boot instead of
-    // silently failing on the first password reset.
-    match email_sender.transport_name() {
-        "smtp" => {
-            let host = std::env::var("CUSTODY_EMAIL__SMTP_HOST").unwrap_or_default();
-            let port: u16 = std::env::var("CUSTODY_EMAIL__SMTP_PORT")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(465);
-            match custody_common::readiness::probe_smtp_tcp(&host, port).await {
+    // Email transport. For smtp mode we do a full EHLO + (STARTTLS or
+    // implicit TLS) + AUTH handshake via lettre so misconfigured
+    // credentials, port/TLS mismatches, and dead relays all surface
+    // as Degraded at boot. Console / noop stay Disabled — they're
+    // dev shims, not production transports.
+    match &email_sender {
+        custody_common::email::EmailSender::Smtp(cfg) => {
+            match cfg.probe_connection().await {
                 Ok(()) => readiness.push(FeatureStatus::ready(
                     "email.smtp",
-                    "Outbound email via lettre SMTP",
+                    "Outbound email via lettre SMTP (EHLO+TLS+AUTH verified)",
                 )),
                 Err(e) => readiness.push(FeatureStatus::degraded(
                     "email.smtp",
@@ -943,25 +940,47 @@ async fn main() -> anyhow::Result<()> {
                 )),
             }
         }
-        "console" => readiness.push(FeatureStatus::disabled(
+        custody_common::email::EmailSender::Console(_) => readiness.push(FeatureStatus::disabled(
             "email.smtp",
             "Outbound email — currently printing to stdout (dev transport)",
         )),
-        _ => readiness.push(FeatureStatus::disabled(
+        custody_common::email::EmailSender::Noop => readiness.push(FeatureStatus::disabled(
             "email.smtp",
             "Outbound email (noop transport)",
         )),
     }
 
-    // HSM signing backend
-    readiness.push(if std::env::var("HSM_LIB_PATH").is_ok() {
-        FeatureStatus::ready("signing.hsm", "PKCS#11 HSM signing (ETH/ERC-20/Tron/Solana)")
-    } else {
-        FeatureStatus::disabled(
-            "signing.hsm",
-            "PKCS#11 HSM signing. Set HSM_LIB_PATH + HSM_PIN to enable.",
-        )
-    });
+    // HSM signing backend. If HSM_LIB_PATH is set, open the library
+    // and confirm the target slot actually carries a token. "Loads +
+    // slot present" is enough — we intentionally skip the PIN login
+    // so a wrong probe never burns an auth attempt against the HSM's
+    // lockout counter.
+    {
+        let lib_path = std::env::var("HSM_LIB_PATH").ok().filter(|s| !s.is_empty());
+        match lib_path {
+            Some(path) => {
+                let slot_id: u64 = std::env::var("HSM_SLOT_ID")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
+                match custody_signing::probe_pkcs11(&path, slot_id) {
+                    Ok(()) => readiness.push(FeatureStatus::ready(
+                        "signing.hsm",
+                        "PKCS#11 HSM signing (ETH/ERC-20/Tron/Solana)",
+                    )),
+                    Err(e) => readiness.push(FeatureStatus::degraded(
+                        "signing.hsm",
+                        "PKCS#11 HSM signing",
+                        e,
+                    )),
+                }
+            }
+            None => readiness.push(FeatureStatus::disabled(
+                "signing.hsm",
+                "PKCS#11 HSM signing. Set HSM_LIB_PATH + HSM_PIN to enable.",
+            )),
+        }
+    }
 
     // AML screening
     {
