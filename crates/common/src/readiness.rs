@@ -285,6 +285,119 @@ pub async fn probe_smtp_tcp(host: &str, port: u16) -> Result<(), String> {
     Ok(())
 }
 
+/// `getblockchaininfo` probe for a Bitcoin Core-compatible RPC. Sends
+/// the request with any basic-auth credentials embedded in the URL
+/// (`http://user:pass@host:port`), which is how operators supply
+/// `rpcuser`/`rpcpassword` in this project's config.
+///
+/// Bitcoin Core returns 401 until you authenticate, so an HTTP 401
+/// back from a bare URL is actually a positive signal — the daemon is
+/// there and speaking RPC. Treat it as reachable.
+pub async fn probe_bitcoin_rpc(url: &str) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(PROBE_TIMEOUT)
+        .build()
+        .map_err(|e| format!("http client: {e}"))?;
+    let body = serde_json::json!({
+        "jsonrpc": "1.0", "id": "probe", "method": "getblockchaininfo", "params": [],
+    });
+    let resp = client
+        .post(url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("getblockchaininfo request: {e}"))?;
+    let status = resp.status();
+    // 401 = auth required but reachable; treat as OK at the network
+    // layer. Operators see the auth gap via other logs.
+    if status.as_u16() == 401 {
+        return Ok(());
+    }
+    if !status.is_success() {
+        return Err(format!("getblockchaininfo returned HTTP {status}"));
+    }
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("getblockchaininfo JSON: {e}"))?;
+    if let Some(err) = json.get("error") {
+        if !err.is_null() {
+            return Err(format!("getblockchaininfo RPC error: {err}"));
+        }
+    }
+    if json.get("result").is_none() {
+        return Err("getblockchaininfo result missing".into());
+    }
+    Ok(())
+}
+
+/// TronGrid/Java-Tron `/wallet/getnowblock` probe. It's an HTTP POST
+/// with an empty body and returns the current block header. Cheapest
+/// reachability check for a Tron full node.
+pub async fn probe_tron_api(base_url: &str) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(PROBE_TIMEOUT)
+        .build()
+        .map_err(|e| format!("http client: {e}"))?;
+    let url = format!("{}/wallet/getnowblock", base_url.trim_end_matches('/'));
+    let resp = client
+        .post(&url)
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .map_err(|e| format!("getnowblock request: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("getnowblock returned HTTP {}", resp.status()));
+    }
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("getnowblock JSON: {e}"))?;
+    // Java-Tron returns `block_header` on success; an error payload
+    // contains `Error` or `code`. Require block_header to be present.
+    if json.get("block_header").is_none() {
+        return Err(format!("getnowblock missing block_header: {json}"));
+    }
+    Ok(())
+}
+
+/// Solana JSON-RPC `getHealth` probe. Returns `"ok"` when the node is
+/// caught up; otherwise an error whose message tells you how far
+/// behind. Either way, getting a structured response means the
+/// endpoint is reachable and speaks RPC.
+pub async fn probe_solana_rpc(url: &str) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(PROBE_TIMEOUT)
+        .build()
+        .map_err(|e| format!("http client: {e}"))?;
+    let body = serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "getHealth", "params": [],
+    });
+    let resp = client
+        .post(url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("getHealth request: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("getHealth returned HTTP {}", resp.status()));
+    }
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("getHealth JSON: {e}"))?;
+    // `result == "ok"` is caught up. An error with a `data.numSlotsBehind`
+    // also means reachable but degraded — surface that as the reason so
+    // operators know the node is syncing.
+    if json.get("result").and_then(|v| v.as_str()) == Some("ok") {
+        return Ok(());
+    }
+    if let Some(err) = json.get("error") {
+        return Err(format!("getHealth: {err}"));
+    }
+    Err(format!("getHealth unexpected response: {json}"))
+}
+
 /// Generic HTTP HEAD/GET probe for vendor status endpoints. A 2xx
 /// means "reachable". 401/403 also counts as "reachable" — we're
 /// testing network reachability + DNS + TLS, not authentication,
@@ -387,6 +500,24 @@ mod tests {
     #[tokio::test]
     async fn probe_http_reachable_errors_on_unresolvable_host() {
         let res = probe_http_reachable("https://never-resolves.invalid/").await;
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn probe_bitcoin_rpc_errors_on_unresolvable_host() {
+        let res = probe_bitcoin_rpc("http://never-resolves.invalid/").await;
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn probe_tron_api_errors_on_unresolvable_host() {
+        let res = probe_tron_api("http://never-resolves.invalid").await;
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn probe_solana_rpc_errors_on_unresolvable_host() {
+        let res = probe_solana_rpc("http://never-resolves.invalid/").await;
         assert!(res.is_err());
     }
 }

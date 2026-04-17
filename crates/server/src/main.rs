@@ -1101,17 +1101,97 @@ async fn main() -> anyhow::Result<()> {
         )),
     }
 
-    // Non-ETH scanners — configuration check only for now.
-    for (name, present) in [
-        ("scanner.bitcoin", config.chains.bitcoin.is_some()),
-        ("scanner.tron", config.chains.tron.is_some()),
-        ("scanner.solana", config.chains.solana.is_some()),
-    ] {
-        readiness.push(if present {
-            FeatureStatus::ready(name, "Chain scanner configured")
-        } else {
-            FeatureStatus::disabled(name, "Chain not present in config.chains.*")
-        });
+    // Non-ETH scanners — probe each RPC so an unreachable node shows
+    // up as Degraded with the upstream reason, not Ready with wishful
+    // thinking. Same shape as scanner.ethereum above.
+    match config.chains.bitcoin.as_ref() {
+        Some(btc) => {
+            let rpc_url = std::env::var("CUSTODY_CHAINS__BITCOIN__RPC_URL")
+                .unwrap_or_else(|_| btc.rpc_url.clone());
+            if rpc_url.is_empty() {
+                readiness.push(FeatureStatus::misconfigured(
+                    "scanner.bitcoin",
+                    "Bitcoin scanner + broadcaster",
+                    vec!["chains.bitcoin.rpc_url".into()],
+                ));
+            } else {
+                match custody_common::readiness::probe_bitcoin_rpc(&rpc_url).await {
+                    Ok(()) => readiness.push(FeatureStatus::ready(
+                        "scanner.bitcoin",
+                        "Bitcoin scanner + broadcaster",
+                    )),
+                    Err(e) => readiness.push(FeatureStatus::degraded(
+                        "scanner.bitcoin",
+                        "Bitcoin scanner + broadcaster",
+                        e,
+                    )),
+                }
+            }
+        }
+        None => readiness.push(FeatureStatus::disabled(
+            "scanner.bitcoin",
+            "Bitcoin chain not present in config.chains.*",
+        )),
+    }
+
+    match config.chains.tron.as_ref() {
+        Some(tron) => {
+            let api_url = std::env::var("CUSTODY_CHAINS__TRON__API_URL")
+                .unwrap_or_else(|_| tron.api_url.clone());
+            if api_url.is_empty() {
+                readiness.push(FeatureStatus::misconfigured(
+                    "scanner.tron",
+                    "Tron scanner + broadcaster",
+                    vec!["chains.tron.api_url".into()],
+                ));
+            } else {
+                match custody_common::readiness::probe_tron_api(&api_url).await {
+                    Ok(()) => readiness.push(FeatureStatus::ready(
+                        "scanner.tron",
+                        "Tron scanner + broadcaster",
+                    )),
+                    Err(e) => readiness.push(FeatureStatus::degraded(
+                        "scanner.tron",
+                        "Tron scanner + broadcaster",
+                        e,
+                    )),
+                }
+            }
+        }
+        None => readiness.push(FeatureStatus::disabled(
+            "scanner.tron",
+            "Tron chain not present in config.chains.*",
+        )),
+    }
+
+    match config.chains.solana.as_ref() {
+        Some(sol) => {
+            let rpc_url = std::env::var("CUSTODY_CHAINS__SOLANA__RPC_URL")
+                .unwrap_or_else(|_| sol.rpc_url.clone());
+            if rpc_url.is_empty() {
+                readiness.push(FeatureStatus::misconfigured(
+                    "scanner.solana",
+                    "Solana scanner + broadcaster",
+                    vec!["chains.solana.rpc_url".into()],
+                ));
+            } else {
+                match custody_common::readiness::probe_solana_rpc(&rpc_url).await {
+                    Ok(()) => readiness.push(FeatureStatus::ready(
+                        "scanner.solana",
+                        "Solana scanner + broadcaster",
+                    )),
+                    Err(e) => readiness.push(FeatureStatus::degraded(
+                        "scanner.solana",
+                        "Solana scanner + broadcaster",
+                        e,
+                    )),
+                }
+            }
+        }
+        None => readiness.push(FeatureStatus::disabled(
+            "scanner.solana",
+            "Solana chain not present in config.chains.*",
+        )),
     }
 
     // Print the human-readable table before AppState so operators see

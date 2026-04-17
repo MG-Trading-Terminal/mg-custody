@@ -95,6 +95,37 @@ impl ApiError {
             status: StatusCode::UNPROCESSABLE_ENTITY,
         }
     }
+
+    /// 503 Service Unavailable — a required feature (scanner, HSM,
+    /// provider) isn't ready. The message carries the operator-facing
+    /// reason from the readiness report so the caller sees exactly
+    /// which config knob or network dependency is missing.
+    pub fn feature_unavailable(feature: &str, reason: &str) -> Self {
+        Self {
+            error: "feature_unavailable".into(),
+            message: format!("{feature} is not available: {reason}"),
+            request_id: Uuid::new_v4().to_string(),
+            status: StatusCode::SERVICE_UNAVAILABLE,
+        }
+    }
+}
+
+/// Check a readiness report for a named feature; return `Ok(())` when
+/// it's `Ready`, or an `ApiError::feature_unavailable` with the exact
+/// reason when not. Handler-level gate for "feature wired vs. feature
+/// usable" mismatches.
+pub fn require_feature(
+    readiness: &custody_common::readiness::ReadinessReport,
+    feature: &str,
+) -> Result<(), ApiError> {
+    if readiness.feature_ready(feature) {
+        return Ok(());
+    }
+    let reason = readiness
+        .feature(feature)
+        .map(|f| f.state.reason())
+        .unwrap_or_else(|| format!("{feature} not reported in readiness"));
+    Err(ApiError::feature_unavailable(feature, &reason))
 }
 
 impl IntoResponse for ApiError {

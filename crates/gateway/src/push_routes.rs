@@ -14,14 +14,14 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::StatusCode,
-    routing::{delete, get, post},
+    routing::{delete, post},
 };
 use chrono::Utc;
 use custody_common::push_notifications::{DeviceToken, Platform};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::errors::ApiError;
+use crate::errors::{require_feature, ApiError};
 use crate::rbac_middleware::RequireViewer;
 use crate::state::AppState;
 
@@ -92,6 +92,18 @@ async fn register_device(
             )));
         }
     };
+
+    // Gate: refuse to accept a device token when the matching push
+    // provider isn't wired. Storing a token on an operator that can't
+    // deliver notifications is the exact silent-failure mode we've
+    // been excising — the user sees success, assumes alerts will
+    // arrive, and gets nothing.
+    let feature = match platform {
+        Platform::Ios => "push.apns",
+        Platform::Android => "push.fcm",
+        Platform::Web => "push.web",
+    };
+    require_feature(&state.readiness, feature)?;
 
     if req.token.is_empty() {
         return Err(ApiError::bad_request("device token must not be empty"));

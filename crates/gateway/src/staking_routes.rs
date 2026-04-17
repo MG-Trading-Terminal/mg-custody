@@ -44,7 +44,7 @@ use rust_decimal::Decimal;
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::errors::ApiError;
+use crate::errors::{require_feature, ApiError};
 use crate::rbac_middleware::{RequireSigner, RequireViewer};
 use crate::state::AppState;
 
@@ -216,23 +216,7 @@ async fn stake(
     // Gate at the handler boundary. Accepting a stake when the ETH
     // scanner/broadcaster isn't reachable means the driving withdrawal
     // sits in the DB forever — the user wires up thinking it worked.
-    // Refuse early with the operator-facing reason so the caller sees
-    // exactly which config knob is missing.
-    if !state.readiness.feature_ready("scanner.ethereum") {
-        let reason = state
-            .readiness
-            .feature("scanner.ethereum")
-            .map(|f| f.state.reason())
-            .unwrap_or_else(|| "scanner.ethereum not reported".into());
-        return Err(ApiError {
-            error: "feature_unavailable".into(),
-            message: format!(
-                "ETH staking requires a reachable Ethereum RPC (scanner.ethereum). {reason}"
-            ),
-            request_id: Uuid::new_v4().to_string(),
-            status: StatusCode::SERVICE_UNAVAILABLE,
-        });
-    }
+    require_feature(&state.readiness, "scanner.ethereum")?;
 
     let amount: Decimal = req.amount.parse()
         .map_err(|_| ApiError::bad_request("Invalid amount — must be string-encoded decimal"))?;
@@ -404,6 +388,11 @@ async fn unstake(
     State(state): State<AppState>,
     Json(req): Json<UnstakeRequest>,
 ) -> Result<(StatusCode, Json<UnstakeResponse>), ApiError> {
+    // Same gate as stake(): unstake queues two ETH transactions that
+    // must be signed and broadcast. Without a live RPC they sit in the
+    // DB forever.
+    require_feature(&state.readiness, "scanner.ethereum")?;
+
     let positions = state
         .db
         .list_staking_positions_for_user(auth.0.user_id)
