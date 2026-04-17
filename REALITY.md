@@ -67,6 +67,16 @@ Security work done this session is real but the following remain open.
 Labeled by bite size so future-me knows where to start.
 
 ### Fixed since last published snapshot
+- **Web Push now real.** New `WebPushClient` + `WebPushConfig`
+  implement RFC 8291 `aes128gcm` encryption (HKDF-SHA256, ephemeral
+  P-256 keypair, ECDH with the subscriber's `p256dh` key) plus RFC
+  8292 VAPID signing (ES256 JWT with `{aud, exp, sub}` claims,
+  `Authorization: vapid t=..., k=...` header). Encrypted body carries
+  the full RFC 8188 record header (salt || record_size ||
+  idlen || uncompressed ephemeral pubkey || ciphertext). VAPID key
+  accepted in either PKCS#8 or SEC1 PEM. Subscription JSON parsed
+  verbatim from the browser `PushSubscription.toJSON()`. `send_web_push`
+  delegates or errors cleanly if no VAPID key is configured.
 - **APNs now real.** New `ApnsClient` + `ApnsConfig` do the full
   Apple provider handshake: ES256 JWT signed with the team's p8 key
   (`jsonwebtoken::EncodingKey::from_ec_pem`), `authorization: bearer

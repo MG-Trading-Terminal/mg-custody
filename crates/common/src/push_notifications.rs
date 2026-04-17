@@ -503,6 +503,307 @@ impl ApnsClient {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Web Push — RFC 8030 (delivery) + RFC 8291 (encryption) + RFC 8292 (VAPID)
+// ---------------------------------------------------------------------------
+//
+// A browser subscription (PushSubscription.toJSON()) looks like:
+//   {
+//     "endpoint": "https://fcm.googleapis.com/wp/...",
+//     "keys": {
+//       "p256dh": "<base64url P-256 uncompressed pubkey>",   // 65 bytes
+//       "auth":   "<base64url 16-byte authentication secret>"
+//     }
+//   }
+//
+// To deliver an encrypted payload:
+//
+//   1. Generate an ephemeral P-256 keypair.
+//   2. ECDH(ephemeral.priv, subscriber.p256dh.pub) → shared secret.
+//   3. HKDF-SHA256 using `auth_secret` as salt:
+//         PRK = HKDF-Extract(salt=auth_secret, IKM=shared_secret)
+//         key_info = "WebPush: info\0" || subscriber.pub || ephemeral.pub
+//         IKM2 = HKDF-Expand(PRK, key_info, 32)
+//      Then with a 16-byte random `salt`:
+//         PRK2 = HKDF-Extract(salt=salt, IKM=IKM2)
+//         CEK  = HKDF-Expand(PRK2, "Content-Encoding: aes128gcm\0", 16)
+//         NONCE= HKDF-Expand(PRK2, "Content-Encoding: nonce\0",    12)
+//   4. Pad the plaintext:  plaintext || 0x02 || 0x00*...  (record-delimiter).
+//   5. Encrypt with AES-128-GCM(CEK, NONCE, padded_plaintext).
+//   6. Prepend RFC 8188 header:
+//         salt(16) || record_size(4 BE) || idlen(1) || keyid(65 = ephemeral.pub)
+//      Body = header || ciphertext.
+//
+// Delivery:
+//   POST <endpoint>
+//     TTL: <seconds>
+//     Content-Encoding: aes128gcm
+//     Content-Type: application/octet-stream
+//     Authorization: vapid t=<JWT>, k=<base64url(vapid_pub_uncompressed)>
+//     Content-Length: <body len>
+//   Response: 201 Created on success. 410 Gone ⇒ delete subscription.
+//
+// VAPID JWT (RFC 8292):
+//   header: {alg:"ES256", typ:"JWT"}
+//   claims: {
+//     aud: <scheme + host of endpoint, e.g. "https://fcm.googleapis.com">,
+//     exp: <= now + 24h>,
+//     sub: "mailto:ops@example.com"
+//   }
+//   Signed with the VAPID private key (P-256 EC).
+
+/// Subscription received from a browser (already parsed).
+#[derive(Clone, Debug, Deserialize)]
+pub struct WebPushSubscription {
+    pub endpoint: String,
+    pub keys: WebPushKeys,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct WebPushKeys {
+    /// Base64url-encoded P-256 uncompressed public key (65 bytes).
+    pub p256dh: String,
+    /// Base64url-encoded 16-byte authentication secret.
+    pub auth: String,
+}
+
+impl WebPushSubscription {
+    pub fn from_json(raw: &str) -> Result<Self> {
+        serde_json::from_str(raw).context("parsing WebPushSubscription JSON")
+    }
+}
+
+/// VAPID-signing configuration.
+#[derive(Clone, Debug)]
+pub struct WebPushConfig {
+    /// PKCS#8-PEM encoded VAPID private key (P-256).
+    pub vapid_private_key_pem: String,
+    /// Subject claim — must be an `mailto:` or `https://` URL the
+    /// push service can contact if deliveries misbehave.
+    pub vapid_subject: String,
+    /// TTL header on each send. 24h is a sensible default for
+    /// custody alerts; callers can override per-send later.
+    pub default_ttl_secs: u64,
+}
+
+pub struct WebPushClient {
+    cfg: WebPushConfig,
+    http: reqwest::Client,
+}
+
+impl WebPushClient {
+    pub fn new(cfg: WebPushConfig, http: reqwest::Client) -> Self {
+        Self { cfg, http }
+    }
+
+    /// Send an encrypted payload to `subscription`.
+    pub async fn send(
+        &self,
+        subscription: &WebPushSubscription,
+        payload: &PushPayload,
+    ) -> Result<()> {
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+
+        let plaintext = serde_json::to_vec(&build_web_push_payload(payload))
+            .context("Web Push: serialising notification payload")?;
+
+        // ── 1. Decode subscription material ───────────────────────
+        let subscriber_pub = URL_SAFE_NO_PAD
+            .decode(&subscription.keys.p256dh)
+            .context("Web Push: p256dh is not base64url")?;
+        let auth_secret = URL_SAFE_NO_PAD
+            .decode(&subscription.keys.auth)
+            .context("Web Push: auth is not base64url")?;
+        if subscriber_pub.len() != 65 || subscriber_pub[0] != 0x04 {
+            bail!("Web Push: p256dh must be 65-byte uncompressed P-256 public key");
+        }
+        if auth_secret.len() != 16 {
+            bail!("Web Push: auth secret must be 16 bytes");
+        }
+
+        // ── 2. Encrypt the payload (aes128gcm) ────────────────────
+        let encrypted = encrypt_aes128gcm(&plaintext, &subscriber_pub, &auth_secret)?;
+
+        // ── 3. Build VAPID JWT + `Authorization: vapid ...` header ─
+        let (vapid_jwt, vapid_pub_b64) = self.vapid_header(&subscription.endpoint)?;
+        let authz = format!("vapid t={vapid_jwt}, k={vapid_pub_b64}");
+
+        // ── 4. POST to subscription endpoint ─────────────────────
+        let resp = self
+            .http
+            .post(&subscription.endpoint)
+            .header("TTL", self.cfg.default_ttl_secs.to_string())
+            .header("Content-Encoding", "aes128gcm")
+            .header("Content-Type", "application/octet-stream")
+            .header("Authorization", authz)
+            .body(encrypted)
+            .send()
+            .await
+            .context("Web Push: HTTP POST failed")?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            // 410 Gone: subscription is dead, caller should remove it.
+            // We surface this as a typed error-free bail — callers can
+            // match on the substring until the dedicated error type lands.
+            let text = resp.text().await.unwrap_or_default();
+            bail!("Web Push send failed: HTTP {status}: {text}");
+        }
+        tracing::info!(
+            platform = "web",
+            endpoint = %endpoint_host(&subscription.endpoint).unwrap_or_default(),
+            title = %payload.title,
+            "Push notification sent via Web Push"
+        );
+        Ok(())
+    }
+
+    /// Build a VAPID JWT + the base64url-encoded uncompressed public
+    /// key (for the `k=` parameter of the Authorization header).
+    fn vapid_header(&self, endpoint: &str) -> Result<(String, String)> {
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+        use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+        use p256::elliptic_curve::sec1::ToEncodedPoint;
+
+        let aud = audience_for(endpoint)
+            .ok_or_else(|| anyhow::anyhow!("Web Push: endpoint URL missing scheme/host"))?;
+
+        #[derive(Serialize)]
+        struct Claims<'a> {
+            aud: String,
+            exp: i64,
+            sub: &'a str,
+        }
+        let claims = Claims {
+            aud,
+            exp: Utc::now().timestamp() + 12 * 3600,
+            sub: &self.cfg.vapid_subject,
+        };
+
+        let header = Header::new(Algorithm::ES256);
+        let key = EncodingKey::from_ec_pem(self.cfg.vapid_private_key_pem.as_bytes())
+            .context("Web Push: VAPID key is not a valid PKCS#8 EC PEM")?;
+        let jwt = encode(&header, &claims, &key).context("Web Push: VAPID JWT encode")?;
+
+        // Derive the corresponding public key for the `k=` parameter.
+        // Accept either PKCS#8 ("BEGIN PRIVATE KEY") or SEC1
+        // ("BEGIN EC PRIVATE KEY") PEM — whichever the operator
+        // generated — by trying both parsers in order.
+        use p256::pkcs8::DecodePrivateKey;
+        let sk: p256::SecretKey = p256::SecretKey::from_pkcs8_pem(&self.cfg.vapid_private_key_pem)
+            .or_else(|_| p256::SecretKey::from_sec1_pem(&self.cfg.vapid_private_key_pem))
+            .context("Web Push: VAPID key PEM parse (for public-key export)")?;
+        let encoded = sk.public_key().to_encoded_point(false);
+        let pub_b64 = URL_SAFE_NO_PAD.encode(encoded.as_bytes());
+
+        Ok((jwt, pub_b64))
+    }
+}
+
+/// RFC 8291 `aes128gcm` encryption of `plaintext` for a Web Push
+/// subscriber. Output is ready to POST verbatim as the request body.
+fn encrypt_aes128gcm(
+    plaintext: &[u8],
+    subscriber_pub: &[u8],
+    auth_secret: &[u8],
+) -> Result<Vec<u8>> {
+    use aes_gcm::Aes128Gcm;
+    use aes_gcm::KeyInit;
+    use aes_gcm::aead::{Aead, Payload};
+    use hkdf::Hkdf;
+    use p256::ecdh::EphemeralSecret;
+    use p256::{EncodedPoint, PublicKey};
+    use rand::rngs::OsRng;
+    use sha2::Sha256;
+
+    // Ephemeral P-256 keypair. `rand::CryptoRng + RngCore` is
+    // required; OsRng satisfies both.
+    let ephemeral = EphemeralSecret::random(&mut OsRng);
+    let ephemeral_pub_point = EncodedPoint::from(ephemeral.public_key());
+    let ephemeral_pub = ephemeral_pub_point.as_bytes().to_vec();
+
+    // Parse subscriber's P-256 public key (uncompressed).
+    let sub_pub_point = EncodedPoint::from_bytes(subscriber_pub)
+        .map_err(|e| anyhow::anyhow!("Web Push: subscriber public key invalid: {e}"))?;
+    let sub_pub = PublicKey::from_sec1_bytes(sub_pub_point.as_bytes())
+        .context("Web Push: subscriber public key parse")?;
+
+    // ECDH → 32-byte shared secret.
+    let shared = ephemeral.diffie_hellman(&sub_pub);
+    let shared_bytes = shared.raw_secret_bytes();
+
+    // HKDF step 1: PRK with auth_secret as salt, info includes both pubkeys.
+    let hk = Hkdf::<Sha256>::new(Some(auth_secret), shared_bytes);
+    let mut info = Vec::with_capacity(14 + 1 + subscriber_pub.len() + ephemeral_pub.len());
+    info.extend_from_slice(b"WebPush: info\0");
+    info.extend_from_slice(subscriber_pub);
+    info.extend_from_slice(&ephemeral_pub);
+    let mut ikm2 = [0u8; 32];
+    hk.expand(&info, &mut ikm2)
+        .map_err(|e| anyhow::anyhow!("Web Push: HKDF expand (IKM2): {e}"))?;
+
+    // 16-byte random salt for the RFC 8188 record header.
+    let mut salt = [0u8; 16];
+    use rand::RngCore;
+    OsRng.fill_bytes(&mut salt);
+
+    // HKDF step 2: content encryption key + nonce.
+    let hk2 = Hkdf::<Sha256>::new(Some(&salt), &ikm2);
+    let mut cek = [0u8; 16];
+    hk2.expand(b"Content-Encoding: aes128gcm\0", &mut cek)
+        .map_err(|e| anyhow::anyhow!("Web Push: HKDF expand (CEK): {e}"))?;
+    let mut nonce = [0u8; 12];
+    hk2.expand(b"Content-Encoding: nonce\0", &mut nonce)
+        .map_err(|e| anyhow::anyhow!("Web Push: HKDF expand (nonce): {e}"))?;
+
+    // Pad plaintext per RFC 8291: append 0x02 as the final-record
+    // delimiter; no extra zero-padding needed for a single record.
+    let mut padded = Vec::with_capacity(plaintext.len() + 1);
+    padded.extend_from_slice(plaintext);
+    padded.push(0x02);
+
+    // Encrypt.
+    let cipher = Aes128Gcm::new(&cek.into());
+    let ciphertext = cipher
+        .encrypt(
+            &nonce.into(),
+            Payload {
+                msg: &padded,
+                aad: &[],
+            },
+        )
+        .map_err(|e| anyhow::anyhow!("Web Push: AES-128-GCM encrypt: {e}"))?;
+
+    // Build the RFC 8188 record header.
+    // record_size must be >= plaintext.len() + 18; we pick a generous 4096.
+    let record_size: u32 = 4096;
+    let mut body = Vec::with_capacity(16 + 4 + 1 + ephemeral_pub.len() + ciphertext.len());
+    body.extend_from_slice(&salt);
+    body.extend_from_slice(&record_size.to_be_bytes());
+    body.push(ephemeral_pub.len() as u8);
+    body.extend_from_slice(&ephemeral_pub);
+    body.extend_from_slice(&ciphertext);
+    Ok(body)
+}
+
+/// Derive the `aud` claim for a VAPID JWT from the push endpoint:
+/// it's "<scheme>://<host>" without path or query (RFC 8292 §2).
+fn audience_for(endpoint: &str) -> Option<String> {
+    let (scheme, rest) = endpoint.split_once("://")?;
+    let host = rest.split(['/', '?', '#']).next()?;
+    if host.is_empty() {
+        return None;
+    }
+    Some(format!("{scheme}://{host}"))
+}
+
+/// Extract the host portion of a URL for log lines (no full URL —
+/// subscription endpoints often contain secrets in the path).
+fn endpoint_host(endpoint: &str) -> Option<String> {
+    let (_, rest) = endpoint.split_once("://")?;
+    rest.split(['/', '?']).next().map(str::to_string)
+}
+
 /// Push notification service — wraps FCM v1, APNs, and Web Push.
 ///
 /// All fields are optional — the service gracefully skips unavailable providers.
@@ -515,6 +816,8 @@ pub struct PushNotificationService {
     pub fcm_v1: Option<Arc<FcmV1Client>>,
     /// Real APNs provider (HTTP/2 + ES256 JWT).
     pub apns: Option<Arc<ApnsClient>>,
+    /// Real Web Push provider (RFC 8291/8292 encrypted payloads).
+    pub web_push: Option<Arc<WebPushClient>>,
     client: reqwest::Client,
 }
 
@@ -522,10 +825,12 @@ impl PushNotificationService {
     pub fn new(
         fcm_v1: Option<Arc<FcmV1Client>>,
         apns: Option<Arc<ApnsClient>>,
+        web_push: Option<Arc<WebPushClient>>,
     ) -> Self {
         Self {
             fcm_v1,
             apns,
+            web_push,
             client: reqwest::Client::new(),
         }
     }
@@ -535,6 +840,7 @@ impl PushNotificationService {
     pub fn fcm_only(sa: FcmServiceAccount) -> Self {
         Self::new(
             Some(Arc::new(FcmV1Client::new(sa, reqwest::Client::new()))),
+            None,
             None,
         )
     }
@@ -574,32 +880,17 @@ impl PushNotificationService {
         client.send(device_token, payload).await
     }
 
-    /// Send via Web Push (RFC 8030).
-    ///
-    /// **Not wired.** Real Web Push needs VAPID signing (ECDSA over
-    /// P-256) plus per-message payload encryption (RFC 8291). The
-    /// `web_push` crate covers both but isn't in the workspace. The
-    /// prior implementation logged the payload and returned
-    /// `Ok(())`, which was indistinguishable from a real dispatch.
-    /// Returns `Err` so broadcast success counters don't lie.
+    /// Send a Web Push notification. Delegates to `WebPushClient` if
+    /// configured (which handles VAPID + RFC 8291 encryption); errors
+    /// cleanly if not. `subscription_json` is the full
+    /// `PushSubscription.toJSON()` string saved at registration time.
     pub async fn send_web_push(&self, subscription_json: &str, payload: &PushPayload) -> Result<()> {
-        if subscription_json.is_empty() {
-            bail!("Web Push subscription JSON must not be empty");
-        }
-
-        let web_payload = build_web_push_payload(payload);
-
-        tracing::warn!(
-            platform = "web",
-            title = %payload.title,
-            payload = ?web_payload,
-            "Web Push not dispatched — VAPID signing + payload encryption not wired"
-        );
-
-        bail!(
-            "Web Push delivery not implemented in this build. \
-             Attach the `web_push` crate and a VAPID key before relying on browser alerts."
-        )
+        let client = self
+            .web_push
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Web Push not configured (no VAPID key)"))?;
+        let subscription = WebPushSubscription::from_json(subscription_json)?;
+        client.send(&subscription, payload).await
     }
 
     /// Broadcast to multiple devices, logging any individual failures.
@@ -888,7 +1179,7 @@ mod tests {
 
     #[test]
     fn service_no_providers() {
-        let svc = PushNotificationService::new(None, None);
+        let svc = PushNotificationService::new(None, None, None);
         assert!(svc.fcm_v1.is_none());
         assert!(svc.apns.is_none());
     }
@@ -913,7 +1204,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_fcm_errors_when_v1_not_configured() {
-        let svc = PushNotificationService::new(None, None);
+        let svc = PushNotificationService::new(None, None, None);
         let err = svc
             .send_fcm("token", &PushPayload::simple("x", "y"))
             .await
@@ -923,7 +1214,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_apns_errors_when_client_not_configured() {
-        let svc = PushNotificationService::new(None, None);
+        let svc = PushNotificationService::new(None, None, None);
         let err = svc
             .send_apns("token", &PushPayload::simple("x", "y"))
             .await
@@ -955,5 +1246,99 @@ mod tests {
         };
         let c = ApnsClient::new(cfg, reqwest::Client::new());
         assert_eq!(c.base_url(), "https://api.sandbox.push.apple.com");
+    }
+
+    // --- Web Push ---
+
+    #[test]
+    fn audience_for_strips_path_and_query() {
+        assert_eq!(
+            audience_for("https://fcm.googleapis.com/wp/AAAA?x=1").as_deref(),
+            Some("https://fcm.googleapis.com"),
+        );
+        assert_eq!(
+            audience_for("https://updates.push.services.mozilla.com/wpush/v2/AAAA").as_deref(),
+            Some("https://updates.push.services.mozilla.com"),
+        );
+        assert_eq!(audience_for("no-scheme"), None);
+    }
+
+    #[test]
+    fn endpoint_host_omits_path() {
+        assert_eq!(
+            endpoint_host("https://example.com/wp/secret?x=1").as_deref(),
+            Some("example.com"),
+        );
+    }
+
+    #[test]
+    fn web_push_subscription_rejects_garbage_json() {
+        assert!(WebPushSubscription::from_json("{").is_err());
+    }
+
+    #[test]
+    fn web_push_subscription_parses_minimal() {
+        let raw = r#"{
+            "endpoint": "https://fcm.googleapis.com/wp/AAA",
+            "keys": {
+                "p256dh": "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM",
+                "auth": "tBHItJI5svbpez7KI4CCXg"
+            }
+        }"#;
+        let sub = WebPushSubscription::from_json(raw).unwrap();
+        assert_eq!(sub.endpoint, "https://fcm.googleapis.com/wp/AAA");
+        assert!(!sub.keys.p256dh.is_empty());
+        assert!(!sub.keys.auth.is_empty());
+    }
+
+    #[tokio::test]
+    async fn encrypt_aes128gcm_roundtrip_shape() {
+        // Build a real P-256 keypair as the "subscriber" and a
+        // random 16-byte auth secret. The encryption path must produce
+        // a body that at least honours the RFC 8188 header shape:
+        //   salt (16) || record_size (4) || idlen (1) || keyid (65) || ciphertext
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as B64};
+        use p256::elliptic_curve::sec1::ToEncodedPoint;
+        use rand::rngs::OsRng;
+
+        let sk = p256::SecretKey::random(&mut OsRng);
+        let pub_bytes = sk.public_key().to_encoded_point(false).as_bytes().to_vec();
+        assert_eq!(pub_bytes.len(), 65);
+        let mut auth_secret = [0u8; 16];
+        rand::RngCore::fill_bytes(&mut OsRng, &mut auth_secret);
+
+        let body = encrypt_aes128gcm(b"{\"x\":1}", &pub_bytes, &auth_secret).unwrap();
+
+        // Header must be exactly 16 + 4 + 1 + 65 = 86 bytes before ciphertext.
+        assert!(body.len() > 86, "encrypted body must include header + ciphertext");
+        // idlen = 65.
+        assert_eq!(body[20], 65);
+        // keyid immediately follows and starts with 0x04 (uncompressed).
+        assert_eq!(body[21], 0x04);
+
+        // round-trip the subscription-decoding path as a smoke test of
+        // the base64 plumbing the handler uses.
+        let sub = WebPushSubscription {
+            endpoint: "https://example.com/wp/".into(),
+            keys: WebPushKeys {
+                p256dh: B64.encode(&pub_bytes),
+                auth: B64.encode(auth_secret),
+            },
+        };
+        let raw = serde_json::to_string(&serde_json::json!({
+            "endpoint": sub.endpoint,
+            "keys": {"p256dh": sub.keys.p256dh, "auth": sub.keys.auth},
+        })).unwrap();
+        assert!(WebPushSubscription::from_json(&raw).is_ok());
+    }
+
+    #[tokio::test]
+    async fn send_web_push_errors_when_not_configured() {
+        let svc = PushNotificationService::new(None, None, None);
+        let err = svc
+            .send_web_push("{}", &PushPayload::simple("x", "y"))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not configured"));
     }
 }

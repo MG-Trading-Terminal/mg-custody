@@ -123,6 +123,11 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls", "http2"] }
 # PEM/ASN.1 parsing enabled; keys come from service-account JSON or p8 files.
 jsonwebtoken = { version = "10", default-features = false, features = ["use_pem"] }
 
+# P-256 (NIST secp256r1) for VAPID signing and Web Push ECIES.
+# Separate from k256 (secp256k1 for BTC/ETH). Pure-Rust, rustls-friendly.
+p256 = { version = "0.13", features = ["ecdsa", "ecdh", "pkcs8", "pem"] }
+hkdf = "0.12"
+
 # SMTP transport for outbound email (password reset, email verify).
 # tokio1 + rustls for async + TLS without OpenSSL; default features
 # off so we don't pull in native-tls / OpenSSL on the build host.

@@ -32,6 +32,9 @@ figment = { workspace = true }
 toml = "0.8"
 lettre = { workspace = true }
 jsonwebtoken = { workspace = true }
+p256 = { workspace = true }
+hkdf = { workspace = true }
+aes-gcm = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
