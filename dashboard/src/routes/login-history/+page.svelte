@@ -151,7 +151,7 @@
 	.nowrap { white-space: nowrap; }
 
 	.mono {
-		font-family: monospace;
+		font-family: var(--font-mono); font-variant-numeric: tabular-nums;
 		font-size: 0.8rem;
 	}
 

@@ -314,20 +314,20 @@
 	}
 
 	.nft-card {
-		background: var(--card-bg, #161b22);
-		border: 1px solid var(--border, #30363d);
-		border-radius: 10px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--r-lg);
 		overflow: hidden;
 		display: flex;
 		flex-direction: column;
 		transition: border-color 0.15s;
 	}
-	.nft-card:hover { border-color: var(--accent, #58a6ff); }
+	.nft-card:hover { border-color: var(--accent); }
 
 	.nft-image {
 		width: 100%;
 		aspect-ratio: 1 / 1;
-		background: var(--hover-bg, #1c2128);
+		background: var(--surface-2);
 		overflow: hidden;
 	}
 	.nft-image img {
@@ -344,7 +344,7 @@
 	}
 	.placeholder-icon {
 		font-size: 3rem;
-		color: var(--fg-muted, #8b949e);
+		color: var(--fg-muted);
 		opacity: 0.4;
 	}
 
@@ -382,10 +382,10 @@
 	.chain-sol   { background: rgba(153,69,255,.2);  color: #9945ff; }
 	.chain-trx   { background: rgba(239,68,68,.2);   color: #ef4444; }
 	.chain-btc   { background: rgba(247,147,26,.2);  color: #f7931a; }
-	.chain-other { background: rgba(139,148,158,.2); color: var(--fg-muted, #8b949e); }
+	.chain-other { background: rgba(139,148,158,.2); color: var(--fg-muted); }
 
-	.std-badge  { background: rgba(88,166,255,.12); color: var(--accent, #58a6ff); }
-	.qty-badge  { background: rgba(63,185,80,.12);  color: var(--green, #3fb950); }
+	.std-badge  { background: rgba(88,166,255,.12); color: var(--accent); }
+	.qty-badge  { background: rgba(63,185,80,.12);  color: var(--green); }
 
 	.nft-contract { word-break: break-all; }
 
@@ -395,10 +395,10 @@
 
 	/* Buttons */
 	.btn-primary {
-		background: var(--accent, #1f6feb);
+		background: var(--accent);
 		color: #fff;
 		border: none;
-		border-radius: 6px;
+		border-radius: var(--r-sm);
 		padding: 0.4rem 0.9rem;
 		font-size: 0.85rem;
 		cursor: pointer;
@@ -407,16 +407,16 @@
 	.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
 	.btn-sm {
-		background: var(--hover-bg, #1c2128);
-		border: 1px solid var(--border, #30363d);
-		border-radius: 6px;
+		background: var(--surface-2);
+		border: 1px solid var(--border);
+		border-radius: var(--r-sm);
 		padding: 0.25rem 0.7rem;
 		font-size: 0.8rem;
 		cursor: pointer;
 		color: inherit;
 		width: 100%;
 	}
-	.btn-sm:hover { border-color: var(--accent, #1f6feb); }
+	.btn-sm:hover { border-color: var(--accent); }
 
 	/* Modals */
 	.modal-backdrop {
@@ -427,9 +427,9 @@
 	}
 
 	.modal {
-		background: var(--card-bg, #161b22);
-		border: 1px solid var(--border, #30363d);
-		border-radius: 10px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--r-lg);
 		padding: 1.5rem;
 		width: 460px;
 		max-width: 95vw;
@@ -441,22 +441,22 @@
 	}
 
 	.modal h2 { margin: 0; font-size: 1.1rem; }
-	.transfer-nft-name { font-weight: 600; color: var(--accent, #58a6ff); }
+	.transfer-nft-name { font-weight: 600; color: var(--accent); }
 
 	.modal label {
 		display: flex;
 		flex-direction: column;
 		gap: 0.25rem;
 		font-size: 0.85rem;
-		color: var(--fg-muted, #8b949e);
+		color: var(--fg-muted);
 	}
 
 	.modal input[type="text"],
 	.modal input[type="number"],
 	.modal select {
-		background: var(--hover-bg, #1c2128);
-		border: 1px solid var(--border, #30363d);
-		border-radius: 6px;
+		background: var(--surface-2);
+		border: 1px solid var(--border);
+		border-radius: var(--r-sm);
 		padding: 0.45rem 0.75rem;
 		color: inherit;
 		font-size: 0.9rem;
@@ -467,9 +467,9 @@
 	.success-box { display: flex; flex-direction: column; gap: 0.5rem; }
 
 	/* Utilities */
-	.muted  { color: var(--fg-muted, #8b949e); }
-	.mono   { font-family: monospace; }
+	.muted  { color: var(--fg-muted); }
+	.mono   { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 	.small  { font-size: 0.78rem; }
-	.green  { color: var(--green, #3fb950); }
-	.error  { color: var(--red, #f85149); font-size: 0.82rem; margin: 0; }
+	.green  { color: var(--green); }
+	.error  { color: var(--red); font-size: 0.82rem; margin: 0; }
 </style>

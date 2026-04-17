@@ -276,12 +276,12 @@
 
 	.filters {
 		display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center;
-		background: var(--card-bg, #161b22); border: 1px solid var(--border, #30363d);
-		border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1.5rem;
+		background: var(--surface); border: 1px solid var(--border);
+		border-radius: var(--r-sm); padding: 0.75rem 1rem; margin-bottom: 1.5rem;
 	}
 	.filters label { display: flex; gap: 0.4rem; align-items: center; font-size: 0.875rem; }
-	.filters input, .filters select { padding: 0.3rem 0.5rem; border: 1px solid var(--border, #30363d); border-radius: 4px; font-size: 0.875rem; background: var(--hover-bg, #1c2128); color: var(--fg, #e1e4e8); }
-	.filters button { padding: 0.4rem 1rem; background: var(--accent, #58a6ff); color: #0f1117; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem; font-weight: 600; }
+	.filters input, .filters select { padding: 0.3rem 0.5rem; border: 1px solid var(--border); border-radius: 4px; font-size: 0.875rem; background: var(--surface-2); color: var(--fg); }
+	.filters button { padding: 0.4rem 1rem; background: var(--accent); color: #0f1117; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem; font-weight: 600; }
 	.filters button:hover { opacity: 0.9; }
 
 	.cards {
@@ -290,30 +290,30 @@
 		gap: 1rem; margin-bottom: 2rem;
 	}
 	.card {
-		background: var(--card-bg, #161b22); border: 1px solid var(--border, #30363d); border-radius: 8px;
+		background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
 		padding: 1rem; display: flex; flex-direction: column; gap: 0.25rem;
 	}
-	.card-label { font-size: 0.75rem; text-transform: uppercase; color: var(--fg-muted, #8b949e); letter-spacing: 0.05em; }
+	.card-label { font-size: 0.75rem; text-transform: uppercase; color: var(--fg-muted); letter-spacing: 0.05em; }
 	.card-value { font-size: 1.4rem; font-weight: 700; }
-	.card-sub   { font-size: 0.75rem; color: var(--fg-muted, #8b949e); }
-	.card.inflow  .card-value { color: var(--green, #3fb950); }
-	.card.outflow .card-value { color: var(--red, #f85149); }
-	.card.net     .card-value { color: var(--accent, #58a6ff); }
-	.card.fees    .card-value { color: var(--yellow, #d29922); }
+	.card-sub   { font-size: 0.75rem; color: var(--fg-muted); }
+	.card.inflow  .card-value { color: var(--green); }
+	.card.outflow .card-value { color: var(--red); }
+	.card.net     .card-value { color: var(--accent); }
+	.card.fees    .card-value { color: var(--yellow); }
 	.chain-name { text-transform: capitalize; }
 
 	.section { margin-bottom: 2rem; }
 
 	table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-	thead th { background: var(--hover-bg, #1c2128); text-align: left; padding: 0.6rem 0.75rem; border-bottom: 2px solid var(--border, #30363d); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-muted, #8b949e); }
-	tbody td { padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border, #30363d); }
-	tbody tr:hover { background: var(--hover-bg, #1c2128); }
+	thead th { background: var(--surface-2); text-align: left; padding: 0.6rem 0.75rem; border-bottom: 2px solid var(--border); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-muted); }
+	tbody td { padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); }
+	tbody tr:hover { background: var(--surface-2); }
 
 	.badge { padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; text-transform: capitalize; }
-	.badge.deposit    { background: rgba(63, 185, 80, 0.15); color: var(--green, #3fb950); }
+	.badge.deposit    { background: rgba(63, 185, 80, 0.15); color: var(--green); }
 	.badge.withdrawal { background: #fed7d7; color: #9b2c2c; }
 	.chain-badge { padding: 0.15rem 0.4rem; background: #ebf8ff; color: #2b6cb0; border-radius: 4px; font-size: 0.75rem; text-transform: capitalize; }
-	.hash { font-family: monospace; font-size: 0.8rem; color: #4a5568; }
+	.hash { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.8rem; color: #4a5568; }
 
 	.loading { color: #718096; }
 	.error   { color: #c53030; }

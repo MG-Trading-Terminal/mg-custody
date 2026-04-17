@@ -1147,7 +1147,10 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Drain complete");
     };
 
-    axum::serve(listener, app)
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
         .with_graceful_shutdown(shutdown_signal)
         .await?;
 

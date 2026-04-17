@@ -464,7 +464,7 @@
 
 <style>
 	h1 { margin-top: 0; font-size: 1.5rem; }
-	h2 { font-size: 1rem; color: var(--fg-muted, #8b949e); margin: 0; }
+	h2 { font-size: 1rem; color: var(--fg-muted); margin: 0; }
 
 	.metrics-bar {
 		display: flex;
@@ -474,9 +474,9 @@
 	}
 
 	.metric {
-		background: var(--card-bg, #161b22);
-		border: 1px solid var(--border, #30363d);
-		border-radius: 8px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--r-md);
 		padding: 0.8rem 1.2rem;
 		display: flex;
 		flex-direction: column;
@@ -484,8 +484,8 @@
 		min-width: 130px;
 	}
 
-	.metric .label { font-size: 0.75rem; color: var(--fg-muted, #8b949e); }
-	.metric .val   { font-size: 1.2rem; font-family: monospace; font-weight: 600; }
+	.metric .label { font-size: 0.75rem; color: var(--fg-muted); }
+	.metric .val   { font-size: 1.2rem; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 600; }
 
 	section { margin-bottom: 1rem; }
 
@@ -497,14 +497,14 @@
 	}
 
 	.card {
-		background: var(--card-bg, #161b22);
-		border: 1px solid var(--border, #30363d);
-		border-radius: 8px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--r-md);
 		padding: 1rem;
 	}
 
-	.green-border { border-color: var(--green, #3fb950); }
-	.red-border   { border-color: var(--red, #f85149); }
+	.green-border { border-color: var(--green); }
+	.red-border   { border-color: var(--red); }
 
 	.test-result {
 		margin-bottom: 1rem;
@@ -516,17 +516,17 @@
 
 	.table-wrap { overflow-x: auto; }
 	table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-	th { text-align: left; padding: 0.5rem 0.75rem; color: var(--fg-muted, #8b949e); border-bottom: 1px solid var(--border, #30363d); }
-	td { padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--border, #30363d); vertical-align: middle; }
+	th { text-align: left; padding: 0.5rem 0.75rem; color: var(--fg-muted); border-bottom: 1px solid var(--border); }
+	td { padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
 
-	tr.selected td { background: rgba(48, 54, 61, 0.6); }
+	tr.selected td { background: var(--accent-soft); }
 
-	.ep-url  { font-family: monospace; font-size: 0.85rem; word-break: break-all; }
+	.ep-url  { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.85rem; word-break: break-all; }
 	.ep-desc { font-size: 0.78rem; margin-top: 0.15rem; }
 
-	.badge { border-radius: 4px; padding: 0.15rem 0.45rem; font-size: 0.72rem; font-weight: 600; }
+	.badge { border-radius: var(--r-sm); padding: 0.15rem 0.45rem; font-size: 0.72rem; font-weight: 600; }
 	.green  { color: var(--green,  #3fb950); }
-	.yellow { color: var(--yellow, #d29922); }
+	.yellow { color: var(--yellow); }
 	.red    { color: var(--red,    #f85149); }
 
 	.badge.green  { background: rgba(63,185,80,.15); }
@@ -536,10 +536,10 @@
 	.actions { display: flex; gap: 0.35rem; white-space: nowrap; }
 
 	.btn-primary {
-		background: var(--accent, #1f6feb);
-		color: #fff;
+		background: var(--accent);
+		color: #0A0B0D;
 		border: none;
-		border-radius: 6px;
+		border-radius: var(--r-sm);
 		padding: 0.4rem 0.9rem;
 		font-size: 0.85rem;
 		cursor: pointer;
@@ -547,18 +547,18 @@
 	.btn-primary:hover { filter: brightness(1.1); }
 
 	.btn-sm {
-		background: var(--hover-bg, #1c2128);
-		border: 1px solid var(--border, #30363d);
-		border-radius: 6px;
+		background: var(--surface-2);
+		border: 1px solid var(--border);
+		border-radius: var(--r-sm);
 		padding: 0.25rem 0.6rem;
 		font-size: 0.78rem;
 		cursor: pointer;
 		color: inherit;
 	}
-	.btn-sm:hover { border-color: var(--accent, #1f6feb); }
+	.btn-sm:hover { border-color: var(--accent); }
 	.btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
 
-	.btn-danger { border-color: var(--red, #f85149); color: var(--red, #f85149); }
+	.btn-danger { border-color: var(--red); color: var(--red); }
 	.btn-danger:hover { background: rgba(248,81,73,.1); }
 
 	.modal-backdrop {
@@ -569,9 +569,9 @@
 	}
 
 	.modal {
-		background: var(--card-bg, #161b22);
-		border: 1px solid var(--border, #30363d);
-		border-radius: 10px;
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--r-lg);
 		padding: 1.5rem;
 		width: 480px;
 		max-width: 95vw;
@@ -587,14 +587,14 @@
 		flex-direction: column;
 		gap: 0.25rem;
 		font-size: 0.85rem;
-		color: var(--fg-muted, #8b949e);
+		color: var(--fg-muted);
 	}
 
 	.modal input[type="url"],
 	.modal input[type="text"] {
-		background: var(--hover-bg, #1c2128);
-		border: 1px solid var(--border, #30363d);
-		border-radius: 6px;
+		background: var(--surface-2);
+		border: 1px solid var(--border);
+		border-radius: var(--r-sm);
 		padding: 0.45rem 0.75rem;
 		color: inherit;
 		font-size: 0.9rem;
@@ -609,10 +609,10 @@
 
 	.modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.5rem; }
 
-	.error { color: var(--red, #f85149); font-size: 0.82rem; margin: 0; }
+	.error { color: var(--red); font-size: 0.82rem; margin: 0; }
 
-	.muted { color: var(--fg-muted, #8b949e); }
-	.mono  { font-family: monospace; font-size: 0.84rem; }
+	.muted { color: var(--fg-muted); }
+	.mono  { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.84rem; }
 	.small { font-size: 0.78rem; }
 
 	/* ---------------------------------------------------------------------------
@@ -650,8 +650,8 @@
 
 	.btn-retry {
 		white-space: nowrap;
-		border-color: var(--accent, #1f6feb);
-		color: var(--accent, #58a6ff);
+		border-color: var(--accent);
+		color: var(--accent);
 	}
 	.btn-retry:hover { background: rgba(88,166,255,.1); }
 
@@ -666,7 +666,7 @@
 
 	/* Delivery timeline */
 	.delivery-timeline {
-		border-top: 1px solid var(--border, #30363d);
+		border-top: 1px solid var(--border);
 		padding-top: 0.5rem;
 		display: flex;
 		flex-direction: column;
@@ -687,8 +687,8 @@
 		gap: 0.5rem;
 		flex-wrap: wrap;
 		padding: 0.2rem 0.4rem;
-		border-radius: 4px;
-		background: var(--hover-bg, #1c2128);
+		border-radius: var(--r-sm);
+		background: var(--surface-2);
 	}
 
 	.badge-sm { font-size: 0.66rem; padding: 0.08rem 0.35rem; }

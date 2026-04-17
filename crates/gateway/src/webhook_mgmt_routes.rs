@@ -4,14 +4,20 @@
 
 use axum::{
     Json, Router,
-    extract::{Path, Query, State},
-    http::StatusCode,
+    extract::{ConnectInfo, Path, Query, State},
+    http::{HeaderMap, StatusCode, Request},
+    middleware::Next,
+    response::Response,
     routing::{delete, get, post, put},
 };
 use chrono::Utc;
 use serde::Deserialize;
-use std::time::Instant;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
+
+use crate::rate_limit::RateLimiter;
 
 use custody_address_factory::derive_address;
 use custody_common::emergency::{
@@ -31,7 +37,54 @@ use crate::state::AppState;
 // Router
 // ---------------------------------------------------------------------------
 
+/// IP-based rate limiter for self-registration. Keeps DoS + enumeration
+/// budget low: 5 attempts per IP per 15 minutes. Token bucket (see
+/// `rate_limit::RateLimiter`) — honest legitimate retries still work.
+fn register_rate_limiter() -> Arc<RateLimiter> {
+    static LIMITER: std::sync::OnceLock<Arc<RateLimiter>> = std::sync::OnceLock::new();
+    LIMITER
+        .get_or_init(|| Arc::new(RateLimiter::new(5, Duration::from_secs(900))))
+        .clone()
+}
+
+async fn register_rate_limit_mw(
+    State(limiter): State<Arc<RateLimiter>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    request: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    // Prefer X-Forwarded-For when behind a reverse proxy; fall back to
+    // the raw peer IP. Never trust the header alone — use the first hop.
+    let key = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| addr.ip().to_string());
+
+    match limiter.check(&key) {
+        Ok(_) => Ok(next.run(request).await),
+        Err(retry_after) => {
+            tracing::warn!(
+                ip = %key,
+                retry_after_secs = retry_after.as_secs(),
+                "Registration rate limit hit"
+            );
+            Err(StatusCode::TOO_MANY_REQUESTS)
+        }
+    }
+}
+
 pub fn webhook_mgmt_router() -> Router<AppState> {
+    let reg_limiter = register_rate_limiter();
+    let register_routes = Router::new()
+        .route("/v1/auth/register", post(register_user))
+        .layer(axum::middleware::from_fn_with_state(
+            reg_limiter,
+            register_rate_limit_mw,
+        ));
+
     Router::new()
         // Webhook management (Feature 1)
         .route("/v1/admin/webhooks", get(list_webhooks_admin))
@@ -57,8 +110,7 @@ pub fn webhook_mgmt_router() -> Router<AppState> {
         .route("/v1/health/perf", get(perf_health))
         // Audit log integrity check (Feature 5b)
         .route("/v1/admin/audit/integrity", get(audit_integrity_check))
-        // Self-registration (public — no auth)
-        .route("/v1/auth/register", post(register_user))
+        // Self-registration is merged below with its own rate-limit layer.
         // Backup management
         .route("/v1/admin/backup/mnemonic", get(show_mnemonic))
         .route("/v1/admin/backup/verify-mnemonic", post(verify_mnemonic))
@@ -75,6 +127,9 @@ pub fn webhook_mgmt_router() -> Router<AppState> {
         .route("/v1/user/withdrawal-history", get(user_withdrawal_history))
         // Audit log verify (dashboard Audit page)
         .route("/v1/audit/verify", post(verify_audit_entry))
+        // Self-registration — separate sub-router so we can apply a
+        // dedicated rate-limit layer without affecting other endpoints.
+        .merge(register_routes)
 }
 
 // ---------------------------------------------------------------------------
