@@ -2,14 +2,17 @@
 -- Stores Safe proxy addresses, threshold, and current nonce.
 
 CREATE TABLE IF NOT EXISTS safe_wallets (
-    address     TEXT    PRIMARY KEY,
-    chain       TEXT    NOT NULL,
-    threshold   INTEGER NOT NULL,
+    address        TEXT    PRIMARY KEY,
+    chain          TEXT    NOT NULL,
+    threshold      INTEGER NOT NULL,
     -- JSON array of owner address strings
-    owners      JSONB   NOT NULL DEFAULT '[]',
+    owners         JSONB   NOT NULL DEFAULT '[]',
     -- On-chain nonce at last sync
-    nonce       BIGINT  NOT NULL DEFAULT 0,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    nonce          BIGINT  NOT NULL DEFAULT 0,
+    -- Workspace user who registered this Safe — used for ownership checks
+    -- on propose / sign / execute. NULL for Safes imported before migration 029.
+    registered_by  UUID,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Multi-sig transactions proposed against a Safe.

@@ -47,6 +47,12 @@ pub struct SafeWallet {
     pub owners: Vec<String>,
     /// Current on-chain nonce. Must match when executing.
     pub nonce: u64,
+    /// Workspace user who registered this Safe. Used to scope
+    /// propose / sign / execute operations — a Safe registered by one
+    /// admin cannot be operated on by a non-admin in another workspace.
+    /// `None` for legacy rows imported before migration 029.
+    #[serde(default)]
+    pub registered_by: Option<Uuid>,
 }
 
 /// A proposed transaction against a Gnosis Safe.
@@ -133,7 +139,7 @@ impl std::error::Error for SafeError {}
 // ---------------------------------------------------------------------------
 
 impl SafeWallet {
-    /// Create a new SafeWallet record.
+    /// Create a new SafeWallet record (no registered_by — caller fills in).
     pub fn new(
         address: String,
         chain: Chain,
@@ -141,7 +147,22 @@ impl SafeWallet {
         owners: Vec<String>,
         nonce: u64,
     ) -> Self {
-        Self { address, chain, threshold, owners, nonce }
+        Self { address, chain, threshold, owners, nonce, registered_by: None }
+    }
+
+    /// Create with the registering admin's user_id attached.
+    pub fn new_owned(
+        address: String,
+        chain: Chain,
+        threshold: u32,
+        owners: Vec<String>,
+        nonce: u64,
+        registered_by: Uuid,
+    ) -> Self {
+        Self {
+            address, chain, threshold, owners, nonce,
+            registered_by: Some(registered_by),
+        }
     }
 
     /// Propose a new transaction. Computes the EIP-712 safe_tx_hash and

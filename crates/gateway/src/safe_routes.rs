@@ -39,7 +39,7 @@ pub fn safe_router() -> Router<AppState> {
 
 /// Register a Gnosis Safe wallet with its address, chain, threshold and owners.
 async fn register_safe(
-    _auth: RequireAdmin,
+    auth: RequireAdmin,
     State(state): State<AppState>,
     Json(req): Json<RegisterSafeRequest>,
 ) -> Result<(StatusCode, Json<SafeWalletResponse>), ApiError> {
@@ -60,12 +60,13 @@ async fn register_safe(
         ));
     }
 
-    let wallet = SafeWallet::new(
+    let wallet = SafeWallet::new_owned(
         req.address.clone(),
         req.chain,
         req.threshold,
         req.owners,
         req.nonce,
+        auth.0.user_id,
     );
 
     state.db.upsert_safe_wallet(&wallet).await.map_err(|e| {
@@ -103,12 +104,11 @@ async fn list_safes(
 // POST /v1/safe-wallets/{address}/transactions
 // ---------------------------------------------------------------------------
 
-/// Proposing a Safe transaction is an org-level operation: the Safe is a
-/// shared resource (M-of-N onchain multisig) and we cannot map a caller's
-/// DB user_id to the onchain `owners` list. Gate at Admin level; dedicated
-/// Safe-owner membership (onchain-address ↔ user_id) is a separate migration.
+/// Proposing a Safe transaction is gated at Admin level AND scoped to the
+/// admin who registered the Safe (migration 029). Owner role is always
+/// allowed — the owner oversees all Safes in the workspace.
 async fn propose_transaction(
-    _auth: RequireAdmin,
+    auth: RequireAdmin,
     State(state): State<AppState>,
     Path(address): Path<String>,
     Json(req): Json<ProposeSafeTxRequest>,
@@ -120,6 +120,7 @@ async fn propose_transaction(
     }
 
     let wallet = load_wallet(&state, &address).await?;
+    assert_safe_access(&auth.0, &wallet)?;
 
     let data = decode_hex_data(&req.data_hex)
         .map_err(|e| ApiError::bad_request(&format!("bad data_hex: {e}")))?;
@@ -158,12 +159,13 @@ async fn propose_transaction(
 // ---------------------------------------------------------------------------
 
 async fn add_signature(
-    _auth: RequireSigner,
+    auth: RequireSigner,
     State(state): State<AppState>,
     Path((address, id)): Path<(String, Uuid)>,
     Json(req): Json<AddSafeSignatureRequest>,
 ) -> Result<Json<SafeManagedTxResponse>, ApiError> {
     let wallet = load_wallet(&state, &address).await?;
+    assert_safe_access(&auth.0, &wallet)?;
     let mut tx = load_tx(&state, id).await?;
 
     verify_tx_belongs_to_safe(&tx, &address)?;
@@ -212,12 +214,13 @@ async fn list_transactions(
 // ---------------------------------------------------------------------------
 
 async fn execute_transaction(
-    _auth: RequireSigner,
+    auth: RequireSigner,
     State(state): State<AppState>,
     Path((address, id)): Path<(String, Uuid)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Load wallet to confirm it exists and the address is valid.
-    let _wallet = load_wallet(&state, &address).await?;
+    let wallet = load_wallet(&state, &address).await?;
+    assert_safe_access(&auth.0, &wallet)?;
     let mut tx = load_tx(&state, id).await?;
 
     verify_tx_belongs_to_safe(&tx, &address)?;
@@ -281,6 +284,26 @@ fn verify_tx_belongs_to_safe(tx: &SafeManagedTx, address: &str) -> Result<(), Ap
         )));
     }
     Ok(())
+}
+
+/// Ownership check for Safe operations. Owner-role users pass through;
+/// other admins must match the `registered_by` field on the wallet.
+/// Legacy wallets (registered_by = NULL) are admin-open to keep
+/// pre-migration data reachable — operators should re-register them.
+fn assert_safe_access(
+    auth: &crate::rbac_middleware::AuthContext,
+    wallet: &SafeWallet,
+) -> Result<(), ApiError> {
+    if auth.role.has_at_least(&custody_db::sessions::Role::Owner) {
+        return Ok(());
+    }
+    match wallet.registered_by {
+        None => Ok(()), // legacy row — admin can still operate
+        Some(id) if id == auth.user_id => Ok(()),
+        Some(_) => Err(ApiError::forbidden(
+            "This Safe was registered by a different admin",
+        )),
+    }
 }
 
 fn decode_hex_data(hex_str: &str) -> Result<Vec<u8>, String> {

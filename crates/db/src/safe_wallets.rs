@@ -18,13 +18,16 @@ impl CustodyDb {
     // -----------------------------------------------------------------------
 
     /// Insert or update a Safe wallet registration.
+    /// `registered_by` is only written on insert — updates do not churn
+    /// the owner, otherwise a repeat-register call could silently take
+    /// ownership away from the original registrar.
     pub async fn upsert_safe_wallet(&self, w: &SafeWallet) -> anyhow::Result<()> {
         let owners_json = serde_json::to_value(&w.owners)
             .unwrap_or(serde_json::json!([]));
 
         sqlx::query(
-            "INSERT INTO safe_wallets (address, chain, threshold, owners, nonce, created_at)
-             VALUES ($1, $2, $3, $4, $5, NOW())
+            "INSERT INTO safe_wallets (address, chain, threshold, owners, nonce, registered_by, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW())
              ON CONFLICT (address) DO UPDATE
              SET chain = EXCLUDED.chain,
                  threshold = EXCLUDED.threshold,
@@ -36,6 +39,7 @@ impl CustodyDb {
         .bind(w.threshold as i32)
         .bind(&owners_json)
         .bind(w.nonce as i64)
+        .bind(w.registered_by)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -44,7 +48,7 @@ impl CustodyDb {
     /// Find a Safe wallet by its proxy address (case-insensitive).
     pub async fn find_safe_wallet(&self, address: &str) -> anyhow::Result<Option<SafeWallet>> {
         let row: Option<SafeWalletRow> = sqlx::query_as(
-            "SELECT address, chain, threshold, owners, nonce
+            "SELECT address, chain, threshold, owners, nonce, registered_by
              FROM safe_wallets WHERE lower(address) = lower($1)",
         )
         .bind(address)
@@ -57,7 +61,7 @@ impl CustodyDb {
     /// List all registered Safe wallets.
     pub async fn list_safe_wallets(&self) -> anyhow::Result<Vec<SafeWallet>> {
         let rows: Vec<SafeWalletRow> = sqlx::query_as(
-            "SELECT address, chain, threshold, owners, nonce
+            "SELECT address, chain, threshold, owners, nonce, registered_by
              FROM safe_wallets ORDER BY address ASC",
         )
         .fetch_all(&self.pool)
@@ -160,6 +164,7 @@ struct SafeWalletRow {
     threshold: i32,
     owners: serde_json::Value,
     nonce: i64,
+    registered_by: Option<Uuid>,
 }
 
 fn row_to_safe_wallet(r: SafeWalletRow) -> SafeWallet {
@@ -175,6 +180,7 @@ fn row_to_safe_wallet(r: SafeWalletRow) -> SafeWallet {
         threshold: r.threshold as u32,
         owners,
         nonce: r.nonce as u64,
+        registered_by: r.registered_by,
     }
 }
 
