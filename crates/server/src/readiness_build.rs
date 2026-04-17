@@ -591,23 +591,20 @@ pub async fn fire_alerts(
     if transitions.is_empty() {
         return;
     }
-    let webhook = std::env::var("CUSTODY_READINESS__ALERT_WEBHOOK")
-        .ok()
-        .filter(|s| !s.is_empty());
     let now = chrono::Utc::now().to_rfc3339();
-    let client = webhook
-        .as_ref()
-        .map(|_| reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .ok())
-        .flatten();
 
     let is_silenced = |feature: &str| -> bool {
         silence_patterns
             .iter()
             .any(|p| silence_pattern_matches(p, feature))
     };
+
+    // Collect webhook-eligible transitions. Per-transition tracing
+    // still fires inline so log aggregators see every event at the
+    // exact moment it happened; the webhook side is the only one
+    // that gets batched (one POST per refresh cycle, not N — avoids
+    // ringing a pager N times when a whole region goes down at once).
+    let mut batch: Vec<serde_json::Value> = Vec::with_capacity(transitions.len());
     for t in transitions {
         match t {
             Transition::Degradation { feature, reason } => {
@@ -633,7 +630,11 @@ pub async fn fire_alerts(
                     reason = %reason,
                     "Feature DEGRADED — handlers for this subsystem will 503 until recovery"
                 );
-                post_webhook(&client, &webhook, &now, "degradation", feature, Some(reason.as_str()), None).await;
+                batch.push(serde_json::json!({
+                    "kind": "degradation",
+                    "feature": feature,
+                    "reason": reason,
+                }));
             }
             Transition::Misconfiguration { feature, missing } => {
                 if is_silenced(feature) {
@@ -658,8 +659,11 @@ pub async fn fire_alerts(
                     missing = ?missing,
                     "Feature MISCONFIGURED — handlers for this subsystem will 503"
                 );
-                let missing_str = missing.join(", ");
-                post_webhook(&client, &webhook, &now, "misconfiguration", feature, None, Some(&missing_str)).await;
+                batch.push(serde_json::json!({
+                    "kind": "misconfiguration",
+                    "feature": feature,
+                    "missing": missing,
+                }));
             }
             Transition::Recovery { feature, summary } => {
                 // Recovery bypasses cooldown AND silences — operators
@@ -672,39 +676,103 @@ pub async fn fire_alerts(
                     summary = %summary,
                     "Feature RECOVERED — handlers serving this subsystem are live again"
                 );
-                post_webhook(&client, &webhook, &now, "recovery", feature, Some(summary), None).await;
+                batch.push(serde_json::json!({
+                    "kind": "recovery",
+                    "feature": feature,
+                    "summary": summary,
+                }));
             }
         }
     }
+
+    if batch.is_empty() {
+        return;
+    }
+    post_alert_batch(&now, &batch).await;
 }
 
-async fn post_webhook(
-    client: &Option<reqwest::Client>,
-    url: &Option<String>,
-    timestamp: &str,
-    kind: &str,
-    feature: &str,
-    reason: Option<&str>,
-    missing: Option<&str>,
-) {
-    let (Some(client), Some(url)) = (client.as_ref(), url.as_ref()) else {
+/// Single POST per refresh cycle with every alertable transition
+/// bundled. The body carries `{service, timestamp, transitions: [...]}`
+/// so receivers can render one message even when 12 features went
+/// down together.
+///
+/// When `CUSTODY_READINESS__ALERT_WEBHOOK_SECRET` is set, the POST
+/// is signed with HMAC-SHA256 over `timestamp.body` and delivered
+/// as an `X-Custody-Signature: t=<unix>,v1=<hex>` header so the
+/// receiver can verify the payload came from us, not a spoofed
+/// attacker who found the webhook URL in a config leak.
+async fn post_alert_batch(timestamp: &str, transitions: &[serde_json::Value]) {
+    let Some(url) = std::env::var("CUSTODY_READINESS__ALERT_WEBHOOK")
+        .ok()
+        .filter(|s| !s.is_empty())
+    else {
+        return;
+    };
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+    else {
+        tracing::warn!(
+            target: "custody::readiness::alert",
+            "Could not build alert webhook HTTP client"
+        );
         return;
     };
     let body = serde_json::json!({
         "service": "mg-custody",
-        "kind": kind,
-        "feature": feature,
-        "reason": reason,
-        "missing": missing,
         "timestamp": timestamp,
+        "transitions": transitions,
     });
-    if let Err(e) = client.post(url).json(&body).send().await {
+    let body_bytes = match serde_json::to_vec(&body) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(target: "custody::readiness::alert", error = %e, "alert body serialize");
+            return;
+        }
+    };
+
+    let unix_ts = chrono::Utc::now().timestamp();
+    let mut req = client
+        .post(&url)
+        .header(reqwest::header::CONTENT_TYPE, "application/json");
+
+    if let Some(secret) = std::env::var("CUSTODY_READINESS__ALERT_WEBHOOK_SECRET")
+        .ok()
+        .filter(|s| !s.is_empty())
+    {
+        let sig = sign_webhook(&secret, unix_ts, &body_bytes);
+        req = req.header("X-Custody-Signature", format!("t={unix_ts},v1={sig}"));
+    }
+
+    if let Err(e) = req.body(body_bytes).send().await {
         tracing::warn!(
             target: "custody::readiness::alert",
             error = %e,
+            count = transitions.len(),
             "Readiness alert webhook delivery failed"
         );
     }
+}
+
+/// HMAC-SHA256 over `<timestamp>.<body>`. Hex-encoded so it fits in
+/// a plain header value. Receiver-side verification pattern:
+///
+///   signed = hmac_sha256(secret, f"{t}.{body}").hex()
+///   constant_time_compare(signed, v1)
+///
+/// The timestamp is bound into the signed payload so a valid signature
+/// can't be replayed against a stale body.
+fn sign_webhook(secret: &str, timestamp: i64, body: &[u8]) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    type HmacSha256 = Hmac<Sha256>;
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
+    mac.update(timestamp.to_string().as_bytes());
+    mac.update(b".");
+    mac.update(body);
+    let bytes = mac.finalize().into_bytes();
+    hex::encode(bytes)
 }
 
 #[cfg(test)]
@@ -924,5 +992,26 @@ mod tests {
         ]);
         let t = diff_transitions(&old, &new);
         assert_eq!(t.len(), 2); // a degraded, c recovered
+    }
+
+    #[test]
+    fn sign_webhook_is_deterministic_and_secret_dependent() {
+        let body = br#"{"service":"mg-custody","transitions":[]}"#;
+        let a1 = sign_webhook("secret-a", 1_700_000_000, body);
+        let a2 = sign_webhook("secret-a", 1_700_000_000, body);
+        let b = sign_webhook("secret-b", 1_700_000_000, body);
+        assert_eq!(a1, a2, "same key + ts + body → same signature");
+        assert_ne!(a1, b, "different secret → different signature");
+        assert_eq!(a1.len(), 64, "SHA-256 hex = 64 chars");
+    }
+
+    #[test]
+    fn sign_webhook_changes_with_timestamp() {
+        let body = br#"{}"#;
+        let at_t1 = sign_webhook("secret", 1_700_000_000, body);
+        let at_t2 = sign_webhook("secret", 1_700_000_001, body);
+        // Replay protection: same body 1 second later must produce
+        // a different signature.
+        assert_ne!(at_t1, at_t2);
     }
 }
