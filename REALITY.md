@@ -102,8 +102,11 @@ Labeled by bite size so future-me knows where to start.
   Safe is currently scoped to the admin who registered it. A proper
   mapping from onchain owner addresses to workspace user IDs is a
   follow-up migration.
-- **Withdrawal memo/tag validation** is length-only. Chain-specific
-  invariants (Cosmos hash length, XRP u32 range) not enforced.
+- ~~**Withdrawal memo/tag validation** is length-only.~~ Now
+  chain-aware (`validate_withdrawal_memo` in `custody_common::validation`):
+  BTC/ETH/TRX reject any memo or tag; Solana allows ≤512-byte UTF-8
+  memo and rejects numeric tags. Cosmos/XRP rules will land with the
+  matching `Chain` enum variants.
 - ~~**`detailed_health` / `circuit_breaker_status` endpoints** leak
   org-wide operational metrics at Viewer role.~~ Fixed — both now
   require `RequireAdmin`.

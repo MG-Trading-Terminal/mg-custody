@@ -238,15 +238,15 @@ async fn submit_withdrawal(
     let validated_addr = custody_common::address_checksum::validate_address(&req.address, req.chain)
         .map_err(|e| ApiError::bad_request(&format!("Invalid destination address: {e}")))?;
 
-    // Validate memo length (Cosmos Hub max 256 bytes).
-    if let Some(ref memo) = req.memo {
-        if memo.len() > 256 {
-            return Err(ApiError::bad_request(&format!(
-                "Memo exceeds maximum length of 256 bytes (got {})",
-                memo.len()
-            )));
-        }
-    }
+    // Chain-specific memo / destination-tag rules. Centralized in
+    // `custody_common::validation::validate_withdrawal_memo` so the
+    // batch path and the single-submit path stay in lockstep.
+    custody_common::validation::validate_withdrawal_memo(
+        req.chain,
+        req.memo.as_deref(),
+        req.destination_tag,
+    )
+    .map_err(|e| ApiError::bad_request(&e))?;
 
     let withdrawal = Withdrawal {
         id: Uuid::new_v4(),

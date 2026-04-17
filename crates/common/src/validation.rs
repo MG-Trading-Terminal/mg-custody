@@ -231,6 +231,91 @@ impl std::fmt::Display for ErrorCode {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Memo / destination-tag validation
+// ---------------------------------------------------------------------------
+
+/// Chain-specific rules for `memo` and `destination_tag` fields on a
+/// withdrawal. Accepting silent junk here is a footgun: a Solana
+/// user attaching a memo expecting it to route to an exchange account
+/// will watch their funds vanish because the SOL signer path doesn't
+/// attach it. Reject at the edge instead of hoping signing catches it.
+///
+/// Rules:
+/// - **Bitcoin / Ethereum / Tron**: no protocol-level memo or tag
+///   carried with a plain value transfer — reject if either is set.
+/// - **Solana**: an SPL Memo instruction can carry up to 566 bytes of
+///   UTF-8. We allow `memo` but cap at 512 to stay well under the
+///   practical limit once fees/signatures are added. `destination_tag`
+///   is always rejected — SOL has no numeric tag concept.
+///
+/// When `Chain` grows Cosmos / XRP / Stellar variants, this is the
+/// one place that needs updating — the handler call site doesn't
+/// change.
+pub fn validate_withdrawal_memo(
+    chain: Chain,
+    memo: Option<&str>,
+    destination_tag: Option<u64>,
+) -> Result<(), String> {
+    match chain {
+        Chain::Bitcoin => {
+            if memo.is_some() {
+                return Err("Bitcoin does not carry memos on transfers".into());
+            }
+            if destination_tag.is_some() {
+                return Err("Bitcoin does not use destination tags".into());
+            }
+        }
+        Chain::Ethereum => {
+            if memo.is_some() {
+                return Err(
+                    "Ethereum transfers do not carry memos. Use a contract call with a data field if routing is needed".into(),
+                );
+            }
+            if destination_tag.is_some() {
+                return Err("Ethereum does not use destination tags".into());
+            }
+        }
+        Chain::Tron => {
+            if memo.is_some() {
+                return Err("Tron transfers do not carry memos".into());
+            }
+            if destination_tag.is_some() {
+                return Err("Tron does not use destination tags".into());
+            }
+        }
+        Chain::Solana => {
+            if destination_tag.is_some() {
+                return Err(
+                    "Solana does not use numeric destination tags. Attach an SPL memo instead".into(),
+                );
+            }
+            if let Some(m) = memo {
+                // The SPL Memo program accepts up to ~566 bytes but
+                // practical transactions must also fit fees, account
+                // keys, and the transfer instruction inside the 1232-
+                // byte packet cap. 512 is a safe ceiling.
+                const MAX: usize = 512;
+                if m.is_empty() {
+                    return Err("Solana memo is present but empty — omit the field instead".into());
+                }
+                if m.as_bytes().len() > MAX {
+                    return Err(format!(
+                        "Solana memo exceeds {MAX} bytes (got {})",
+                        m.as_bytes().len()
+                    ));
+                }
+                // `m` is already guaranteed UTF-8 by virtue of being `&str`;
+                // explicit NUL check catches someone splicing a raw byte.
+                if m.contains('\0') {
+                    return Err("Solana memo must not contain NUL bytes".into());
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -363,5 +448,55 @@ mod tests {
         assert!(ErrorCode::SigningFailed.code() >= 5000 && ErrorCode::SigningFailed.code() < 6000);
         assert!(ErrorCode::PolicyViolation.code() >= 6000 && ErrorCode::PolicyViolation.code() < 7000);
         assert!(ErrorCode::ScreeningFailed.code() >= 7000 && ErrorCode::ScreeningFailed.code() < 8000);
+    }
+
+    // --- Memo / destination-tag ---
+
+    #[test]
+    fn memo_none_is_accepted_on_all_chains() {
+        for chain in [Chain::Bitcoin, Chain::Ethereum, Chain::Tron, Chain::Solana] {
+            assert!(validate_withdrawal_memo(chain, None, None).is_ok());
+        }
+    }
+
+    #[test]
+    fn memo_rejected_on_btc_eth_tron() {
+        for chain in [Chain::Bitcoin, Chain::Ethereum, Chain::Tron] {
+            let err = validate_withdrawal_memo(chain, Some("anything"), None).unwrap_err();
+            assert!(err.to_lowercase().contains("memo") || err.to_lowercase().contains("transfers"));
+        }
+    }
+
+    #[test]
+    fn destination_tag_rejected_on_all_current_chains() {
+        for chain in [Chain::Bitcoin, Chain::Ethereum, Chain::Tron, Chain::Solana] {
+            let err = validate_withdrawal_memo(chain, None, Some(42)).unwrap_err();
+            assert!(err.to_lowercase().contains("tag") || err.to_lowercase().contains("numeric"));
+        }
+    }
+
+    #[test]
+    fn solana_memo_within_limit_ok() {
+        let m: String = "a".repeat(100);
+        assert!(validate_withdrawal_memo(Chain::Solana, Some(&m), None).is_ok());
+    }
+
+    #[test]
+    fn solana_memo_too_long_rejected() {
+        let m: String = "a".repeat(513);
+        let err = validate_withdrawal_memo(Chain::Solana, Some(&m), None).unwrap_err();
+        assert!(err.contains("exceeds") && err.contains("512"));
+    }
+
+    #[test]
+    fn solana_memo_empty_string_rejected() {
+        let err = validate_withdrawal_memo(Chain::Solana, Some(""), None).unwrap_err();
+        assert!(err.to_lowercase().contains("empty"));
+    }
+
+    #[test]
+    fn solana_memo_nul_byte_rejected() {
+        let err = validate_withdrawal_memo(Chain::Solana, Some("hello\0world"), None).unwrap_err();
+        assert!(err.contains("NUL"));
     }
 }
