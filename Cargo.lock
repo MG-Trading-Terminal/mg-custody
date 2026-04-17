@@ -2126,6 +2126,7 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
+ "axum",
  "cggmp21",
  "chrono",
  "cryptoki",
@@ -2145,6 +2146,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
+ "tower",
  "tracing",
  "uuid",
  "zeroize",

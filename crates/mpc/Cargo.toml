@@ -29,6 +29,8 @@ anyhow = { workspace = true }
 cryptoki = { workspace = true }
 
 reqwest = { workspace = true }
+axum = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
+tower = { workspace = true }

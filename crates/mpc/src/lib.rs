@@ -31,6 +31,7 @@ pub mod key_store;
 pub mod share_store;
 pub mod transport;
 pub mod http_transport;
+pub mod http_server;
 
 use anyhow::Result;
 use custody_common::Chain;

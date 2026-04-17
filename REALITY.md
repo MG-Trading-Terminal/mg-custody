@@ -44,8 +44,8 @@ live integration, no real counterparty, no production-grade driver.
 
 | Area | Why it's not live |
 |---|---|
-| MPC CGGMP21 signing | Crypto + HTTP transport implemented; no multi-host ceremony wired |
-| MPC FROST Ed25519 | Same as above |
+| MPC CGGMP21 signing | Crypto + HTTP transport + receiving HTTP server now all in place. A party binds `custody_mpc::http_server::spawn_mpc_server(...)`, peers POST `MpcMessage` to `/mpc/message` with HMAC auth, messages land in the transport inbox. Live multi-host ceremony runs once operators deploy ≥2 parties with mutually reachable endpoints + a shared HMAC secret. |
+| MPC FROST Ed25519 | Same — shares the HTTP transport + server. |
 | HSM (PKCS#11 via `cryptoki`) | Spec-complete `Pkcs11SigningBackend` routes every signature through `C_Sign` on HSM-resident keys (secp256k1 `CKM_ECDSA` + Ed25519 `CKM_EDDSA`). Live integration still needs the withdrawal pipeline refactored to drive signing through the `SigningBackend` trait instead of a local seed. |
 | Chainalysis / Elliptic AML | Real HTTP calls against both vendors with spec-compliant JSON bodies + bearer auth. `ScreeningService` is fail-closed: vendor unreachable → fallback decision (Block / AllowAndFlag), never silent Low. Needs vendor API keys to exercise live. |
 | Email delivery (SMTP) | Real `lettre`-backed SMTP variant wired (rustls, no OpenSSL). Tokio-async, pooled, implicit TLS or STARTTLS (no plaintext fallback). Configured via `CUSTODY_EMAIL__MODE=smtp` + `CUSTODY_EMAIL__SMTP_{HOST,PORT,USERNAME,PASSWORD,TLS,TIMEOUT}`. Falls back to Console with a loud warning if MODE=smtp but HOST is missing. Console + Noop remain for dev/tests. |
@@ -67,6 +67,17 @@ Security work done this session is real but the following remain open.
 Labeled by bite size so future-me knows where to start.
 
 ### Fixed since last published snapshot
+- **MPC multi-host ceremony plumbing complete.** `HttpTransport`
+  could reach peers but nothing on the receiving end accepted the
+  delivery — the ceremony was a one-way street. New
+  `custody_mpc::http_server` module provides an axum router +
+  `spawn_mpc_server(bind_addr, inbox, hmac_secret)` so each party in
+  a multi-host CGGMP21 / FROST session runs a receiver at
+  `/mpc/message`. HMAC verification happens before the inbox push,
+  oversized payloads become 413, unauthed ones become 401. `/mpc/health`
+  is the unauthed liveness probe. Deploy each party with a mutually
+  reachable Zone 2 endpoint + a shared HMAC secret and the full
+  keygen + signing rounds run end-to-end.
 - **UTXO consolidation pipeline now real.** Migration 033 adds a
   `consolidation_jobs` table with full Received → Signed → Broadcast
   → Confirmed | Failed state machine. The scheduler loop in
