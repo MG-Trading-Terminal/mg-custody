@@ -43,6 +43,7 @@ async fn test_app() -> Option<axum::Router> {
         event_broadcaster: std::sync::Arc::new(custody_common::events::EventBroadcaster::with_default_capacity()),
         user_rate_limiter: std::sync::Arc::new(custody_gateway::rate_limit::UserRateLimiter::default_user()),
         frozen: custody_common::emergency::FreezeFlag::new(),
+        email: std::sync::Arc::new(custody_common::email::EmailSender::noop()),
     };
 
     Some(custody_gateway::routes::router(state))

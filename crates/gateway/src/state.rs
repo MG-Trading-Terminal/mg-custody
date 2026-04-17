@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use custody_address_factory::{AddressAllocator, SeedBytes};
+use custody_common::email::EmailSender;
 use custody_common::emergency::FreezeFlag;
 use custody_common::events::EventBroadcaster;
 use custody_db::CustodyDb;
@@ -25,4 +26,7 @@ pub struct AppState {
     pub user_rate_limiter: Arc<UserRateLimiter>,
     /// Emergency freeze flag — when true all outbound operations are halted.
     pub frozen: FreezeFlag,
+    /// Outbound email transport. Console-printing in dev (`console`), real
+    /// SMTP when wired. Never dispatch email via raw `tracing` — use this.
+    pub email: Arc<EmailSender>,
 }

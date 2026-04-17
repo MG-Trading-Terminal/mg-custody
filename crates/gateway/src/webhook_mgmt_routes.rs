@@ -433,8 +433,12 @@ async fn derivation_tree(
 static START_TIME: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
 
 /// Detailed per-chain health with scanner lag and RPC latency.
+///
+/// Admin-only. Scanner lag, RPC latency, and node topology are operational
+/// metrics that narrow the search for a live attacker — they do not belong
+/// in a Viewer's response. Viewers get only the plain `/health` probe.
 pub async fn detailed_health(
-    _auth: RequireViewer,
+    _auth: RequireAdmin,
     State(state): State<AppState>,
 ) -> Result<Json<DetailedHealth>, ApiError> {
     let uptime_seconds = {
@@ -1348,8 +1352,11 @@ async fn token_prices(
 // Circuit breaker status endpoint
 // ---------------------------------------------------------------------------
 
+/// Admin-only. Outflow counters and limits are load-bearing risk-control
+/// state — exposing them at Viewer tells a reconnaissance-minded caller
+/// exactly how much headroom remains before limits trip.
 async fn circuit_breaker_status(
-    _auth: RequireViewer,
+    _auth: RequireAdmin,
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Try to load from DB

@@ -431,6 +431,25 @@ async fn main() -> anyhow::Result<()> {
         webhook_sender.clone(),
     ));
 
+    // ─── Email transport ─────────────────────────────────────────────
+    // `CUSTODY_EMAIL__MODE` selects the transport: `console` (default in
+    // dev — pretty-prints to stdout) or `noop` (silent, useful for tests
+    // and local scripts). SMTP variant is a follow-up once lettre is
+    // added to the workspace.
+    let email_from = std::env::var("CUSTODY_EMAIL__FROM")
+        .unwrap_or_else(|_| "MG Custody <no-reply@custody.local>".to_string());
+    let email_sender = match std::env::var("CUSTODY_EMAIL__MODE")
+        .unwrap_or_else(|_| "console".to_string())
+        .as_str()
+    {
+        "noop" => custody_common::email::EmailSender::noop(),
+        _ => custody_common::email::EmailSender::console(email_from),
+    };
+    tracing::info!(
+        transport = email_sender.transport_name(),
+        "Email sender initialized"
+    );
+
     // ─── Application State ───────────────────────────────────────────
     let app_state = AppState {
         db: db.clone(),
@@ -442,6 +461,7 @@ async fn main() -> anyhow::Result<()> {
             custody_gateway::rate_limit::UserRateLimiter::default_user(),
         ),
         frozen: freeze_flag,
+        email: std::sync::Arc::new(email_sender),
     };
 
     // Use middleware if HMAC secret is configured

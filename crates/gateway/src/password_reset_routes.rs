@@ -17,8 +17,11 @@
 //! a fresh email OTP.  The client then calls `POST /v1/auth/sessions/verify-2fa` with
 //! `code_type = "email_otp"` and the 6-digit code.
 //!
-//! For now: email "sending" = `tracing::info!`.
-//! Real SMTP requires adding the `lettre` crate and wiring an SMTP config.
+//! Email delivery goes through `state.email` — an `EmailSender` enum. In
+//! dev the Console transport pretty-prints to stdout; tests use Noop; a
+//! real SMTP variant will land when `lettre` is added to the workspace.
+//! Never log raw OTP codes via `tracing::info!` — always dispatch via
+//! `state.email.send(...)` so the transport can be swapped atomically.
 
 use axum::{
     extract::State,
@@ -26,6 +29,8 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+
+use custody_common::email::{render_password_reset, EmailMessage};
 
 use crate::auth_routes::hash_password;
 use crate::errors::ApiError;
@@ -97,22 +102,24 @@ async fn request_password_reset(
         .map_err(|e| ApiError::internal(&e.to_string()))?;
 
     if let Some((user_id, email, _enabled)) = user {
-        // Generate OTP and "dispatch" it.
         let code = state
             .db
             .create_email_otp(user_id, "password_reset")
             .await
             .map_err(|e| ApiError::internal(&e.to_string()))?;
 
-        // TODO: replace with actual SMTP dispatch using `lettre`.
-        tracing::info!(
-            email = %email,
-            // NOTE: logging the code here is acceptable in dev because there is no
-            // real email transport yet.  When SMTP is wired, remove this log line and
-            // never log OTP codes.
-            otp_code = %code,
-            "Password reset OTP generated — dispatch via email (SMTP not yet wired)"
-        );
+        let (subject, body) = render_password_reset(&code, 10);
+        if let Err(e) = state
+            .email
+            .send(EmailMessage::new(email.clone(), subject, body))
+            .await
+        {
+            tracing::warn!(
+                email = %email,
+                error = %e,
+                "Password reset email dispatch failed — returning generic success to caller"
+            );
+        }
     } else {
         // Introduce a consistent small delay to resist timing-based enumeration.
         // In production, also consider uniform response time via tokio::time::sleep.

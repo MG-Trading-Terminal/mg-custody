@@ -54,6 +54,7 @@ fn build_app_no_db() -> axum::Router {
         event_broadcaster: Arc::new(EventBroadcaster::with_default_capacity()),
         user_rate_limiter: Arc::new(custody_gateway::rate_limit::UserRateLimiter::default_user()),
         frozen: FreezeFlag::new(),
+        email: Arc::new(custody_common::email::EmailSender::noop()),
     };
 
     // Use router() — no HMAC layer.
@@ -125,6 +126,7 @@ async fn build_app_with_db() -> Option<(axum::Router, CustodyDb)> {
         event_broadcaster: Arc::new(EventBroadcaster::with_default_capacity()),
         user_rate_limiter: Arc::new(custody_gateway::rate_limit::UserRateLimiter::default_user()),
         frozen: FreezeFlag::new(),
+        email: Arc::new(custody_common::email::EmailSender::noop()),
     };
 
     let app = custody_gateway::routes::router(state);
