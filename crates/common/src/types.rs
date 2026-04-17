@@ -185,12 +185,19 @@ pub enum WithdrawalStatus {
     Cancelled,
 }
 
-/// A withdrawal request from the exchange.
+/// A withdrawal request from the exchange or a user.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Withdrawal {
     pub id: Uuid,
     /// Exchange's withdrawal UUID (idempotency key).
     pub exchange_withdrawal_id: Uuid,
+    /// User who initiated the withdrawal. Required for authorization checks
+    /// on `cancel_transaction` / `accelerate_transaction` / history listing.
+    pub user_id: Uuid,
+    /// Source vault — when present, a withdrawal's funds come out of this
+    /// vault's accounts. `None` is reserved for HMAC-exchange flows that
+    /// target a user-scoped deposit address rather than a named vault.
+    pub vault_id: Option<Uuid>,
     pub asset: Asset,
     pub chain: Chain,
     pub destination_address: String,
@@ -313,6 +320,14 @@ pub struct CreateAddressResponse {
 pub struct SubmitWithdrawalRequest {
     /// Exchange's withdrawal UUID — idempotency key.
     pub withdrawal_id: Uuid,
+    /// User on whose behalf the withdrawal is initiated. Required: without
+    /// it the custody ledger cannot scope history or authorize
+    /// cancel/accelerate operations.
+    pub user_id: Uuid,
+    /// Optional source vault. When omitted the withdrawal draws from the
+    /// user's default (HD-derived) deposit accounts.
+    #[serde(default)]
+    pub vault_id: Option<Uuid>,
     pub asset: Asset,
     pub chain: Chain,
     pub address: String,
@@ -391,6 +406,8 @@ mod tests {
     fn withdrawal_memo_field_serialization() {
         let req = SubmitWithdrawalRequest {
             withdrawal_id: Uuid::nil(),
+            user_id: Uuid::nil(),
+            vault_id: None,
             asset: Asset::new("USDT"),
             chain: Chain::Ethereum,
             address: "0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed".to_string(),

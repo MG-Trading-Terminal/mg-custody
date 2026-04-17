@@ -25,14 +25,17 @@ impl CustodyDb {
             let tier_str = format!("{:?}", w.wallet_tier).to_lowercase();
 
             sqlx::query(
-                "INSERT INTO withdrawals (id, exchange_withdrawal_id, asset, chain, destination_address,
-                 amount, fee, status, wallet_tier, tx_hash, block_height, confirmations, error_message,
-                 created_at, signed_at, broadcast_at, confirmed_at, delay_release_at)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+                "INSERT INTO withdrawals (id, exchange_withdrawal_id, user_id, vault_id, asset, chain,
+                 destination_address, amount, fee, status, wallet_tier, tx_hash, block_height,
+                 confirmations, error_message, created_at, signed_at, broadcast_at, confirmed_at,
+                 delay_release_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
                  ON CONFLICT (exchange_withdrawal_id) DO NOTHING",
             )
             .bind(w.id)
             .bind(w.exchange_withdrawal_id)
+            .bind(w.user_id)
+            .bind(w.vault_id)
             .bind(w.asset.as_str())
             .bind(w.chain.as_str())
             .bind(&w.destination_address)
@@ -63,14 +66,17 @@ impl CustodyDb {
         let tier_str = format!("{:?}", w.wallet_tier).to_lowercase();
 
         sqlx::query(
-            "INSERT INTO withdrawals (id, exchange_withdrawal_id, asset, chain, destination_address,
-             amount, fee, status, wallet_tier, tx_hash, block_height, confirmations, error_message,
-             created_at, signed_at, broadcast_at, confirmed_at, delay_release_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+            "INSERT INTO withdrawals (id, exchange_withdrawal_id, user_id, vault_id, asset, chain,
+             destination_address, amount, fee, status, wallet_tier, tx_hash, block_height,
+             confirmations, error_message, created_at, signed_at, broadcast_at, confirmed_at,
+             delay_release_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
              ON CONFLICT (exchange_withdrawal_id) DO NOTHING",
         )
         .bind(w.id)
         .bind(w.exchange_withdrawal_id)
+        .bind(w.user_id)
+        .bind(w.vault_id)
         .bind(w.asset.as_str())
         .bind(w.chain.as_str())
         .bind(&w.destination_address)
@@ -91,6 +97,22 @@ impl CustodyDb {
         .await?;
 
         Ok(())
+    }
+
+    /// List withdrawals owned by a specific user, newest first.
+    pub async fn list_withdrawals_by_user(
+        &self,
+        user_id: Uuid,
+        limit: i64,
+    ) -> anyhow::Result<Vec<Withdrawal>> {
+        let rows: Vec<WithdrawalRow> = sqlx::query_as(
+            "SELECT * FROM withdrawals WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2",
+        )
+        .bind(user_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| r.into_withdrawal()).collect())
     }
 
     /// Find withdrawal by exchange's idempotency key.
@@ -270,6 +292,8 @@ impl CustodyDb {
 struct WithdrawalRow {
     id: Uuid,
     exchange_withdrawal_id: Uuid,
+    user_id: Uuid,
+    vault_id: Option<Uuid>,
     asset: String,
     chain: String,
     destination_address: String,
@@ -293,6 +317,8 @@ impl WithdrawalRow {
         Withdrawal {
             id: self.id,
             exchange_withdrawal_id: self.exchange_withdrawal_id,
+            user_id: self.user_id,
+            vault_id: self.vault_id,
             asset: Asset::new(&self.asset),
             chain: chain_from_str(&self.chain),
             destination_address: self.destination_address,

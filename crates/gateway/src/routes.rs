@@ -244,6 +244,8 @@ async fn submit_withdrawal(
     let withdrawal = Withdrawal {
         id: Uuid::new_v4(),
         exchange_withdrawal_id: req.withdrawal_id,
+        user_id: req.user_id,
+        vault_id: req.vault_id,
         asset: req.asset.clone(), chain: req.chain,
         destination_address: validated_addr.normalized, amount: req.amount,
         fee: None, status: WithdrawalStatus::Received,

@@ -32,6 +32,8 @@ fn make_withdrawal(asset: &str, chain: Chain, address: &str, amount: rust_decima
     Withdrawal {
         id: uuid::Uuid::new_v4(),
         exchange_withdrawal_id: uuid::Uuid::new_v4(),
+        user_id: uuid::Uuid::nil(),
+        vault_id: None,
         asset: Asset::new(asset), chain,
         destination_address: address.into(),
         amount, fee: None,

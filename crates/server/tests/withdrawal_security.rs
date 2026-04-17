@@ -33,6 +33,8 @@ fn test_withdrawal(chain: Chain, address: &str, amount: rust_decimal::Decimal) -
     Withdrawal {
         id: Uuid::new_v4(),
         exchange_withdrawal_id: Uuid::new_v4(),
+        user_id: uuid::Uuid::nil(),
+        vault_id: None,
         asset: Asset::new("ETH"),
         chain,
         destination_address: address.into(),

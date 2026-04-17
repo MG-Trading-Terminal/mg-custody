@@ -25,6 +25,8 @@ async fn full_flow_with_signing() {
     let w = Withdrawal {
         id: uuid::Uuid::new_v4(),
         exchange_withdrawal_id: uuid::Uuid::new_v4(),
+        user_id: uuid::Uuid::nil(),
+        vault_id: None,
         asset: Asset::new("ETH"),
         chain: Chain::Ethereum,
         destination_address: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18".into(),
@@ -88,6 +90,8 @@ async fn multiple_withdrawals_sequential() {
         let w = Withdrawal {
             id: uuid::Uuid::new_v4(),
             exchange_withdrawal_id: uuid::Uuid::new_v4(),
+            user_id: uuid::Uuid::nil(),
+            vault_id: None,
             asset: Asset::new("ETH"),
             chain: Chain::Ethereum,
             destination_address: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18".into(),
@@ -139,6 +143,8 @@ async fn usdt_withdrawal_uses_correct_contract() {
     let w = Withdrawal {
         id: uuid::Uuid::new_v4(),
         exchange_withdrawal_id: uuid::Uuid::new_v4(),
+        user_id: uuid::Uuid::nil(),
+        vault_id: None,
         asset: Asset::new("USDT"),
         chain: Chain::Ethereum,
         destination_address: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18".into(),

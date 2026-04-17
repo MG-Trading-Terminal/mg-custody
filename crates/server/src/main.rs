@@ -1049,6 +1049,9 @@ async fn main() -> anyhow::Result<()> {
                         // Use the scheduled withdrawal's own ID as idempotency key
                         // with execution count to avoid duplicates on retry.
                         exchange_withdrawal_id: uuid::Uuid::new_v4(),
+                        // Inherit ownership from the scheduled withdrawal record.
+                        user_id: sw.user_id,
+                        vault_id: None,
                         asset: custody_common::Asset::new(&sw.asset),
                         chain: sw.chain,
                         destination_address: sw.destination.clone(),

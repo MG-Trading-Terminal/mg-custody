@@ -164,6 +164,11 @@ impl GasStationService {
         let withdrawal = Withdrawal {
             id: withdrawal_id,
             exchange_withdrawal_id,
+            // Gas-station transfers are system-initiated (no human user).
+            // We use the nil UUID to mark them as system operations so the
+            // ownership layer treats them as non-user flows.
+            user_id: Uuid::nil(),
+            vault_id: None,
             asset: Asset::new(gas_asset),
             chain: req.chain,
             destination_address: req.address.clone(),

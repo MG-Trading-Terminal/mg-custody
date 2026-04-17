@@ -1086,31 +1086,60 @@ async fn register_user(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    if req.email.is_empty() || !req.email.contains('@') {
+    // Email shape — lightweight check, real validation is via sign-in flow.
+    let email = req.email.trim().to_lowercase();
+    let at_pos = email.find('@');
+    let dot_after_at = at_pos.is_some_and(|i| email[i..].contains('.'));
+    if email.len() < 5 || !dot_after_at {
         return Err(ApiError::bad_request("Valid email required"));
     }
-    if req.password.len() < 8 {
-        return Err(ApiError::bad_request("Password must be at least 8 characters"));
+
+    // Must match the threshold used by password-change (keeps the bar uniform).
+    if req.password.len() < 12 {
+        return Err(ApiError::bad_request(
+            "Password must be at least 12 characters",
+        ));
     }
 
-    // Find default workspace
-    let ws_id: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT id FROM workspaces WHERE enabled = true ORDER BY created_at LIMIT 1"
-    ).fetch_optional(&state.db.pool).await
-        .map_err(|e| ApiError::internal(&e.to_string()))?;
+    // Find (or bootstrap) the default workspace. A fresh deployment may
+    // legitimately have no workspace yet — in that case we self-provision
+    // one so the first registered user becomes the Owner.
+    let ws_row: Option<(Uuid,)> = sqlx::query_as(
+        "SELECT id FROM workspaces WHERE enabled = true ORDER BY created_at LIMIT 1",
+    )
+    .fetch_optional(&state.db.pool)
+    .await
+    .map_err(|e| ApiError::internal(&e.to_string()))?;
 
-    let workspace_id = ws_id.map(|r| r.0).unwrap_or(Uuid::nil());
+    let (workspace_id, role, is_bootstrap) = match ws_row {
+        Some((id,)) => (id, "viewer", false),
+        None => {
+            let ws_id = Uuid::new_v4();
+            sqlx::query(
+                "INSERT INTO workspaces (id, name, enabled, created_at)
+                 VALUES ($1, $2, true, NOW())",
+            )
+            .bind(ws_id)
+            .bind("default")
+            .execute(&state.db.pool)
+            .await
+            .map_err(|e| ApiError::internal(&e.to_string()))?;
+            (ws_id, "owner", true)
+        }
+    };
+
     let user_id = Uuid::new_v4();
     let password_hash = crate::auth_routes::hash_password(&req.password);
 
     let result = sqlx::query(
         "INSERT INTO workspace_users (id, workspace_id, email, role, password_hash, enabled, created_at)
-         VALUES ($1, $2, $3, 'viewer', $4, true, NOW())
-         ON CONFLICT (workspace_id, email) DO NOTHING"
+         VALUES ($1, $2, $3, $4, $5, true, NOW())
+         ON CONFLICT (workspace_id, email) DO NOTHING",
     )
     .bind(user_id)
     .bind(workspace_id)
-    .bind(&req.email)
+    .bind(&email)
+    .bind(role)
     .bind(&password_hash)
     .execute(&state.db.pool)
     .await
@@ -1120,13 +1149,45 @@ async fn register_user(
         return Err(ApiError::conflict("An account with this email already exists"));
     }
 
-    tracing::info!(email = %req.email, "New user registered");
+    // Give the user a default vault so the UI has somewhere to route
+    // deposits and balances instead of showing empty state forever.
+    let vault_id = Uuid::new_v4();
+    let vault_name = email
+        .split('@')
+        .next()
+        .map(|s| format!("{s}'s vault"))
+        .unwrap_or_else(|| "My vault".to_string());
+    sqlx::query(
+        "INSERT INTO vaults (id, name, owner_id, auto_fuel, hidden, created_at, updated_at)
+         VALUES ($1, $2, $3, false, false, NOW(), NOW())
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(vault_id)
+    .bind(&vault_name)
+    .bind(user_id)
+    .execute(&state.db.pool)
+    .await
+    .map_err(|e| ApiError::internal(&format!("default vault creation failed: {e}")))?;
+
+    tracing::info!(
+        user_id = %user_id,
+        email = %email,
+        role = %role,
+        bootstrap = is_bootstrap,
+        vault_id = %vault_id,
+        "New user registered"
+    );
 
     Ok(Json(serde_json::json!({
         "user_id": user_id,
-        "email": req.email,
-        "role": "viewer",
-        "message": "Account created. You can now sign in."
+        "email": email,
+        "role": role,
+        "vault_id": vault_id,
+        "message": if is_bootstrap {
+            "Account created as workspace owner. You can now sign in."
+        } else {
+            "Account created. You can now sign in."
+        }
     })))
 }
 
@@ -1281,30 +1342,40 @@ async fn list_policies(
 // User withdrawal history
 // ---------------------------------------------------------------------------
 
+/// Withdrawal history — scoped to the caller when not admin. Admins
+/// get the full org-wide view for oversight.
 async fn user_withdrawal_history(
-    _auth: RequireViewer,
+    auth: RequireViewer,
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    // Return recent withdrawals across all statuses
-    let mut all = Vec::new();
-    for status in &[
-        WithdrawalStatus::Received,
-        WithdrawalStatus::Validated,
-        WithdrawalStatus::Signed,
-        WithdrawalStatus::Broadcast,
-        WithdrawalStatus::Confirming,
-        WithdrawalStatus::Finalized,
-        WithdrawalStatus::Cancelled,
-        WithdrawalStatus::Failed,
-    ] {
-        if let Ok(ws) = state.db.withdrawals_by_status(*status).await {
-            all.extend(ws);
+    let is_admin = auth.0.role.has_at_least(&custody_db::sessions::Role::Admin);
+
+    let results = if is_admin {
+        let mut all = Vec::new();
+        for status in &[
+            WithdrawalStatus::Received,
+            WithdrawalStatus::Validated,
+            WithdrawalStatus::Signed,
+            WithdrawalStatus::Broadcast,
+            WithdrawalStatus::Confirming,
+            WithdrawalStatus::Finalized,
+            WithdrawalStatus::Cancelled,
+            WithdrawalStatus::Failed,
+        ] {
+            if let Ok(ws) = state.db.withdrawals_by_status(*status).await {
+                all.extend(ws);
+            }
         }
-    }
-    // Sort by created_at descending, limit to 100
-    all.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    all.truncate(100);
-    Ok(Json(serde_json::to_value(all)
+        all
+    } else {
+        state.db.list_withdrawals_by_user(auth.0.user_id, 100).await
+            .map_err(|e| ApiError::internal(&e.to_string()))?
+    };
+
+    let mut results = results;
+    results.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    results.truncate(100);
+    Ok(Json(serde_json::to_value(results)
         .map_err(|e| ApiError::internal(&e.to_string()))?))
 }
 

@@ -256,15 +256,30 @@ async fn get_vault_account(
 // ---------------------------------------------------------------------------
 
 async fn raw_sign(
-    _auth: RequireSigner,
+    auth: RequireSigner,
     State(state): State<AppState>,
     Path(vault_id): Path<Uuid>,
     Json(req): Json<RawSignRequest>,
 ) -> Result<Json<RawSignResponse>, ApiError> {
-    // Find the vault account for this chain
-    let _vault = state.db.find_vault(vault_id).await
+    // Ownership enforcement: the signing primitive must never produce signatures
+    // for a vault the caller doesn't own. Admins retain cross-vault signing
+    // capability for operational flows (sweeps, recovery).
+    let is_admin = auth.0.role.has_at_least(&custody_db::sessions::Role::Admin);
+    let vault = state.db.find_vault(vault_id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Vault not found"))?;
+
+    if !is_admin && vault.owner_id != auth.0.user_id {
+        tracing::warn!(
+            actor = %auth.0.user_id,
+            vault_id = %vault_id,
+            owner = %vault.owner_id,
+            "Rejected raw_sign: caller does not own vault"
+        );
+        return Err(ApiError::forbidden(
+            "You do not have permission to sign with this vault",
+        ));
+    }
 
     // Decode the hex message
     let message_bytes = hex::decode(&req.message)
@@ -328,7 +343,7 @@ async fn raw_sign(
 // ---------------------------------------------------------------------------
 
 async fn create_transfer(
-    _auth: RequireEditor,
+    auth: RequireEditor,
     State(state): State<AppState>,
     Json(req): Json<CreateTransferRequest>,
 ) -> Result<Json<InternalTransfer>, ApiError> {
@@ -349,10 +364,26 @@ async fn create_transfer(
         return Ok(Json(existing));
     }
 
-    // Verify both vaults exist
-    state.db.find_vault(req.source_vault_id).await
+    // Verify both vaults exist AND that the caller owns the source vault.
+    // Without this check, any Editor-level user could drain any vault by
+    // passing an arbitrary source_vault_id. Admins retain broad access
+    // for operational transfers (e.g. sweeps, treasury ops).
+    let source_vault = state.db.find_vault(req.source_vault_id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Source vault not found"))?;
+
+    let is_admin = auth.0.role.has_at_least(&custody_db::sessions::Role::Admin);
+    if !is_admin && source_vault.owner_id != auth.0.user_id {
+        tracing::warn!(
+            actor = %auth.0.user_id,
+            source_vault = %req.source_vault_id,
+            owner = %source_vault.owner_id,
+            "Rejected internal transfer: caller does not own source vault"
+        );
+        return Err(ApiError::forbidden(
+            "You do not have permission to transfer from this vault",
+        ));
+    }
 
     state.db.find_vault(req.dest_vault_id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?
@@ -430,13 +461,29 @@ async fn create_transfer(
 }
 
 async fn get_transfer(
-    _auth: RequireViewer,
+    auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<InternalTransfer>, ApiError> {
     let transfer = state.db.find_internal_transfer(id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Transfer not found"))?;
+
+    // Caller must own at least one side (source or dest) of the transfer.
+    // Returns 404 instead of 403 to avoid leaking that the ID exists.
+    let is_admin = auth.0.role.has_at_least(&custody_db::sessions::Role::Admin);
+    if !is_admin {
+        let source = state.db.find_vault(transfer.source_vault_id).await
+            .map_err(|e| ApiError::internal(&e.to_string()))?;
+        let dest = state.db.find_vault(transfer.dest_vault_id).await
+            .map_err(|e| ApiError::internal(&e.to_string()))?;
+        let owns_either = source.as_ref().is_some_and(|v| v.owner_id == auth.0.user_id)
+            || dest.as_ref().is_some_and(|v| v.owner_id == auth.0.user_id);
+        if !owns_either {
+            return Err(ApiError::not_found("Transfer not found"));
+        }
+    }
+
     Ok(Json(transfer))
 }
 
@@ -461,10 +508,49 @@ struct TransactionQuery {
 }
 
 async fn list_transactions(
-    _auth: RequireViewer,
+    auth: RequireViewer,
     State(state): State<AppState>,
     Query(q): Query<TransactionQuery>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // For non-admin callers the listing must be scoped to vaults they own,
+    // otherwise an Editor could enumerate the entire ledger.
+    let is_admin = auth.0.role.has_at_least(&custody_db::sessions::Role::Admin);
+    let mut vault_id = q.vault_id;
+
+    if !is_admin {
+        match vault_id {
+            Some(vid) => {
+                // Explicit vault scope — verify ownership.
+                let vault = state.db.find_vault(vid).await
+                    .map_err(|e| ApiError::internal(&e.to_string()))?;
+                if vault.map(|v| v.owner_id) != Some(auth.0.user_id) {
+                    return Err(ApiError::forbidden(
+                        "You do not have access to this vault's transactions",
+                    ));
+                }
+            }
+            None => {
+                // No vault filter provided by a non-admin — caller must pick
+                // one of their own vaults; we do not fan-out across all owned
+                // vaults here because the filter API is single-vault.
+                let owned = state.db.list_vaults(auth.0.user_id, false).await
+                    .map_err(|e| ApiError::internal(&e.to_string()))?;
+                if owned.is_empty() {
+                    return Ok(Json(serde_json::json!({
+                        "transactions": [],
+                        "next_cursor": null,
+                    })));
+                }
+                if owned.len() > 1 {
+                    return Err(ApiError::bad_request(
+                        "Specify ?vault_id= — you have multiple vaults",
+                    ));
+                }
+                vault_id = Some(owned[0].id);
+            }
+        }
+    }
+
     let tx_type = q.tx_type.as_deref().map(|t| match t {
         "deposit" => TransactionType::Deposit,
         "withdrawal" => TransactionType::Withdrawal,
@@ -473,7 +559,7 @@ async fn list_transactions(
     });
 
     let filter = TransactionFilter {
-        vault_id: q.vault_id,
+        vault_id,
         asset: q.asset,
         chain: q.chain,
         status: q.status,
@@ -496,14 +582,39 @@ async fn list_transactions(
 }
 
 async fn get_transaction(
-    _auth: RequireViewer,
+    auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Transaction>, ApiError> {
     let tx = state.db.find_transaction(id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Transaction not found"))?;
+
+    if !caller_owns_tx(&state, &auth.0, &tx).await? {
+        return Err(ApiError::not_found("Transaction not found"));
+    }
+
     Ok(Json(tx))
+}
+
+/// Returns true if the caller is Admin-or-higher, or owns a vault
+/// referenced by the transaction (source or dest).
+async fn caller_owns_tx(
+    state: &AppState,
+    auth: &crate::rbac_middleware::AuthContext,
+    tx: &Transaction,
+) -> Result<bool, ApiError> {
+    if auth.role.has_at_least(&custody_db::sessions::Role::Admin) {
+        return Ok(true);
+    }
+    for vid in [tx.source_vault_id, tx.dest_vault_id].into_iter().flatten() {
+        let vault = state.db.find_vault(vid).await
+            .map_err(|e| ApiError::internal(&e.to_string()))?;
+        if vault.is_some_and(|v| v.owner_id == auth.user_id) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 // ---------------------------------------------------------------------------
@@ -511,10 +622,18 @@ async fn get_transaction(
 // ---------------------------------------------------------------------------
 
 async fn cancel_transaction(
-    _auth: RequireSigner,
+    auth: RequireSigner,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // Ownership check first — prevents cross-vault RBF attacks.
+    let tx = state.db.find_transaction(id).await
+        .map_err(|e| ApiError::internal(&e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Transaction not found"))?;
+    if !caller_owns_tx(&state, &auth.0, &tx).await? {
+        return Err(ApiError::not_found("Transaction not found"));
+    }
+
     let withdrawal = state.db.find_withdrawal(id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Transaction not found"))?;
@@ -555,11 +674,19 @@ async fn cancel_transaction(
 }
 
 async fn accelerate_transaction(
-    _auth: RequireSigner,
+    auth: RequireSigner,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(req): Json<AccelerateRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // Ownership check first.
+    let tx = state.db.find_transaction(id).await
+        .map_err(|e| ApiError::internal(&e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Transaction not found"))?;
+    if !caller_owns_tx(&state, &auth.0, &tx).await? {
+        return Err(ApiError::not_found("Transaction not found"));
+    }
+
     let withdrawal = state.db.find_withdrawal(id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Transaction not found"))?;

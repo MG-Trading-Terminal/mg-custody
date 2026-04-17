@@ -154,6 +154,8 @@ async fn withdrawal_validation_rejects_bad_address() {
     let w = custody_common::Withdrawal {
         id: uuid::Uuid::new_v4(),
         exchange_withdrawal_id: uuid::Uuid::new_v4(),
+        user_id: uuid::Uuid::nil(),
+        vault_id: None,
         asset: custody_common::Asset::new("ETH"),
         chain: custody_common::Chain::Ethereum,
         destination_address: "not-a-valid-address".into(), // bad!
@@ -193,6 +195,8 @@ async fn withdrawal_circuit_breaker_blocks_large() {
     let w = custody_common::Withdrawal {
         id: uuid::Uuid::new_v4(),
         exchange_withdrawal_id: uuid::Uuid::new_v4(),
+        user_id: uuid::Uuid::nil(),
+        vault_id: None,
         asset: custody_common::Asset::new("ETH"),
         chain: custody_common::Chain::Ethereum,
         destination_address: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18".into(),

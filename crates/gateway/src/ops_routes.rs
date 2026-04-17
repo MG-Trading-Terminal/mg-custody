@@ -199,10 +199,23 @@ async fn test_webhook(
 const BATCH_MAX_SIZE: usize = 50;
 
 async fn batch_withdraw(
-    _auth: RequireSigner,
+    auth: RequireSigner,
     State(state): State<AppState>,
     Json(req): Json<BatchWithdrawalRequest>,
 ) -> Result<(StatusCode, Json<BatchWithdrawalResponse>), ApiError> {
+    // Non-admins may only submit batches where every item is scoped to
+    // their own user_id. Admins (and HMAC exchange callers) may submit
+    // batches on behalf of multiple users.
+    let is_admin = auth.0.role.has_at_least(&custody_db::sessions::Role::Admin);
+    if !is_admin {
+        for item in &req.withdrawals {
+            if item.user_id != auth.0.user_id {
+                return Err(ApiError::forbidden(
+                    "Batch contains withdrawals for other users",
+                ));
+            }
+        }
+    }
     // ── basic size checks ─────────────────────────────────────────────────
     if req.withdrawals.is_empty() {
         return Err(ApiError::bad_request("Batch must contain at least one withdrawal"));
@@ -261,6 +274,8 @@ async fn batch_withdraw(
             let w = Withdrawal {
                 id: Uuid::new_v4(),
                 exchange_withdrawal_id: item.withdrawal_id,
+                user_id: item.user_id,
+                vault_id: item.vault_id,
                 asset: item.asset.clone(),
                 chain: item.chain,
                 destination_address: item.address.clone(),
@@ -610,6 +625,8 @@ mod tests {
     fn item(wid: Uuid, amount: Decimal, address: &str) -> BatchWithdrawalItem {
         BatchWithdrawalItem {
             withdrawal_id: wid,
+            user_id: Uuid::new_v4(),
+            vault_id: None,
             asset: custody_common::Asset::new("ETH"),
             chain: Chain::Ethereum,
             address: address.to_string(),

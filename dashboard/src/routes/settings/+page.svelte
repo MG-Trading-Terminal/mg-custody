@@ -1,15 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
-
-	interface ChainHealth {
-		chain: string;
-		rpc: string;
-		confirmations: number | string;
-		status: 'ok' | 'degraded' | 'down';
-		block_height: number | null;
-		latency_ms: number | null;
-	}
+	import { chainIcon } from '$lib/icons/tokens';
+	import { icon } from '$lib/icons/ui';
 
 	interface DetailedChainHealth {
 		status: string;
@@ -39,319 +32,486 @@
 		generated_at: string;
 	}
 
-	interface CircuitBreaker {
-		label: string;
-		limit: string;
-		current: string;
-		tripped: boolean;
-	}
-
-	interface FidoInfo {
-		user_id: string;
-		credential_count: number;
-	}
-
-	let chains         = $state<ChainHealth[]>([]);
 	let detailedHealth = $state<DetailedHealth | null>(null);
-	let circuit        = $state<CircuitBreaker[]>([]);
-	let fido           = $state<FidoInfo[]>([]);
-	let loading        = $state(true);
-
-	const STATIC_CIRCUIT = [
-		{ label: 'Per-transaction cap',  limit: '$500,000' },
-		{ label: 'Hourly outflow limit', limit: '$10,000,000' },
-		{ label: 'Daily outflow limit',  limit: '$50,000,000' },
-	];
+	let loading = $state(true);
 
 	async function load() {
 		loading = true;
-		const [chainsRes, circuitRes, fidoRes, detailedRes] = await Promise.allSettled([
-			api.getJson<{ chains: ChainHealth[] }>('/health/chains'),
-			api.getJson<{ limits: CircuitBreaker[] }>('/v1/circuit-breaker/status'),
-			api.getJson<{ credentials: FidoInfo[] }>('/v1/fido/credentials'),
-			api.getJson<DetailedHealth>('/v1/health/detailed'),
-		]);
-		chains         = chainsRes.status  === 'fulfilled' ? (chainsRes.value.chains   ?? []) : [];
-		circuit        = circuitRes.status === 'fulfilled' ? (circuitRes.value.limits  ?? []) : [];
-		fido           = fidoRes.status    === 'fulfilled' ? (fidoRes.value.credentials ?? []) : [];
-		detailedHealth = detailedRes.status === 'fulfilled' ? detailedRes.value : null;
-		loading = false;
+		try {
+			detailedHealth = await api.getJson<DetailedHealth>('/v1/health/detailed').catch(() => null);
+		} finally {
+			loading = false;
+		}
 	}
 
 	onMount(load);
 
-	function statusClass(s: string) {
-		if (s === 'ok' || s === 'healthy') return 'green';
-		if (s === 'degraded' || s === 'lagging') return 'yellow';
-		return 'red';
+	function chainTone(s: string): 'ok' | 'warn' | 'err' | 'unknown' {
+		if (s === 'ok' || s === 'healthy') return 'ok';
+		if (s === 'degraded' || s === 'lagging') return 'warn';
+		if (s === 'down') return 'err';
+		return 'unknown';
 	}
 
-	function lagClass(lag: number | null) {
-		if (lag === null) return 'muted';
-		if (lag < 50)  return 'green';
-		if (lag < 200) return 'yellow';
-		return 'red';
+	function lagTone(lag: number | null): 'ok' | 'warn' | 'err' {
+		if (lag === null) return 'ok';
+		if (lag < 5) return 'ok';
+		if (lag < 20) return 'warn';
+		return 'err';
 	}
 
 	function fmtUptime(secs: number): string {
 		const d = Math.floor(secs / 86400);
 		const h = Math.floor((secs % 86400) / 3600);
 		const m = Math.floor((secs % 3600) / 60);
-		if (d > 0)  return `${d}d ${h}h`;
-		if (h > 0)  return `${h}h ${m}m`;
+		if (d > 0) return `${d}d ${h}h`;
+		if (h > 0) return `${h}h ${m}m`;
 		return `${m}m`;
+	}
+
+	function fmtLat(ms: number | null): string {
+		return ms != null ? `${Math.round(ms)} ms` : '—';
 	}
 </script>
 
-<h1>System Settings</h1>
-
-<section>
-	<h2>Chain Health</h2>
-	<div class="card">
-		{#if loading}
-			<p class="muted">Loading…</p>
-		{:else if chains.length === 0}
-			<div class="table-wrap"><table>
-				<thead><tr><th>Chain</th><th>RPC</th><th>Confirmations</th><th>Status</th></tr></thead>
-				<tbody>
-					{#each [
-						{ chain: 'Bitcoin',  rpc: 'bitcoind @ :8332',    confirmations: 3,          status: 'unknown' },
-						{ chain: 'Ethereum', rpc: 'execution node @ :8545', confirmations: 12,       status: 'unknown' },
-						{ chain: 'Tron',     rpc: 'tron-grid @ :8090',   confirmations: 20,         status: 'unknown' },
-						{ chain: 'Solana',   rpc: 'validator RPC @ :8899', confirmations: 'finalized', status: 'unknown' },
-					] as c}
-						<tr>
-							<td>{c.chain}</td>
-							<td class="mono muted">{c.rpc}</td>
-							<td>{c.confirmations}</td>
-							<td class="muted">—</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table></div>
-		{:else}
-			<div class="table-wrap"><table>
-				<thead><tr><th>Chain</th><th>RPC</th><th>Conf.</th><th>Block</th><th>Latency</th><th>Status</th></tr></thead>
-				<tbody>
-					{#each chains as c}
-						<tr>
-							<td>{c.chain}</td>
-							<td class="mono muted">{c.rpc}</td>
-							<td>{c.confirmations}</td>
-							<td class="mono muted">{c.block_height ?? '—'}</td>
-							<td class="muted">{c.latency_ms != null ? `${c.latency_ms}ms` : '—'}</td>
-							<td><span class="badge {statusClass(c.status)}">{c.status}</span></td>
-						</tr>
-					{/each}
-				</tbody>
-			</table></div>
-		{/if}
-		<p class="note muted">Override via <code>CUSTODY_CHAINS__*</code> environment variables.</p>
+<!-- ═══ Head ═══ -->
+<div class="page-head">
+	<div>
+		<h1>System</h1>
+		<p class="page-sub">Runtime telemetry, chain infrastructure, and configuration reference.</p>
 	</div>
-</section>
+	<button class="btn btn-ghost" onclick={load}>
+		<span>{@html icon('refresh', 14)}</span>
+		<span>Refresh</span>
+	</button>
+</div>
 
-<section>
-	<h2>Circuit Breaker</h2>
-	<div class="card">
-		{#if circuit.length > 0}
-			{#each circuit as row}
-				<div class="kv">
-					<span>{row.label}</span>
-					<div class="kv-right">
-						<span class="muted">{row.current} / </span><span class="val">{row.limit}</span>
-						{#if row.tripped}<span class="badge red">TRIPPED</span>{/if}
+<!-- ═══ System runtime ═══ -->
+{#if loading}
+	<section class="panel">
+		<div class="panel-body"><div class="skel-line"></div><div class="skel-line"></div></div>
+	</section>
+{:else if detailedHealth}
+	{@const sys = detailedHealth.system}
+	<section class="kpi-grid">
+		<div class="kpi">
+			<span class="kpi-label">Uptime</span>
+			<span class="kpi-value mono">{fmtUptime(sys.uptime_seconds)}</span>
+		</div>
+		<div class="kpi">
+			<span class="kpi-label">DB pool</span>
+			<span class="kpi-value mono">{sys.db_pool_active}<span class="of">/{sys.db_pool_size}</span></span>
+			<span class="kpi-hint muted tiny">active / max</span>
+		</div>
+		<div class="kpi">
+			<span class="kpi-label">Memory</span>
+			<span class="kpi-value mono">{sys.memory_mb > 0 ? `${sys.memory_mb}` : '—'}<span class="of">{sys.memory_mb > 0 ? ' MB' : ''}</span></span>
+		</div>
+		<div class="kpi">
+			<span class="kpi-label">Pending webhooks</span>
+			<span class="kpi-value mono" class:tone-warn={sys.pending_webhooks > 0}>{sys.pending_webhooks}</span>
+		</div>
+		<div class="kpi">
+			<span class="kpi-label">Circuit breaker</span>
+			<span class="kpi-value">
+				{#if sys.circuit_breaker === 'normal'}
+					<span class="chip tone-ok"><span class="chip-dot"></span>Operational</span>
+				{:else}
+					<span class="chip tone-err"><span class="chip-dot"></span>{sys.circuit_breaker}</span>
+				{/if}
+			</span>
+		</div>
+	</section>
+
+	<!-- ═══ Chain infrastructure ═══ -->
+	<section class="panel">
+		<header class="panel-head">
+			<div>
+				<h2>Chain infrastructure</h2>
+				<p class="panel-sub">RPC endpoints and scanner health per network</p>
+			</div>
+			<span class="badge-count">{Object.keys(detailedHealth.chains).length}</span>
+		</header>
+
+		<div class="chain-grid">
+			{#each Object.entries(detailedHealth.chains) as [name, ch]}
+				<div class="chain-card">
+					<div class="chain-card-head">
+						<span class="chain-icon-wrap">{@html chainIcon(name, 20)}</span>
+						<div class="chain-card-title">
+							<span class="chain-name">{name.charAt(0).toUpperCase() + name.slice(1)}</span>
+							<code class="chain-rpc mono tiny muted">{ch.rpc_url || '—'}</code>
+						</div>
+						<span class="chip tone-{chainTone(ch.status)}">
+							<span class="chip-dot"></span>
+							{ch.status}
+						</span>
+					</div>
+
+					<div class="chain-metrics">
+						<div>
+							<span class="metric-label">Scanner block</span>
+							<span class="metric-val mono">{ch.scanner_block?.toLocaleString() ?? '—'}</span>
+						</div>
+						<div>
+							<span class="metric-label">Lag</span>
+							<span class="metric-val mono tone-{lagTone(ch.scanner_lag)}">
+								{ch.scanner_lag != null ? `${ch.scanner_lag} blk` : '—'}
+							</span>
+						</div>
+						<div>
+							<span class="metric-label">RPC latency</span>
+							<span class="metric-val mono">{fmtLat(ch.avg_rpc_latency_ms)}</span>
+						</div>
+						<div>
+							<span class="metric-label">Error rate</span>
+							<span class="metric-val mono" class:tone-warn={ch.error_rate_pct > 1}>{ch.error_rate_pct.toFixed(2)}%</span>
+						</div>
+						<div>
+							<span class="metric-label">Deposits · 24h</span>
+							<span class="metric-val mono">{ch.deposits_today}</span>
+						</div>
+						<div>
+							<span class="metric-label">Withdrawals · 24h</span>
+							<span class="metric-val mono">{ch.withdrawals_today}</span>
+						</div>
 					</div>
 				</div>
 			{/each}
-		{:else}
-			{#each STATIC_CIRCUIT as row}
-				<div class="kv">
-					<span>{row.label}</span>
-					<span class="val">{row.limit}</span>
-				</div>
-			{/each}
-		{/if}
-		<p class="note muted">Trips fire a PagerDuty/webhook alert. State is persisted in PostgreSQL.</p>
-	</div>
-</section>
+		</div>
 
-<section>
-	<h2>FIDO2 Credentials</h2>
-	<div class="card">
-		{#if loading}
-			<p class="muted">Loading…</p>
-		{:else if fido.length === 0}
-			<p class="muted">No FIDO2 credentials registered, or endpoint unavailable.</p>
-		{:else}
-			<div class="table-wrap"><table>
-				<thead><tr><th>User</th><th>Credentials</th></tr></thead>
-				<tbody>
-					{#each fido as f}
-						<tr>
-							<td class="mono">{f.user_id}</td>
-							<td>{f.credential_count}</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table></div>
-		{/if}
-	</div>
-</section>
+		<div class="panel-foot">
+			<span>{@html icon('file-text', 12)}</span>
+			<span class="muted tiny">Override per-chain via <code class="mono">CUSTODY_CHAINS__*</code> environment variables.</span>
+		</div>
+	</section>
 
-<section>
-	<h2>Webhooks</h2>
-	<div class="card">
-		<p class="muted">
-			Manage webhook endpoints and view delivery metrics in the
-			<a href="/webhooks">Webhook Management</a> page.
-		</p>
-		<p class="muted">Events: <code>deposit_confirmed</code>, <code>withdrawal_broadcast</code>, <code>withdrawal_confirmed</code>, <code>withdrawal_failed</code>.</p>
-	</div>
-</section>
-
-{#if detailedHealth}
-<section>
-	<h2>Detailed Chain Health</h2>
-	<div class="chain-cards">
-		{#each Object.entries(detailedHealth.chains) as [name, ch]}
-			<div class="chain-card card">
-				<div class="chain-header">
-					<strong>{name.charAt(0).toUpperCase() + name.slice(1)}</strong>
-					<span class="badge {statusClass(ch.status)}">{ch.status}</span>
-				</div>
-				<div class="kv">
-					<span>Scanner block</span>
-					<span class="mono muted">{ch.scanner_block ?? '—'}</span>
-				</div>
-				<div class="kv">
-					<span>Lag</span>
-					<span class="{lagClass(ch.scanner_lag)} mono">
-						{ch.scanner_lag != null ? `${ch.scanner_lag} blocks` : '—'}
-					</span>
-				</div>
-				<div class="kv">
-					<span>Avg latency</span>
-					<span class="mono muted">{ch.avg_rpc_latency_ms != null ? `${Math.round(ch.avg_rpc_latency_ms)}ms` : '—'}</span>
-				</div>
-				<div class="kv">
-					<span>Deposits today</span>
-					<span class="mono">{ch.deposits_today}</span>
-				</div>
-				<div class="kv">
-					<span>Withdrawals today</span>
-					<span class="mono">{ch.withdrawals_today}</span>
-				</div>
+	<!-- ═══ Webhook events ═══ -->
+	<section class="panel">
+		<header class="panel-head">
+			<div>
+				<h2>Webhook events</h2>
+				<p class="panel-sub">Exchange receives these events via signed HTTP callbacks</p>
 			</div>
-		{/each}
-	</div>
-</section>
+			<a href="/webhooks" class="btn btn-ghost">
+				<span>Manage endpoints</span>
+				<span>{@html icon('chevron-right', 12)}</span>
+			</a>
+		</header>
 
-<section>
-	<h2>System Runtime</h2>
-	<div class="card">
-		{#if detailedHealth.system}
-		{@const sys = detailedHealth.system}
-		<div class="kv">
-			<span>Uptime</span>
-			<span class="val">{fmtUptime(sys.uptime_seconds)}</span>
+		<ul class="event-list">
+			<li>
+				<span class="event-ico tone-ok">{@html icon('arrow-down-left', 14)}</span>
+				<div>
+					<code class="mono">deposit_confirmed</code>
+					<span class="muted">User deposit reached required confirmations</span>
+				</div>
+			</li>
+			<li>
+				<span class="event-ico tone-info">{@html icon('radio', 14)}</span>
+				<div>
+					<code class="mono">withdrawal_broadcast</code>
+					<span class="muted">Signed transaction submitted to the network</span>
+				</div>
+			</li>
+			<li>
+				<span class="event-ico tone-ok">{@html icon('check', 14)}</span>
+				<div>
+					<code class="mono">withdrawal_confirmed</code>
+					<span class="muted">Transaction confirmed on-chain</span>
+				</div>
+			</li>
+			<li>
+				<span class="event-ico tone-err">{@html icon('alert-triangle', 14)}</span>
+				<div>
+					<code class="mono">withdrawal_failed</code>
+					<span class="muted">Transaction failed after retry budget exhausted</span>
+				</div>
+			</li>
+		</ul>
+
+		<div class="panel-foot">
+			<span>{@html icon('shield-check', 12)}</span>
+			<span class="muted tiny">Signed with HMAC-SHA256. Timestamps &gt; 30s are rejected.</span>
 		</div>
-		<div class="kv">
-			<span>DB pool</span>
-			<span class="val">{sys.db_pool_active} / {sys.db_pool_size} active</span>
+	</section>
+
+	<p class="generated-at muted tiny">Generated: {new Date(detailedHealth.generated_at).toLocaleString()}</p>
+{:else}
+	<div class="panel">
+		<div class="panel-empty">
+			<span class="empty-mark">{@html icon('alert-triangle', 22)}</span>
+			<div>
+				<p class="empty-title">System telemetry unavailable</p>
+				<p class="muted">The detailed health endpoint did not respond. Core endpoints may still be operational.</p>
+			</div>
 		</div>
-		<div class="kv">
-			<span>Memory</span>
-			<span class="val">{sys.memory_mb > 0 ? `${sys.memory_mb} MB` : '—'}</span>
-		</div>
-		<div class="kv">
-			<span>Pending webhooks</span>
-			<span class="{sys.pending_webhooks > 0 ? 'val yellow' : 'val'}">{sys.pending_webhooks}</span>
-		</div>
-		<div class="kv">
-			<span>Circuit breaker</span>
-			<span class="badge {sys.circuit_breaker === 'normal' ? 'green' : 'red'}">{sys.circuit_breaker}</span>
-		</div>
-		<p class="note muted">Generated: {new Date(detailedHealth.generated_at).toLocaleString()}</p>
-		{/if}
 	</div>
-</section>
 {/if}
 
 <style>
-	h1 { margin-top: 0; font-size: 1.5rem; }
-	h2 { font-size: 1rem; color: var(--fg-muted, #8b949e); margin: 1.2rem 0 0.5rem; }
-
-	section { margin-bottom: 0.5rem; }
-
-	.card {
-		background: var(--card-bg, #161b22);
-		border: 1px solid var(--border, #30363d);
-		border-radius: 8px;
-		padding: 1.2rem;
-	}
-
-	.empty { color: var(--fg-muted, #8b949e); }
-
-	.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-	table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-	th { text-align: left; padding: 0.5rem 0.75rem; color: var(--fg-muted, #8b949e); border-bottom: 1px solid var(--border, #30363d); }
-	td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border, #30363d); }
-
-	.badge { border-radius: 4px; padding: 0.15rem 0.45rem; font-size: 0.75rem; font-weight: 600; }
-	.green  { background: rgba(63,185,80,.12);  color: var(--green, #3fb950); }
-	.yellow { background: rgba(210,153,34,.12); color: var(--yellow, #d29922); }
-	.red    { background: rgba(248,81,73,.12);  color: var(--red, #f85149); }
-
-	.mono  { font-family: monospace; font-size: 0.85rem; }
-	.muted { color: var(--fg-muted, #8b949e); }
-
-	.kv {
+	.page-head {
 		display: flex;
+		align-items: flex-start;
 		justify-content: space-between;
-		align-items: center;
-		padding: 0.45rem 0;
-		border-bottom: 1px solid var(--border, #30363d);
-		font-size: 0.9rem;
+		gap: var(--sp-4);
+		margin-bottom: var(--sp-5);
 	}
+	h1 { margin: 0 0 4px; font-size: 1.5rem; font-weight: 650; letter-spacing: -0.022em; }
+	.page-sub { margin: 0; color: var(--fg-muted); font-size: 0.88rem; max-width: 720px; }
 
-	.kv-right { display: flex; align-items: center; gap: 0.5rem; }
-	.val { font-family: monospace; color: var(--yellow, #d29922); }
-
-	.note { margin: 0.7rem 0 0; font-size: 0.8rem; }
-
-	code {
-		background: var(--hover-bg, #1c2128);
-		border-radius: 4px;
-		padding: 0.1rem 0.35rem;
-		font-size: 0.78rem;
-	}
-
-	p { margin: 0.3rem 0; font-size: 0.9rem; }
-
-	a { color: var(--accent, #1f6feb); text-decoration: none; }
-	a:hover { text-decoration: underline; }
-
-	.chain-cards {
+	/* KPI grid */
+	.kpi-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-		gap: 0.75rem;
+		grid-template-columns: repeat(5, 1fr);
+		gap: 1px;
+		background: var(--border);
+		border: 1px solid var(--border);
+		border-radius: var(--r-lg);
+		overflow: hidden;
+		margin-bottom: var(--sp-4);
+		box-shadow: var(--shadow-1);
+	}
+	.kpi {
+		padding: var(--sp-4) var(--sp-5);
+		background: var(--surface);
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.kpi-label {
+		font-size: 0.68rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.1em;
+		color: var(--fg-muted);
+	}
+	.kpi-value {
+		font-size: 1.3rem;
+		font-weight: 650;
+		color: var(--fg-strong);
+		letter-spacing: -0.02em;
+		line-height: 1;
+	}
+	.kpi-value.tone-warn { color: var(--yellow); }
+	.of { color: var(--fg-muted); font-size: 0.8rem; font-weight: 500; }
+	.kpi-hint { margin-top: 2px; }
+	.tiny { font-size: 0.7rem; }
+
+	.chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 0.72rem;
+		font-weight: 500;
+		padding: 2px 9px;
+		border-radius: var(--r-full);
+		border: 1px solid var(--border);
+		text-transform: capitalize;
+	}
+	.chip.tone-ok { color: var(--green); background: var(--green-soft); border-color: rgba(52, 211, 153, 0.3); }
+	.chip.tone-warn { color: var(--yellow); background: var(--yellow-soft); border-color: rgba(245, 185, 66, 0.3); }
+	.chip.tone-err { color: var(--red); background: var(--red-soft); border-color: rgba(248, 113, 113, 0.3); }
+	.chip.tone-unknown { color: var(--fg-muted); background: var(--surface-2); }
+	.chip-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+	/* Panel */
+	.panel {
+		background: var(--surface);
+		border: 1px solid var(--border);
+		border-radius: var(--r-lg);
+		box-shadow: var(--shadow-1);
+		margin-bottom: var(--sp-4);
+		overflow: hidden;
+	}
+	.panel-head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: var(--sp-3);
+		padding: var(--sp-4) var(--sp-5);
+		border-bottom: 1px solid var(--border);
+	}
+	.panel-head h2 { margin: 0 0 2px; font-size: 0.92rem; font-weight: 600; color: var(--fg-strong); }
+	.panel-sub { margin: 0; font-size: 0.78rem; color: var(--fg-muted); }
+	.panel-body { padding: var(--sp-4) var(--sp-5); }
+	.panel-foot {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: var(--sp-3) var(--sp-5);
+		background: var(--surface-2);
+		border-top: 1px solid var(--border);
+	}
+	.panel-foot > span:first-child { color: var(--accent); display: inline-flex; }
+	.panel-foot code {
+		background: var(--surface);
+		padding: 1px 6px;
+		border-radius: 4px;
+		border: 1px solid var(--border);
+		font-size: 0.7rem;
+	}
+
+	.badge-count {
+		font-size: 0.7rem;
+		font-weight: 600;
+		color: var(--fg-muted);
+		background: var(--surface-2);
+		padding: 3px 9px;
+		border-radius: var(--r-full);
+		border: 1px solid var(--border);
+	}
+
+	/* Buttons */
+	.btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 7px 12px;
+		font-size: 0.84rem;
+		font-weight: 550;
+		border-radius: var(--r-sm);
+		border: 1px solid var(--border);
+		background: var(--surface-2);
+		color: var(--fg);
+		cursor: pointer;
+		text-decoration: none;
+	}
+	.btn:hover { background: var(--hover-bg); border-color: var(--border-strong); }
+	.btn-ghost { background: transparent; border-color: transparent; color: var(--fg-muted); }
+	.btn-ghost:hover { background: var(--hover-bg); color: var(--fg); border-color: var(--border); }
+
+	/* Chain grid */
+	.chain-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+		gap: 1px;
+		background: var(--border);
 	}
 
 	.chain-card {
-		padding: 0.9rem;
+		background: var(--surface);
+		padding: var(--sp-4) var(--sp-5);
 		display: flex;
 		flex-direction: column;
-		gap: 0.3rem;
+		gap: var(--sp-3);
 	}
 
-	.chain-header {
+	.chain-card-head {
 		display: flex;
-		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 0.3rem;
+		gap: 10px;
+	}
+	.chain-icon-wrap { display: inline-flex; flex-shrink: 0; }
+	.chain-icon-wrap :global(svg) { border-radius: 50%; }
+
+	.chain-card-title { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+	.chain-name { font-size: 0.9rem; font-weight: 600; color: var(--fg-strong); }
+	.chain-rpc {
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
-	.green  { color: var(--green, #3fb950); }
-	.yellow { color: var(--yellow, #d29922); }
-	.red    { color: var(--red, #f85149); }
+	.chain-metrics {
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: var(--sp-3);
+		padding: var(--sp-3);
+		background: var(--surface-2);
+		border: 1px solid var(--border);
+		border-radius: var(--r-sm);
+	}
+	.chain-metrics > div {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.metric-label {
+		font-size: 0.66rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--fg-muted);
+	}
+	.metric-val {
+		font-size: 0.86rem;
+		color: var(--fg-strong);
+		font-weight: 500;
+	}
+	.metric-val.tone-ok { color: var(--green); }
+	.metric-val.tone-warn { color: var(--yellow); }
+	.metric-val.tone-err { color: var(--red); }
+
+	/* Event list */
+	.event-list {
+		list-style: none;
+		margin: 0;
+		padding: var(--sp-4) var(--sp-5);
+		display: flex;
+		flex-direction: column;
+		gap: var(--sp-3);
+	}
+	.event-list li {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+	.event-ico {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px; height: 28px;
+		border-radius: var(--r-sm);
+		flex-shrink: 0;
+	}
+	.event-ico.tone-ok { background: var(--green-soft); color: var(--green); }
+	.event-ico.tone-info { background: var(--accent-soft); color: var(--accent); }
+	.event-ico.tone-err { background: var(--red-soft); color: var(--red); }
+	.event-list li > div { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+	.event-list code {
+		font-size: 0.82rem;
+		color: var(--fg-strong);
+		font-weight: 500;
+	}
+	.event-list span.muted { font-size: 0.78rem; color: var(--fg-muted); }
+
+	/* Empty */
+	.panel-empty {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-4);
+		padding: var(--sp-6);
+	}
+	.empty-mark {
+		display: inline-flex; align-items: center; justify-content: center;
+		width: 44px; height: 44px;
+		background: var(--yellow-soft); color: var(--yellow);
+		border-radius: var(--r-md); flex-shrink: 0;
+	}
+	.panel-empty > div { flex: 1; }
+	.empty-title { margin: 0 0 2px; font-size: 0.92rem; font-weight: 600; color: var(--fg-strong); }
+	.panel-empty p { margin: 0; font-size: 0.82rem; }
+
+	.skel-line {
+		height: 44px;
+		background: linear-gradient(90deg, var(--surface-2) 0%, var(--surface-3) 50%, var(--surface-2) 100%);
+		background-size: 200% 100%;
+		animation: shimmer 1.6s infinite;
+		border-radius: var(--r-sm);
+		margin-bottom: 6px;
+	}
+	@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+	.muted { color: var(--fg-muted); }
+
+	.generated-at { text-align: right; }
+
+	@media (max-width: 1100px) {
+		.kpi-grid { grid-template-columns: repeat(3, 1fr); }
+	}
+	@media (max-width: 700px) {
+		.kpi-grid { grid-template-columns: repeat(2, 1fr); }
+		.chain-metrics { grid-template-columns: 1fr; }
+	}
 </style>

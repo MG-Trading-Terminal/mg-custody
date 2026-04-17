@@ -45,10 +45,20 @@ pub fn governance_router() -> Router<AppState> {
 // ---------------------------------------------------------------------------
 
 async fn list_vault_policies(
-    _auth: RequireViewer,
+    auth: RequireViewer,
     State(state): State<AppState>,
     Path(vault_id): Path<Uuid>,
 ) -> Result<Json<Vec<VaultPolicy>>, ApiError> {
+    // Caller must own the vault (or be admin) to see its policy set.
+    let is_admin = auth.0.role.has_at_least(&custody_db::sessions::Role::Admin);
+    if !is_admin {
+        let vault = state.db.find_vault(vault_id).await
+            .map_err(|e| ApiError::internal(&e.to_string()))?;
+        if vault.map(|v| v.owner_id) != Some(auth.0.user_id) {
+            return Err(ApiError::not_found("Vault not found"));
+        }
+    }
+
     let policies = state.db.list_vault_policies(vault_id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?;
     Ok(Json(policies))
@@ -79,13 +89,23 @@ async fn create_vault_policy(
 }
 
 async fn get_vault_policy(
-    _auth: RequireViewer,
+    auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<VaultPolicy>, ApiError> {
     let policy = state.db.find_vault_policy(id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Policy not found"))?;
+
+    let is_admin = auth.0.role.has_at_least(&custody_db::sessions::Role::Admin);
+    if !is_admin {
+        let vault = state.db.find_vault(policy.vault_id).await
+            .map_err(|e| ApiError::internal(&e.to_string()))?;
+        if vault.map(|v| v.owner_id) != Some(auth.0.user_id) {
+            return Err(ApiError::not_found("Policy not found"));
+        }
+    }
+
     Ok(Json(policy))
 }
 
@@ -120,18 +140,29 @@ async fn delete_vault_policy(
 // ---------------------------------------------------------------------------
 
 async fn get_approval_workflow(
-    _auth: RequireViewer,
+    auth: RequireViewer,
     State(state): State<AppState>,
     Path(withdrawal_id): Path<Uuid>,
 ) -> Result<Json<ApprovalWorkflow>, ApiError> {
     let wf = state.db.find_approval_workflow(withdrawal_id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Approval workflow not found"))?;
+
+    // Only admins/signers/owners see arbitrary workflows. A regular viewer
+    // may only see workflows where they are a listed approver.
+    let is_privileged = auth.0.role.has_at_least(&custody_db::sessions::Role::Signer);
+    if !is_privileged {
+        let is_approver = wf.decisions.iter().any(|d| d.approver_id == auth.0.user_id);
+        if !is_approver {
+            return Err(ApiError::not_found("Approval workflow not found"));
+        }
+    }
+
     Ok(Json(wf))
 }
 
 async fn submit_approval_decision(
-    _auth: RequireSigner,
+    auth: RequireSigner,
     State(state): State<AppState>,
     Path(withdrawal_id): Path<Uuid>,
     Json(req): Json<SubmitApprovalRequest>,
@@ -144,13 +175,18 @@ async fn submit_approval_decision(
         return Err(ApiError::conflict(&format!("Workflow already {}", wf.status)));
     }
 
+    // The approver is whoever is authenticated — NEVER trust approver_id from
+    // the request body. Previously this field was blindly persisted, allowing
+    // any Signer to submit decisions as another user.
+    let approver_id = auth.0.user_id;
+
     // Check duplicate approver
-    if wf.decisions.iter().any(|d| d.approver_id == req.approver_id) {
+    if wf.decisions.iter().any(|d| d.approver_id == approver_id) {
         return Err(ApiError::conflict("Approver has already submitted a decision"));
     }
 
     let decision = ApprovalDecision {
-        approver_id: req.approver_id,
+        approver_id,
         approver_email: req.approver_email,
         decision: req.decision,
         reason: req.reason,
@@ -176,10 +212,20 @@ async fn submit_approval_decision(
 }
 
 async fn list_vault_pending_approvals(
-    _auth: RequireViewer,
+    auth: RequireViewer,
     State(state): State<AppState>,
     Path(vault_id): Path<Uuid>,
 ) -> Result<Json<Vec<ApprovalWorkflow>>, ApiError> {
+    // Non-admin callers may only list approvals for vaults they own.
+    let is_admin = auth.0.role.has_at_least(&custody_db::sessions::Role::Admin);
+    if !is_admin {
+        let vault = state.db.find_vault(vault_id).await
+            .map_err(|e| ApiError::internal(&e.to_string()))?;
+        if vault.map(|v| v.owner_id) != Some(auth.0.user_id) {
+            return Err(ApiError::not_found("Vault not found"));
+        }
+    }
+
     let wfs = state.db.list_pending_approvals_for_vault(vault_id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?;
     Ok(Json(wfs))

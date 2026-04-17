@@ -65,6 +65,12 @@ CREATE INDEX idx_deposits_user ON deposits (user_id);
 CREATE TABLE IF NOT EXISTS withdrawals (
     id                      UUID PRIMARY KEY,
     exchange_withdrawal_id  UUID NOT NULL UNIQUE,  -- idempotency key from exchange
+    -- Ownership: every withdrawal is bound to the user who initiated it and
+    -- the vault whose funds are being moved. Required for authorization on
+    -- cancel / accelerate / history queries — without these fields the
+    -- ledger cannot be safely scoped per user.
+    user_id                 UUID NOT NULL,
+    vault_id                UUID,                  -- NULL only for legacy / exchange-HMAC flows
     asset                   TEXT NOT NULL,
     chain                   TEXT NOT NULL,
     destination_address     TEXT NOT NULL,
@@ -86,6 +92,8 @@ CREATE TABLE IF NOT EXISTS withdrawals (
 CREATE INDEX idx_withdrawals_status ON withdrawals (status);
 CREATE INDEX idx_withdrawals_chain ON withdrawals (chain);
 CREATE INDEX idx_withdrawals_exchange_id ON withdrawals (exchange_withdrawal_id);
+CREATE INDEX idx_withdrawals_user_id ON withdrawals (user_id);
+CREATE INDEX idx_withdrawals_vault_id ON withdrawals (vault_id);
 
 -- ============================================================================
 -- UTXO management (Bitcoin)

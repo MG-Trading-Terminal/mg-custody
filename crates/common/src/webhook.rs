@@ -79,6 +79,11 @@ pub struct BatchWithdrawalRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchWithdrawalItem {
     pub withdrawal_id: Uuid,
+    /// User on whose behalf this line-item is initiated. Must be provided by
+    /// the exchange so the resulting withdrawal row is owner-scoped.
+    pub user_id: Uuid,
+    #[serde(default)]
+    pub vault_id: Option<Uuid>,
     pub asset: crate::Asset,
     pub chain: Chain,
     pub address: String,
@@ -214,6 +219,8 @@ mod tests {
             withdrawals: vec![
                 BatchWithdrawalItem {
                     withdrawal_id: Uuid::new_v4(),
+                    user_id: Uuid::new_v4(),
+                    vault_id: None,
                     asset: crate::Asset::new("ETH"),
                     chain: Chain::Ethereum,
                     address: "0x1234".into(),

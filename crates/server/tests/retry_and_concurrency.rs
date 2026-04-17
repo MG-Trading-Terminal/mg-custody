@@ -116,6 +116,8 @@ async fn idempotent_withdrawal_submission() {
     let w = Withdrawal {
         id: uuid::Uuid::new_v4(),
         exchange_withdrawal_id: exchange_id,
+        user_id: uuid::Uuid::nil(),
+        vault_id: None,
         asset: Asset::new("ETH"),
         chain: Chain::Ethereum,
         destination_address: "0x742d35Cc6634C0532925a3b844Bc9e7595f2bD18".into(),

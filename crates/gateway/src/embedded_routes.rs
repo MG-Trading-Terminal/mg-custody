@@ -41,16 +41,22 @@ pub fn embedded_router() -> Router<AppState> {
 // --- Embedded wallets ---
 
 async fn create_embedded_wallet(
-    _auth: RequireEditor,
+    auth: RequireEditor,
     State(state): State<AppState>,
     Json(req): Json<CreateEmbeddedWalletRequest>,
 ) -> Result<(StatusCode, Json<EmbeddedWallet>), ApiError> {
+    // Admins may create wallets on behalf of any user; regular editors only
+    // for themselves. The `user_id` from the request body is no longer blindly
+    // trusted.
+    let is_admin = auth.0.role.has_at_least(&custody_db::sessions::Role::Admin);
+    let owner = if is_admin { req.user_id } else { auth.0.user_id.to_string() };
+
     let wallet = EmbeddedWallet {
         id: Uuid::new_v4(),
-        user_id: req.user_id,
+        user_id: owner,
         wallet_type: req.wallet_type,
         status: WalletStatus::Active,
-        accounts: vec![], // accounts created on demand
+        accounts: vec![],
         created_at: Utc::now(),
         last_active_at: None,
     };
@@ -58,26 +64,40 @@ async fn create_embedded_wallet(
     state.db.insert_embedded_wallet(&wallet).await
         .map_err(|e| ApiError::internal(&e.to_string()))?;
 
-    tracing::info!(id = %wallet.id, "Embedded wallet created");
+    tracing::info!(id = %wallet.id, user = %wallet.user_id, "Embedded wallet created");
     Ok((StatusCode::CREATED, Json(wallet)))
 }
 
 async fn get_embedded_wallet(
-    _auth: RequireViewer,
+    auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<EmbeddedWallet>, ApiError> {
     let wallet = state.db.find_embedded_wallet(id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Embedded wallet not found"))?;
+
+    let is_admin = auth.0.role.has_at_least(&custody_db::sessions::Role::Admin);
+    if !is_admin && wallet.user_id != auth.0.user_id.to_string() {
+        return Err(ApiError::not_found("Embedded wallet not found"));
+    }
+
     Ok(Json(wallet))
 }
 
 async fn list_user_wallets(
-    _auth: RequireViewer,
+    auth: RequireViewer,
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<Vec<EmbeddedWallet>>, ApiError> {
+    // A user may only list their own wallets; admins may list any user's.
+    let is_admin = auth.0.role.has_at_least(&custody_db::sessions::Role::Admin);
+    if !is_admin && user_id != auth.0.user_id.to_string() {
+        return Err(ApiError::forbidden(
+            "You do not have permission to list wallets for this user",
+        ));
+    }
+
     let wallets = state.db.list_embedded_wallets_by_user(&user_id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?;
     Ok(Json(wallets))
@@ -180,10 +200,13 @@ async fn get_payment_flow(
 // --- Transaction labels ---
 
 async fn get_tx_labels(
-    _auth: RequireViewer,
+    auth: RequireViewer,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // Caller must own the underlying transaction to see its labels.
+    assert_tx_ownership(&state, &auth.0, id).await?;
+
     let label = state.db.get_transaction_label(id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?;
     match label {
@@ -193,15 +216,41 @@ async fn get_tx_labels(
 }
 
 async fn set_tx_labels(
-    _auth: RequireEditor,
+    auth: RequireEditor,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(label): Json<TransactionLabel>,
 ) -> Result<Json<TransactionLabel>, ApiError> {
+    assert_tx_ownership(&state, &auth.0, id).await?;
+
     let mut label = label;
     label.transaction_id = id;
     label.updated_at = Utc::now();
     state.db.upsert_transaction_label(&label).await
         .map_err(|e| ApiError::internal(&e.to_string()))?;
     Ok(Json(label))
+}
+
+/// Returns Ok if the caller owns a vault referenced by the transaction
+/// (source or dest), is admin, or if the tx itself is absent (treated as 404).
+async fn assert_tx_ownership(
+    state: &AppState,
+    auth: &crate::rbac_middleware::AuthContext,
+    tx_id: Uuid,
+) -> Result<(), ApiError> {
+    if auth.role.has_at_least(&custody_db::sessions::Role::Admin) {
+        return Ok(());
+    }
+    let tx = state.db.find_transaction(tx_id).await
+        .map_err(|e| ApiError::internal(&e.to_string()))?
+        .ok_or_else(|| ApiError::not_found("Transaction not found"))?;
+
+    for vid in [tx.source_vault_id, tx.dest_vault_id].into_iter().flatten() {
+        let vault = state.db.find_vault(vid).await
+            .map_err(|e| ApiError::internal(&e.to_string()))?;
+        if vault.is_some_and(|v| v.owner_id == auth.user_id) {
+            return Ok(());
+        }
+    }
+    Err(ApiError::not_found("Transaction not found"))
 }

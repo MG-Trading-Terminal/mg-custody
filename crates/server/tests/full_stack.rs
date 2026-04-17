@@ -182,6 +182,8 @@ async fn sanctioned_address_blocked() {
     let w = custody_common::Withdrawal {
         id: uuid::Uuid::new_v4(),
         exchange_withdrawal_id: uuid::Uuid::new_v4(),
+        user_id: uuid::Uuid::nil(),
+        vault_id: None,
         asset: custody_common::Asset::new("ETH"),
         chain: custody_common::Chain::Ethereum,
         destination_address: "0xd90e2f925da726b50c4ed8d0fb90ad053324f31b".into(), // Tornado Cash!

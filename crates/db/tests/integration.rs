@@ -146,6 +146,8 @@ async fn withdrawal_lifecycle() {
     let withdrawal = Withdrawal {
         id: Uuid::new_v4(),
         exchange_withdrawal_id: exchange_id,
+        user_id: uuid::Uuid::nil(),
+        vault_id: None,
         asset: Asset::new("ETH"),
         chain: Chain::Ethereum,
         destination_address: "0xdest456".to_string(),
@@ -249,6 +251,8 @@ async fn outflow_tracking() {
     let w = Withdrawal {
         id: Uuid::new_v4(),
         exchange_withdrawal_id: Uuid::new_v4(),
+        user_id: uuid::Uuid::nil(),
+        vault_id: None,
         asset: Asset::new("ETH"),
         chain: Chain::Ethereum,
         destination_address: "0xout".into(),
