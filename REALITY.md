@@ -47,7 +47,7 @@ live integration, no real counterparty, no production-grade driver.
 | MPC CGGMP21 signing | Crypto + HTTP transport implemented; no multi-host ceremony wired |
 | MPC FROST Ed25519 | Same as above |
 | HSM (PKCS#11 via `cryptoki`) | Spec-complete `Pkcs11SigningBackend` routes every signature through `C_Sign` on HSM-resident keys (secp256k1 `CKM_ECDSA` + Ed25519 `CKM_EDDSA`). Live integration still needs the withdrawal pipeline refactored to drive signing through the `SigningBackend` trait instead of a local seed. |
-| Chainalysis / Elliptic AML | `ScreeningProvider` trait + cache layer; actual HTTP to vendors needs API keys |
+| Chainalysis / Elliptic AML | Real HTTP calls against both vendors with spec-compliant JSON bodies + bearer auth. `ScreeningService` is fail-closed: vendor unreachable → fallback decision (Block / AllowAndFlag), never silent Low. Needs vendor API keys to exercise live. |
 | Email delivery (SMTP) | Real `lettre`-backed SMTP variant wired (rustls, no OpenSSL). Tokio-async, pooled, implicit TLS or STARTTLS (no plaintext fallback). Configured via `CUSTODY_EMAIL__MODE=smtp` + `CUSTODY_EMAIL__SMTP_{HOST,PORT,USERNAME,PASSWORD,TLS,TIMEOUT}`. Falls back to Console with a loud warning if MODE=smtp but HOST is missing. Console + Noop remain for dev/tests. |
 | Staking (ETH / SOL) | Structs only — no beacon deposit or SOL delegate broadcast |
 | DeFi (WalletConnect, DEX aggregator) | Types only |
@@ -67,6 +67,17 @@ Security work done this session is real but the following remain open.
 Labeled by bite size so future-me knows where to start.
 
 ### Fixed since last published snapshot
+- **AML screening fails closed.** Chainalysis and Elliptic providers
+  used to swallow any non-2xx or network error and return
+  `Ok(ScreeningResult { risk_level: Low, … })` — so when a vendor
+  was unreachable, every withdrawal quietly passed screening. Both
+  providers now propagate `Err`, and `ScreeningService` applies its
+  configured `fallback` (Block ⇒ High with `provider_error`
+  category; AllowAndFlag ⇒ Medium triggering manual review). The
+  "no providers configured at all" path also hits the fallback
+  instead of returning Low. With `fallback = Block`, one failed
+  provider short-circuits the whole screening. 3 new unit tests
+  pin the fail-closed semantics.
 - **PKCS#11 signing backend spec-complete.** New
   `custody_signing::pkcs11::Pkcs11SigningBackend` opens a real
   session via `cryptoki`, logs in as `CKU_USER`, and routes every

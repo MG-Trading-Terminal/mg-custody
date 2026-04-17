@@ -125,7 +125,7 @@ impl ScreeningProvider for ChainalysisProvider {
         let user_id = format!("custody_{}", &address[..8.min(address.len())]);
         let url = format!("{}/users/{}/withdrawaladdresses", self.base_url, user_id);
 
-        let resp = self.client
+        let response = self.client
             .post(&url)
             .header("Token", &self.api_key)
             .header("Content-Type", "application/json")
@@ -135,60 +135,44 @@ impl ScreeningProvider for ChainalysisProvider {
                 "address": address,
             }))
             .send()
-            .await;
+            .await
+            .map_err(|e| anyhow::anyhow!("Chainalysis unreachable: {e}"))?;
 
-        match resp {
-            Ok(response) if response.status().is_success() => {
-                let body: serde_json::Value = response.json().await?;
-
-                // Parse Chainalysis response
-                let risk_rating = body["rating"].as_str().unwrap_or("low");
-                let risk_score = body["riskScore"].as_f64().unwrap_or(0.0);
-                let exposures = body["exposures"].as_array()
-                    .map(|arr| arr.iter()
-                        .filter_map(|e| e["category"].as_str().map(String::from))
-                        .collect::<Vec<_>>())
-                    .unwrap_or_default();
-
-                let risk_level = parse_risk_level(risk_rating, risk_score);
-
-                Ok(ScreeningResult {
-                    address: address.to_string(),
-                    chain,
-                    risk_level,
-                    risk_score,
-                    provider: "chainalysis".to_string(),
-                    categories: exposures,
-                    screened_at: Utc::now(),
-                    details: Some(format!("rating={risk_rating}")),
-                })
-            }
-            Ok(response) => {
-                let status = response.status();
-                let text = response.text().await.unwrap_or_default();
-                tracing::warn!(status = %status, body = %text, "Chainalysis API error");
-                // Return Low risk on API error to avoid blocking all withdrawals
-                Ok(ScreeningResult {
-                    address: address.to_string(), chain,
-                    risk_level: RiskLevel::Low, risk_score: 0.0,
-                    provider: "chainalysis".to_string(),
-                    categories: vec![],
-                    screened_at: Utc::now(),
-                    details: Some(format!("API error: HTTP {status}")),
-                })
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "Chainalysis API unreachable");
-                Ok(ScreeningResult {
-                    address: address.to_string(), chain,
-                    risk_level: RiskLevel::Low, risk_score: 0.0,
-                    provider: "chainalysis".to_string(),
-                    categories: vec![],
-                    screened_at: Utc::now(),
-                    details: Some(format!("Connection error: {e}")),
-                })
-            }
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            tracing::warn!(status = %status, body = %text, "Chainalysis API error");
+            // Propagate the error so ScreeningService applies its
+            // configured fallback (Block in production). The previous
+            // "graceful degradation to Low" was a hidden safe-mode
+            // bypass: every withdrawal passed screening when the
+            // vendor was unavailable.
+            anyhow::bail!("Chainalysis API returned HTTP {status}: {text}");
         }
+
+        let body: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| anyhow::anyhow!("Chainalysis JSON parse failed: {e}"))?;
+
+        let risk_rating = body["rating"].as_str().unwrap_or("low");
+        let risk_score = body["riskScore"].as_f64().unwrap_or(0.0);
+        let exposures = body["exposures"].as_array()
+            .map(|arr| arr.iter()
+                .filter_map(|e| e["category"].as_str().map(String::from))
+                .collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        Ok(ScreeningResult {
+            address: address.to_string(),
+            chain,
+            risk_level: parse_risk_level(risk_rating, risk_score),
+            risk_score,
+            provider: "chainalysis".to_string(),
+            categories: exposures,
+            screened_at: Utc::now(),
+            details: Some(format!("rating={risk_rating}")),
+        })
     }
 
     async fn screen_transaction(&self, tx_hash: &str, chain: Chain) -> Result<ScreeningResult> {
@@ -199,7 +183,7 @@ impl ScreeningProvider for ChainalysisProvider {
         let user_id = format!("custody_tx_{}", &tx_hash[..8.min(tx_hash.len())]);
         let url = format!("{}/users/{}/transfers", self.base_url, user_id);
 
-        let resp = self.client
+        let response = self.client
             .post(&url)
             .header("Token", &self.api_key)
             .json(&serde_json::json!({
@@ -209,41 +193,36 @@ impl ScreeningProvider for ChainalysisProvider {
                 "direction": "received",
             }))
             .send()
-            .await;
+            .await
+            .map_err(|e| anyhow::anyhow!("Chainalysis unreachable: {e}"))?;
 
-        match resp {
-            Ok(response) if response.status().is_success() => {
-                let body: serde_json::Value = response.json().await?;
-                let risk_rating = body["rating"].as_str().unwrap_or("low");
-                let risk_score = body["riskScore"].as_f64().unwrap_or(0.0);
-                let exposures = body["exposures"].as_array()
-                    .map(|arr| arr.iter()
-                        .filter_map(|e| e["category"].as_str().map(String::from))
-                        .collect::<Vec<_>>())
-                    .unwrap_or_default();
-
-                Ok(ScreeningResult {
-                    address: tx_hash.to_string(), chain,
-                    risk_level: parse_risk_level(risk_rating, risk_score),
-                    risk_score,
-                    provider: "chainalysis".to_string(),
-                    categories: exposures,
-                    screened_at: Utc::now(),
-                    details: Some(format!("rating={risk_rating}")),
-                })
-            }
-            _ => {
-                // Graceful degradation
-                Ok(ScreeningResult {
-                    address: tx_hash.to_string(), chain,
-                    risk_level: RiskLevel::Low, risk_score: 0.0,
-                    provider: "chainalysis".to_string(),
-                    categories: vec![],
-                    screened_at: Utc::now(),
-                    details: Some("API unavailable".to_string()),
-                })
-            }
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            anyhow::bail!("Chainalysis API returned HTTP {status}: {text}");
         }
+
+        let body: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| anyhow::anyhow!("Chainalysis JSON parse failed: {e}"))?;
+        let risk_rating = body["rating"].as_str().unwrap_or("low");
+        let risk_score = body["riskScore"].as_f64().unwrap_or(0.0);
+        let exposures = body["exposures"].as_array()
+            .map(|arr| arr.iter()
+                .filter_map(|e| e["category"].as_str().map(String::from))
+                .collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        Ok(ScreeningResult {
+            address: tx_hash.to_string(), chain,
+            risk_level: parse_risk_level(risk_rating, risk_score),
+            risk_score,
+            provider: "chainalysis".to_string(),
+            categories: exposures,
+            screened_at: Utc::now(),
+            details: Some(format!("rating={risk_rating}")),
+        })
     }
 
     fn provider_name(&self) -> &str {
@@ -282,6 +261,14 @@ fn chain_to_elliptic_blockchain(chain: Chain) -> &'static str {
     }
 }
 
+/// Risk-level bucketing helper for Elliptic's numeric risk_score.
+fn score_to_risk_level(score: f64) -> RiskLevel {
+    if score >= 0.8 { RiskLevel::Severe }
+    else if score >= 0.6 { RiskLevel::High }
+    else if score >= 0.3 { RiskLevel::Medium }
+    else { RiskLevel::Low }
+}
+
 impl ScreeningProvider for EllipticProvider {
     async fn screen_address(&self, address: &str, chain: Chain) -> Result<ScreeningResult> {
         let blockchain = chain_to_elliptic_blockchain(chain);
@@ -290,7 +277,7 @@ impl ScreeningProvider for EllipticProvider {
         // POST /v2/wallet/synchronous
         let url = format!("{}/wallet/synchronous", self.base_url);
 
-        let resp = self.client
+        let response = self.client
             .post(&url)
             .header("x-access-key", &self.api_key)
             .header("Content-Type", "application/json")
@@ -304,71 +291,45 @@ impl ScreeningProvider for EllipticProvider {
                 "type": "wallet_exposure",
             }))
             .send()
-            .await;
+            .await
+            .map_err(|e| anyhow::anyhow!("Elliptic unreachable: {e}"))?;
 
-        match resp {
-            Ok(response) if response.status().is_success() => {
-                let body: serde_json::Value = response.json().await?;
-
-                let risk_score = body["risk_score"].as_f64().unwrap_or(0.0);
-                let risk_level = if risk_score >= 0.8 {
-                    RiskLevel::Severe
-                } else if risk_score >= 0.6 {
-                    RiskLevel::High
-                } else if risk_score >= 0.3 {
-                    RiskLevel::Medium
-                } else {
-                    RiskLevel::Low
-                };
-
-                let categories: Vec<String> = body["cluster_entities"]
-                    .as_array()
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|e| e["category"].as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-
-                Ok(ScreeningResult {
-                    address: address.to_string(),
-                    chain,
-                    risk_level,
-                    risk_score,
-                    provider: "elliptic".to_string(),
-                    categories,
-                    screened_at: Utc::now(),
-                    details: None,
-                })
-            }
-            Ok(response) => {
-                let status = response.status();
-                tracing::warn!(status = %status, "Elliptic API returned non-success");
-                Ok(ScreeningResult {
-                    address: address.to_string(),
-                    chain,
-                    risk_level: RiskLevel::Low,
-                    risk_score: 0.0,
-                    provider: "elliptic".to_string(),
-                    categories: vec![],
-                    screened_at: Utc::now(),
-                    details: Some(format!("API returned {status}")),
-                })
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "Elliptic API unavailable");
-                Ok(ScreeningResult {
-                    address: address.to_string(),
-                    chain,
-                    risk_level: RiskLevel::Low,
-                    risk_score: 0.0,
-                    provider: "elliptic".to_string(),
-                    categories: vec![],
-                    screened_at: Utc::now(),
-                    details: Some("API unavailable".to_string()),
-                })
-            }
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            // Err, not Ok(Low) — lets the service apply its fallback
+            // (Block in production) instead of silently passing every
+            // withdrawal through a "safe" Low-risk verdict.
+            anyhow::bail!("Elliptic API returned HTTP {status}: {text}");
         }
+
+        let body: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| anyhow::anyhow!("Elliptic JSON parse failed: {e}"))?;
+
+        let risk_score = body["risk_score"].as_f64().unwrap_or(0.0);
+        let risk_level = score_to_risk_level(risk_score);
+
+        let categories: Vec<String> = body["cluster_entities"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|e| e["category"].as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(ScreeningResult {
+            address: address.to_string(),
+            chain,
+            risk_level,
+            risk_score,
+            provider: "elliptic".to_string(),
+            categories,
+            screened_at: Utc::now(),
+            details: None,
+        })
     }
 
     async fn screen_transaction(&self, tx_hash: &str, chain: Chain) -> Result<ScreeningResult> {
@@ -377,7 +338,7 @@ impl ScreeningProvider for EllipticProvider {
 
         let url = format!("{}/txn/synchronous", self.base_url);
 
-        let resp = self.client
+        let response = self.client
             .post(&url)
             .header("x-access-key", &self.api_key)
             .header("Content-Type", "application/json")
@@ -391,41 +352,31 @@ impl ScreeningProvider for EllipticProvider {
                 "type": "source_of_funds",
             }))
             .send()
-            .await;
+            .await
+            .map_err(|e| anyhow::anyhow!("Elliptic unreachable: {e}"))?;
 
-        match resp {
-            Ok(response) if response.status().is_success() => {
-                let body: serde_json::Value = response.json().await?;
-                let risk_score = body["risk_score"].as_f64().unwrap_or(0.0);
-                let risk_level = if risk_score >= 0.8 { RiskLevel::Severe }
-                    else if risk_score >= 0.6 { RiskLevel::High }
-                    else if risk_score >= 0.3 { RiskLevel::Medium }
-                    else { RiskLevel::Low };
-
-                Ok(ScreeningResult {
-                    address: tx_hash.to_string(),
-                    chain,
-                    risk_level,
-                    risk_score,
-                    provider: "elliptic".to_string(),
-                    categories: vec![],
-                    screened_at: Utc::now(),
-                    details: None,
-                })
-            }
-            _ => {
-                Ok(ScreeningResult {
-                    address: tx_hash.to_string(),
-                    chain,
-                    risk_level: RiskLevel::Low,
-                    risk_score: 0.0,
-                    provider: "elliptic".to_string(),
-                    categories: vec![],
-                    screened_at: Utc::now(),
-                    details: Some("API unavailable".to_string()),
-                })
-            }
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            anyhow::bail!("Elliptic API returned HTTP {status}: {text}");
         }
+
+        let body: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| anyhow::anyhow!("Elliptic JSON parse failed: {e}"))?;
+        let risk_score = body["risk_score"].as_f64().unwrap_or(0.0);
+
+        Ok(ScreeningResult {
+            address: tx_hash.to_string(),
+            chain,
+            risk_level: score_to_risk_level(risk_score),
+            risk_score,
+            provider: "elliptic".to_string(),
+            categories: vec![],
+            screened_at: Utc::now(),
+            details: None,
+        })
     }
 
     fn provider_name(&self) -> &str {
@@ -509,54 +460,99 @@ impl ScreeningService {
     }
 
     /// Screen an address using all configured providers.
-    /// Returns the WORST (highest risk) result across all providers.
+    ///
+    /// Returns the WORST (highest risk) result across providers. When
+    /// no provider yields an `Ok` result (all errored, or none are
+    /// configured) the service applies its `fallback` decision:
+    ///
+    ///   - `Block` (production default) — mark the result `High` with
+    ///     a `provider_error` / `no_providers` category so the
+    ///     withdrawal pipeline refuses it.
+    ///   - `AllowAndFlag` — mark the result `Medium` so downstream
+    ///     manual-review gates still trigger, but the withdrawal is
+    ///     not blocked outright.
+    ///
+    /// The previous implementation silently returned `Low` for both
+    /// "all providers unreachable" and "no providers configured".
+    /// Either scenario is a hidden safe-mode bypass: AML screening
+    /// would appear to have passed when it never ran.
     pub async fn screen_address(&self, address: &str, chain: Chain) -> ScreeningResult {
-        let mut worst = ScreeningResult {
-            address: address.to_string(),
-            chain,
-            risk_level: RiskLevel::Low,
-            risk_score: 0.0,
-            provider: "none".to_string(),
-            categories: vec![],
-            screened_at: Utc::now(),
-            details: None,
-        };
+        if self.providers.is_empty() {
+            return self.fallback_result(
+                address,
+                chain,
+                "no_providers",
+                "No screening providers configured — screening did not run",
+            );
+        }
+
+        let mut worst: Option<ScreeningResult> = None;
+        let mut last_error: Option<String> = None;
 
         for provider in &self.providers {
             match provider.screen_address(address, chain).await {
-                Ok(result) => {
-                    if result.risk_level > worst.risk_level {
-                        worst = result;
-                    }
-                }
+                Ok(result) => match &worst {
+                    Some(w) if w.risk_level >= result.risk_level => {}
+                    _ => worst = Some(result),
+                },
                 Err(e) => {
                     tracing::error!(
                         provider = provider.provider_name(),
                         error = %e,
                         "Screening provider error"
                     );
-                    match self.fallback {
-                        ScreeningFallback::Block => {
-                            return ScreeningResult {
-                                address: address.to_string(),
-                                chain,
-                                risk_level: RiskLevel::High,
-                                risk_score: 1.0,
-                                provider: provider.provider_name().to_string(),
-                                categories: vec!["provider_error".to_string()],
-                                screened_at: Utc::now(),
-                                details: Some(format!("Provider unavailable, fallback=block: {e}")),
-                            };
-                        }
-                        ScreeningFallback::AllowAndFlag => {
-                            tracing::warn!("Screening provider down, allowing with flag");
-                        }
+                    last_error = Some(format!("{}: {e}", provider.provider_name()));
+                    if matches!(self.fallback, ScreeningFallback::Block) {
+                        // Short-circuit: with Block policy, one failed
+                        // provider is enough to deny the screening.
+                        return self.fallback_result(
+                            address,
+                            chain,
+                            "provider_error",
+                            &format!("Provider unavailable, fallback=block: {e}"),
+                        );
                     }
                 }
             }
         }
 
-        worst
+        match worst {
+            Some(w) => w,
+            None => self.fallback_result(
+                address,
+                chain,
+                "provider_error",
+                last_error
+                    .as_deref()
+                    .unwrap_or("All screening providers returned errors"),
+            ),
+        }
+    }
+
+    fn fallback_result(
+        &self,
+        address: &str,
+        chain: Chain,
+        category: &str,
+        detail: &str,
+    ) -> ScreeningResult {
+        let (risk_level, risk_score) = match self.fallback {
+            ScreeningFallback::Block => (RiskLevel::High, 1.0),
+            // AllowAndFlag → Medium triggers manual review but doesn't
+            // block. This is only safe when operators actively monitor
+            // the review queue.
+            ScreeningFallback::AllowAndFlag => (RiskLevel::Medium, 0.5),
+        };
+        ScreeningResult {
+            address: address.to_string(),
+            chain,
+            risk_level,
+            risk_score,
+            provider: "fallback".to_string(),
+            categories: vec![category.to_string()],
+            screened_at: Utc::now(),
+            details: Some(detail.to_string()),
+        }
     }
 
     /// Cache TTL for this service.
@@ -682,6 +678,49 @@ mod tests {
         let service = ScreeningService::new(ScreeningFallback::AllowAndFlag, 12);
         assert_eq!(service.fallback(), ScreeningFallback::AllowAndFlag);
         assert_eq!(service.cache_ttl_hours(), 12);
+    }
+
+    #[tokio::test]
+    async fn no_providers_block_policy_returns_high() {
+        // Production default: when no AML providers are configured,
+        // the screening service MUST NOT return Low. The previous
+        // implementation did exactly that and it's why "silent safe
+        // mode" is in REALITY.md as a hidden bypass.
+        let service = ScreeningService::new(ScreeningFallback::Block, 24);
+        let result = service.screen_address("0xdead", Chain::Ethereum).await;
+        assert_eq!(result.risk_level, RiskLevel::High);
+        assert!(result.should_block());
+        assert!(result.categories.contains(&"no_providers".to_string()));
+    }
+
+    #[tokio::test]
+    async fn no_providers_allow_and_flag_returns_medium() {
+        let service = ScreeningService::new(ScreeningFallback::AllowAndFlag, 24);
+        let result = service.screen_address("0xdead", Chain::Ethereum).await;
+        assert_eq!(result.risk_level, RiskLevel::Medium);
+        assert!(!result.should_block());
+        assert!(result.needs_review());
+    }
+
+    #[tokio::test]
+    async fn provider_error_block_policy_returns_high() {
+        // Point Chainalysis at an unresolvable host so the provider
+        // fails fast. The service must respond with the Block fallback
+        // (High risk), not silently pass the screening.
+        let mut service = ScreeningService::new(ScreeningFallback::Block, 24);
+        service.providers.push(AnyScreeningProvider::Chainalysis(
+            ChainalysisProvider {
+                api_key: "key".into(),
+                base_url: "http://127.0.0.1:1".into(),
+                client: reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_millis(400))
+                    .build()
+                    .unwrap(),
+            },
+        ));
+        let result = service.screen_address("0xdead", Chain::Ethereum).await;
+        assert_eq!(result.risk_level, RiskLevel::High);
+        assert!(result.categories.contains(&"provider_error".to_string()));
     }
 
     #[test]

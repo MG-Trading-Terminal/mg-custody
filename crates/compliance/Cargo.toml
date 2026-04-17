@@ -16,3 +16,4 @@ anyhow = { workspace = true }
 
 [dev-dependencies]
 rust_decimal_macros = { workspace = true }
+tokio = { workspace = true }
