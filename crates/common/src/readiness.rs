@@ -345,6 +345,34 @@ fn truncate(s: &str, width: usize) -> String {
 /// short enough that a misconfigured endpoint doesn't delay boot.
 pub const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// SLO targets per feature. Values are "uptime target over any
+/// rolling 30-day window" — scanner.ethereum at 99.9% means at most
+/// 43 minutes of downtime per 30 days. Anything under the target
+/// flags as a breach in the uptime endpoint and gets a red badge in
+/// the dashboard.
+///
+/// Targets chosen by how painful a breach is:
+///   - signing.hsm / screening.aml: 99.99% (custody can't accept
+///     withdrawals without them; four-nines is table stakes for
+///     compliance-bound services)
+///   - scanner.*: 99.9% (deposits and broadcasts — three-nines is
+///     industry-common for blockchain infrastructure)
+///   - push.* / email.smtp: 99.5% (user-facing notifications, still
+///     important but one-nine more downtime is tolerable during a
+///     vendor outage)
+///   - everything else: 99.0% default
+///
+/// Numbers are deliberately checked in rather than DB-configurable:
+/// SLO changes are a deploy-time commitment, not an operator-knob.
+pub fn slo_target(feature: &str) -> f64 {
+    match feature {
+        "signing.hsm" | "screening.aml" => 99.99,
+        "scanner.ethereum" | "scanner.bitcoin" | "scanner.tron" | "scanner.solana" => 99.9,
+        "push.fcm" | "push.apns" | "push.web" | "email.smtp" => 99.5,
+        _ => 99.0,
+    }
+}
+
 /// `eth_chainId` probe — the cheapest read to confirm an Ethereum RPC
 /// endpoint is live, understands JSON-RPC, and returns a chain id
 /// that parses as a hex integer.

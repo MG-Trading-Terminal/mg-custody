@@ -657,11 +657,15 @@ async fn health_features_uptime(
         } else {
             100.0
         };
+        let slo = custody_common::readiness::slo_target(&f.name);
+        let breach = uptime_pct < slo;
         uptimes.push(serde_json::json!({
             "feature": f.name,
             "uptime_pct": format!("{uptime_pct:.4}"),
             "down_seconds": down_secs as i64,
             "transitions": events.len(),
+            "slo_target_pct": format!("{slo:.2}"),
+            "slo_breach": breach,
         }));
     }
     Ok(Json(serde_json::json!({
