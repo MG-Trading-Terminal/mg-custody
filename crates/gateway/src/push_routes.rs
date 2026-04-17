@@ -79,10 +79,9 @@ impl DeviceTokenResponse {
 /// existing record rather than a duplicate error.
 async fn register_device(
     auth: RequireViewer,
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(req): Json<RegisterDeviceRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    // Validate platform
     let platform = match req.platform.as_str() {
         "ios" => Platform::Ios,
         "android" => Platform::Android,
@@ -97,8 +96,6 @@ async fn register_device(
     if req.token.is_empty() {
         return Err(ApiError::bad_request("device token must not be empty"));
     }
-
-    // Limit token length to prevent abuse
     if req.token.len() > 4096 {
         return Err(ApiError::bad_request(
             "device token exceeds maximum length (4096 chars)",
@@ -115,21 +112,26 @@ async fn register_device(
         last_used_at: None,
     };
 
-    // In production: INSERT ... ON CONFLICT (token) DO UPDATE SET last_used_at = NOW()
+    let stored = state
+        .db
+        .upsert_device_token(&token)
+        .await
+        .map_err(|e| ApiError::internal(&format!("device token upsert: {e}")))?;
+
     tracing::info!(
-        user_id = %token.user_id,
-        platform = %token.platform,
-        device_id = %token.id,
+        user_id = %stored.user_id,
+        platform = %stored.platform,
+        device_id = %stored.id,
         "Device push token registered"
     );
 
     Ok((
         StatusCode::CREATED,
         Json(serde_json::json!({
-            "id": token.id,
-            "user_id": token.user_id,
-            "platform": token.platform.as_str(),
-            "created_at": token.created_at.to_rfc3339(),
+            "id": stored.id,
+            "user_id": stored.user_id,
+            "platform": stored.platform.as_str(),
+            "created_at": stored.created_at.to_rfc3339(),
         })),
     ))
 }
@@ -137,26 +139,42 @@ async fn register_device(
 /// List all registered devices for the authenticated user.
 async fn list_devices(
     auth: RequireViewer,
-    State(_state): State<AppState>,
-) -> Json<serde_json::Value> {
-    // In production: SELECT * FROM device_tokens WHERE user_id = $1 ORDER BY created_at DESC
-    tracing::debug!(user_id = %auth.0.user_id, "Listing registered devices");
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let tokens = state
+        .db
+        .list_device_tokens(auth.0.user_id)
+        .await
+        .map_err(|e| ApiError::internal(&format!("device token list: {e}")))?;
 
-    Json(serde_json::json!({
-        "devices": [],
-        "count": 0,
-    }))
+    let devices: Vec<DeviceTokenResponse> =
+        tokens.iter().map(DeviceTokenResponse::from_token).collect();
+    let count = devices.len();
+    Ok(Json(serde_json::json!({
+        "devices": devices,
+        "count": count,
+    })))
 }
 
 /// Unregister a push notification device.
 ///
-/// Users can only unregister their own devices.
+/// DELETE is scoped by (id, user_id) at the DB layer — one user can't
+/// unregister another's device even if they guess the UUID.
 async fn unregister_device(
     auth: RequireViewer,
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(device_id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
-    // In production: DELETE FROM device_tokens WHERE id = $1 AND user_id = $2
+    let removed = state
+        .db
+        .delete_device_token(auth.0.user_id, device_id)
+        .await
+        .map_err(|e| ApiError::internal(&format!("device token delete: {e}")))?;
+
+    if !removed {
+        return Err(ApiError::not_found("Device not found"));
+    }
+
     tracing::info!(
         user_id = %auth.0.user_id,
         device_id = %device_id,

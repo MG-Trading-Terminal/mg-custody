@@ -166,11 +166,10 @@ async fn get_swap_quote(
 ///
 /// Requires `RequireSigner` because this creates an unsigned live transaction.
 async fn execute_swap(
-    _auth: RequireSigner,
-    State(_state): State<AppState>,
+    auth: RequireSigner,
+    State(state): State<AppState>,
     Json(req): Json<ExecuteRequest>,
 ) -> Result<(StatusCode, Json<ExecuteResponse>), ApiError> {
-    // Verify the quote_id in the body matches the embedded quote.
     if req.quote_id != req.quote.quote_id {
         return Err(ApiError::bad_request(
             "quote_id in body does not match quote.quote_id",
@@ -205,8 +204,16 @@ async fn execute_swap(
         }
     };
 
-    // Build the execution record for logging (would persist to DB in production).
-    let _record = SwapExecution::from_quote_and_result(&req.quote, &result);
+    // Persist the execution so `GET /v1/swaps/{id}` can actually
+    // return something. Before this wiring, the status endpoint was
+    // a dead-end 404 even for IDs that had been handed out seconds
+    // earlier in the same request/response cycle.
+    let record = SwapExecution::from_quote_and_result(&req.quote, &result);
+    state
+        .db
+        .upsert_swap_execution(auth.0.user_id, &record)
+        .await
+        .map_err(|e| ApiError::internal(&format!("swap persist: {e}")))?;
 
     tracing::info!(
         swap_id = %result.swap_id,
@@ -234,22 +241,35 @@ async fn execute_swap(
     })))
 }
 
-/// `GET /v1/swaps/{id}` — get swap execution status.
+/// `GET /v1/swaps/{id}` — swap execution status.
 ///
-/// In production this queries the DB for the swap record.
-/// Current implementation returns a stub pending status.
+/// Scoped to the caller's own swaps unless they are Admin; a 404 here
+/// means "no swap with that id that you're allowed to see", so nothing
+/// about other users' IDs leaks.
 async fn get_swap_status(
-    _auth: RequireViewer,
-    State(_state): State<AppState>,
+    auth: RequireViewer,
+    State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<SwapStatusResponse>, ApiError> {
-    // Production: query DB for swap by ID.
-    // Stub: return not_found since we have no in-memory store.
-    tracing::debug!(swap_id = %id, "get_swap_status");
+    let is_admin = auth.0.role.has_at_least(&custody_db::sessions::Role::Admin);
+    let lookup = if is_admin {
+        state.db.find_swap_any(id).await
+    } else {
+        state.db.find_swap_for_user(auth.0.user_id, id).await
+    };
+    let swap = lookup
+        .map_err(|e| ApiError::internal(&format!("swap lookup: {e}")))?
+        .ok_or_else(|| ApiError::not_found(&format!("Swap {id} not found")))?;
 
-    Err(ApiError::not_found(&format!(
-        "Swap {id} not found — swap persistence is not yet wired to DB"
-    )))
+    Ok(Json(SwapStatusResponse {
+        swap_id: swap.id,
+        status: swap.status,
+        chain: swap.chain,
+        from_token: swap.from_token,
+        to_token: swap.to_token,
+        amount_in: swap.amount_in,
+        tx_hash: swap.tx_hash,
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -294,6 +314,8 @@ mod tests {
             estimated_gas: Some(dec!(0.003)),
             protocol: SwapProtocol::UniswapV3,
             expires_at: Utc::now() + chrono::Duration::seconds(30),
+            is_indicative: false,
+            notice: None,
         };
         let resp = QuoteResponse { quote };
         let json = serde_json::to_string(&resp).unwrap();

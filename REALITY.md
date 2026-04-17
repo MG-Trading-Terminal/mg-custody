@@ -67,6 +67,22 @@ Security work done this session is real but the following remain open.
 Labeled by bite size so future-me knows where to start.
 
 ### Fixed since last published snapshot
+- **Swap status now real.** Migration 032 + `swap_executions` table;
+  `POST /v1/swaps` persists the execution record, `GET /v1/swaps/{id}`
+  reads from it (owner-scoped for non-Admins). Previously `GET`
+  always returned 404 with "swap persistence is not yet wired to DB."
+- **Swap quote is honest about being indicative.** `SwapQuote` gained
+  `is_indicative: bool` + `notice: Option<String>`. Uniswap V3 quote
+  on the sync path no longer fabricates `price_impact_bps: 10` and
+  `estimated_gas: 0.003 ETH` — both are now unknown (0 / None). The
+  fee-tier reduction is still applied but flagged with a warning
+  string so callers cannot mistake it for a live Quoter RPC response.
+  Jupiter sync path also flags `is_indicative: true`.
+- **Push tokens persist.** `device_tokens` table (migration 020) is
+  finally wired: `POST /v1/user/devices` upserts, `GET` lists the
+  caller's real rows, `DELETE` scopes by `(id, user_id)`. Prior to
+  this, device registration was a 201 with no storage — notifications
+  silently dropped after any restart.
 - **NFT routes stopped lying.** `GET /v1/nfts`, `GET /v1/nfts/{id}`,
   `POST /v1/nfts`, `DELETE /v1/nfts/{id}` now hit the
   `custodied_nfts` table (was: "empty list until DB is wired" / "TODO

@@ -51,6 +51,20 @@ pub struct SwapQuote {
     pub protocol: SwapProtocol,
     /// When this quote expires — callers must execute before this time.
     pub expires_at: DateTime<Utc>,
+    /// **Indicative-only** flag. `true` means `expected_out`,
+    /// `price_impact_bps`, and `estimated_gas` were computed from a
+    /// fee-tier heuristic rather than a live on-chain Quoter RPC
+    /// (Uniswap V3) or aggregator API (Jupiter). Callers MUST NOT
+    /// commit funds based on an indicative quote without an
+    /// independent price check. Set `false` only when the numbers
+    /// came from a live source.
+    #[serde(default)]
+    pub is_indicative: bool,
+    /// Optional human-readable note explaining any quote caveats — e.g.
+    /// "no live RPC configured, fee-tier heuristic used". Surfaced in
+    /// API responses so clients can pass it to users.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
 }
 
 /// The DEX protocol providing the swap.
@@ -195,10 +209,23 @@ impl UniswapV3Executor {
         }
     }
 
-    /// Build a mock quote using configured parameters.
+    /// Build an **indicative** quote from the fee tier.
     ///
-    /// In production this would call the Uniswap V3 Quoter contract
-    /// (`quoteExactInputSingle`) via an eth_call RPC request.
+    /// A real quote needs an `eth_call` to the Uniswap V3 `QuoterV2`
+    /// contract (`quoteExactInputSingle`) against a live RPC — that
+    /// RPC endpoint isn't wired in this code path yet. Until it is,
+    /// this function applies a flat fee-tier reduction as a rough
+    /// approximation and tags the result with `is_indicative: true`
+    /// plus a `notice` string. Callers that render the quote in a UI
+    /// are expected to surface both flags verbatim.
+    ///
+    /// Numerical caveats:
+    ///   - `expected_out` ignores AMM slippage curvature — for large
+    ///     trades relative to pool depth, the true out is lower.
+    ///   - `price_impact_bps` is set to 0 (unknown, not 10) since we
+    ///     cannot measure it without pool reserves.
+    ///   - `estimated_gas` is set to `None` (unknown) rather than a
+    ///     made-up 0.003 ETH.
     fn build_quote(
         &self,
         from_token: &str,
@@ -207,15 +234,12 @@ impl UniswapV3Executor {
         chain: Chain,
         slippage_bps: u32,
     ) -> SwapQuote {
-        use rust_decimal_macros::dec;
-        // In production: eth_call to QuoterV2 for the real amount out.
-        // Here we use a fixed 0.3% fee reduction as a placeholder.
-        let fee_fraction = Decimal::new(self.fee_tier as i64, 6); // fee_tier is in millionths
+        // fee_tier is expressed in hundredths of a bip (millionths):
+        // 3000 => 0.30%. Converting to a fractional Decimal.
+        let fee_fraction = Decimal::new(self.fee_tier as i64, 6);
         let expected_out = amount_in * (Decimal::ONE - fee_fraction);
         let slippage_fraction = Decimal::new(slippage_bps as i64, 4);
         let minimum_out = expected_out * (Decimal::ONE - slippage_fraction);
-        // Estimated gas: ~150k units at current base fee (placeholder)
-        let estimated_gas = Some(dec!(0.003)); // ~0.003 ETH placeholder
 
         SwapQuote {
             quote_id: Uuid::new_v4(),
@@ -226,10 +250,17 @@ impl UniswapV3Executor {
             expected_out,
             minimum_out,
             slippage_bps,
-            price_impact_bps: 10, // placeholder
-            estimated_gas,
+            price_impact_bps: 0,
+            estimated_gas: None,
             protocol: SwapProtocol::UniswapV3,
             expires_at: Utc::now() + chrono::Duration::seconds(self.quote_ttl_secs as i64),
+            is_indicative: true,
+            notice: Some(
+                "Indicative quote — no live Uniswap V3 Quoter RPC is wired. \
+                 expected_out ignores AMM curvature; gas and price impact are unknown. \
+                 Verify via the aggregator UI before broadcasting."
+                    .into(),
+            ),
         }
     }
 }
@@ -374,6 +405,26 @@ impl JupiterExecutor {
         price_impact_bps: u32,
         ttl_secs: u64,
     ) -> SwapQuote {
+        Self::build_quote_inner(
+            from_token, to_token, amount_in, slippage_bps, out_amount,
+            price_impact_bps, ttl_secs, /*indicative=*/ false, None,
+        )
+    }
+
+    /// Helper used by both the live-response and the indicative paths.
+    /// `indicative = true` yields a quote flagged so callers know the
+    /// numbers came from a stub, not the Jupiter aggregator.
+    fn build_quote_inner(
+        from_token: &str,
+        to_token: &str,
+        amount_in: Decimal,
+        slippage_bps: u32,
+        out_amount: u64,
+        price_impact_bps: u32,
+        ttl_secs: u64,
+        indicative: bool,
+        notice: Option<String>,
+    ) -> SwapQuote {
         let expected_out = Decimal::new(out_amount as i64, 6); // assume 6 decimals (USDC/USDT)
         let slippage_fraction = Decimal::new(slippage_bps as i64, 4);
         let minimum_out = expected_out * (Decimal::ONE - slippage_fraction);
@@ -391,6 +442,8 @@ impl JupiterExecutor {
             estimated_gas: None, // Solana: pay with SOL (lamports), not tracked here
             protocol: SwapProtocol::Jupiter,
             expires_at: Utc::now() + chrono::Duration::seconds(ttl_secs as i64),
+            is_indicative: indicative,
+            notice,
         }
     }
 
@@ -487,17 +540,27 @@ impl SwapExecutor for JupiterExecutor {
             });
         }
 
-        // Synchronous path returns a mock quote.
-        // For real quotes, use `quote_async` with an async executor.
+        // Synchronous path: no Jupiter HTTP call can happen here. We
+        // return an **indicative** quote with a ~0.2% flat reduction
+        // as a rough estimate and flag it so the caller cannot confuse
+        // it with a live aggregator response. For a real quote, use
+        // `quote_async` against the Jupiter V6 REST API.
         let placeholder_out = (amount_in * Decimal::new(998, 3)).mantissa().unsigned_abs() as u64;
-        Ok(Self::build_quote_from_response(
+        Ok(Self::build_quote_inner(
             from_token,
             to_token,
             amount_in,
             slippage_bps,
             placeholder_out,
-            10,
+            /*price_impact_bps=*/ 0,
             self.quote_ttl_secs,
+            /*indicative=*/ true,
+            Some(
+                "Indicative quote — no live Jupiter aggregator call on the synchronous \
+                 path. Use the async quote path with a reachable api.jup.ag for live \
+                 routing + price impact."
+                    .into(),
+            ),
         ))
     }
 
@@ -686,6 +749,8 @@ mod tests {
             estimated_gas: Some(dec!(0.003)),
             protocol: SwapProtocol::UniswapV3,
             expires_at: Utc::now() + chrono::Duration::seconds(30),
+            is_indicative: false,
+            notice: None,
         };
         let json = serde_json::to_string(&quote).unwrap();
         let decoded: SwapQuote = serde_json::from_str(&json).unwrap();
@@ -799,7 +864,9 @@ mod tests {
             price_impact_bps: 5,
             estimated_gas: None,
             protocol: SwapProtocol::UniswapV3,
-            expires_at: Utc::now() - chrono::Duration::seconds(60), // expired
+            expires_at: Utc::now() - chrono::Duration::seconds(60), // expired,
+            is_indicative: false,
+            notice: None,
         };
         let err = exec.execute(&expired_quote).unwrap_err();
         assert!(matches!(err, SwapError::QuoteExpired(_)));
@@ -874,6 +941,8 @@ mod tests {
             estimated_gas: None,
             protocol: SwapProtocol::Jupiter,
             expires_at: Utc::now() - chrono::Duration::seconds(10),
+            is_indicative: false,
+            notice: None,
         };
         let err = exec.execute(&expired).unwrap_err();
         assert!(matches!(err, SwapError::QuoteExpired(_)));

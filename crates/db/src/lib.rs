@@ -13,6 +13,8 @@ pub mod statements;
 pub mod email_otp;
 pub mod safe_wallets;
 pub mod nfts;
+pub mod push_tokens;
+pub mod swap_executions;
 pub mod scheduled_withdrawals;
 pub mod api_keys;
 pub mod assets;
