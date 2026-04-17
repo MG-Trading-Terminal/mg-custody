@@ -394,13 +394,56 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Wire Chainalysis screening (if API key available)
-    if let Ok(chainalysis_key) = std::env::var("CUSTODY_CHAINALYSIS_API_KEY") {
-        let screener = Arc::new(custody_compliance::screening::ChainalysisProvider::new(&chainalysis_key));
-        pipeline_builder = pipeline_builder.with_screening_provider(screener);
-        tracing::info!("Chainalysis KYT screening enabled");
-    } else {
-        tracing::warn!("No CUSTODY_CHAINALYSIS_API_KEY — AML screening disabled");
+    // AML / KYT screening. Multi-provider + fail-closed:
+    //   CUSTODY_CHAINALYSIS_API_KEY  → Chainalysis KYT
+    //   CUSTODY_ELLIPTIC_API_KEY     → Elliptic Lens
+    //   CUSTODY_SCREENING_FALLBACK   → "block" (default) | "allow_and_flag"
+    //
+    // If at least one key is set we assemble a ScreeningService and
+    // plug it into the pipeline. If `fallback=block` (the default),
+    // provider errors + missing providers both refuse the screening
+    // and the pipeline rejects the withdrawal — an outage cannot
+    // become a silent pass.
+    //
+    // If NO keys are set and no explicit fallback chosen, we skip
+    // the service entirely and log-once. The pipeline treats that
+    // as "AML not configured" (no screening happens) — different
+    // from "service configured but every provider failed". This is
+    // the dev / testnet default; production deployments should
+    // supply at least one key.
+    {
+        let chainalysis_key = std::env::var("CUSTODY_CHAINALYSIS_API_KEY").ok();
+        let elliptic_key = std::env::var("CUSTODY_ELLIPTIC_API_KEY").ok();
+        if chainalysis_key.is_some() || elliptic_key.is_some() {
+            let fallback_str = std::env::var("CUSTODY_SCREENING_FALLBACK")
+                .unwrap_or_else(|_| "block".into())
+                .to_ascii_lowercase();
+            let fallback = match fallback_str.as_str() {
+                "allow_and_flag" => custody_compliance::screening::ScreeningFallback::AllowAndFlag,
+                _ => custody_compliance::screening::ScreeningFallback::Block,
+            };
+            let mut svc = custody_compliance::screening::ScreeningService::new(fallback, 24);
+            if let Some(k) = chainalysis_key.as_deref() {
+                svc = svc.add_chainalysis(k);
+                tracing::info!("Chainalysis KYT provider added to ScreeningService");
+            }
+            if let Some(k) = elliptic_key.as_deref() {
+                svc = svc.add_elliptic(k);
+                tracing::info!("Elliptic Lens provider added to ScreeningService");
+            }
+            tracing::info!(
+                fallback = %fallback_str,
+                providers = if chainalysis_key.is_some() { 1 } else { 0 }
+                    + if elliptic_key.is_some() { 1 } else { 0 },
+                "AML screening enabled (fail-closed)"
+            );
+            pipeline_builder = pipeline_builder.with_screening_service(Arc::new(svc));
+        } else {
+            tracing::warn!(
+                "No CUSTODY_CHAINALYSIS_API_KEY / CUSTODY_ELLIPTIC_API_KEY — AML screening \
+                 disabled. Production deployments MUST supply at least one provider key."
+            );
+        }
     }
 
     // Wire freeze flag into pipeline so background task respects emergency freeze.

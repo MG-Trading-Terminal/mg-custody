@@ -17,7 +17,7 @@ use custody_common::emergency::FreezeFlag;
 use custody_compliance::ofac::SanctionsChecker;
 use custody_confirmations::WebhookSender;
 use custody_db::CustodyDb;
-use custody_compliance::screening::{ScreeningProvider, ChainalysisProvider};
+use custody_compliance::screening::ScreeningService;
 use custody_compliance::travel_rule;
 use custody_fee_estimator::bitcoin::BitcoinFeeEstimator;
 use custody_fee_estimator::ethereum::EthereumFeeEstimator;
@@ -61,7 +61,13 @@ pub struct WithdrawalPipeline {
     btc_fee_estimator: Option<Arc<BitcoinFeeEstimator>>,
     trx_fee_estimator: Option<Arc<TronFeeEstimator>>,
     sol_fee_estimator: Option<Arc<SolanaFeeEstimator>>,
-    screening_provider: Option<Arc<ChainalysisProvider>>,
+    /// Multi-provider, fail-closed screening service. When set, the
+    /// pipeline refuses to validate a withdrawal whose destination
+    /// address scored High/Severe by any configured provider, and
+    /// promotes Medium-risk results to manual review. Vendor
+    /// unavailability applies the configured fallback — Block in
+    /// production so an outage cannot become a silent bypass.
+    screening_service: Option<Arc<ScreeningService>>,
     nonce_manager: Option<Arc<NonceManager>>,
     webhook_sender: Option<Arc<WebhookSender>>,
     event_broadcaster: Option<Arc<custody_common::events::EventBroadcaster>>,
@@ -90,7 +96,7 @@ impl WithdrawalPipeline {
             trx_broadcaster: None, sol_broadcaster: None,
             eth_fee_estimator: None, btc_fee_estimator: None,
             trx_fee_estimator: None, sol_fee_estimator: None,
-            screening_provider: None, nonce_manager: None,
+            screening_service: None, nonce_manager: None,
             webhook_sender: None, event_broadcaster: None,
             frozen: None,
             trx_api_url: None, sol_rpc_url: None,
@@ -130,7 +136,10 @@ impl WithdrawalPipeline {
     pub fn with_btc_fee_estimator(mut self, f: Arc<BitcoinFeeEstimator>) -> Self { self.btc_fee_estimator = Some(f); self }
     pub fn with_trx_fee_estimator(mut self, f: Arc<TronFeeEstimator>) -> Self { self.trx_fee_estimator = Some(f); self }
     pub fn with_sol_fee_estimator(mut self, f: Arc<SolanaFeeEstimator>) -> Self { self.sol_fee_estimator = Some(f); self }
-    pub fn with_screening_provider(mut self, s: Arc<ChainalysisProvider>) -> Self { self.screening_provider = Some(s); self }
+    pub fn with_screening_service(mut self, s: Arc<ScreeningService>) -> Self {
+        self.screening_service = Some(s);
+        self
+    }
     pub fn with_nonce_manager(mut self, n: Arc<NonceManager>) -> Self { self.nonce_manager = Some(n); self }
     pub fn with_webhook_sender(mut self, s: Arc<WebhookSender>) -> Self { self.webhook_sender = Some(s); self }
     pub fn with_event_broadcaster(mut self, b: Arc<custody_common::events::EventBroadcaster>) -> Self { self.event_broadcaster = Some(b); self }
@@ -236,35 +245,40 @@ impl WithdrawalPipeline {
                 }
             }
 
-            // AML/KYT screening
-            if let Some(ref screener) = self.screening_provider {
-                match screener.screen_address(&w.destination_address, w.chain).await {
-                    Ok(result) => {
-                        if result.should_block() {
-                            custody_common::prometheus_metrics::COMPLIANCE_SCREENINGS
-                                .with_label_values(&["chainalysis", "blocked"]).inc();
-                            tracing::error!(
-                                id = %w.id, addr = %w.destination_address,
-                                risk = ?result.risk_level, categories = ?result.categories,
-                                "AML screening BLOCKED"
-                            );
-                            self.db.update_withdrawal_status(w.id, WithdrawalStatus::Failed).await?;
-                            continue;
-                        }
-                        if result.needs_review() {
-                            tracing::warn!(
-                                id = %w.id, addr = %w.destination_address,
-                                risk = ?result.risk_level,
-                                "AML screening — manual review required"
-                            );
-                            self.db.update_withdrawal_status(w.id, WithdrawalStatus::PendingApproval).await?;
-                            continue;
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(id = %w.id, error = %e, "AML screening failed — continuing");
-                    }
+            // AML / KYT screening. The ScreeningService is fail-closed:
+            // vendor outages apply its configured fallback (Block in
+            // production) instead of a silent pass. `Ok(result)` where
+            // `result.provider == "fallback"` signals that no provider
+            // actually ran — we block with the same "provider_error"
+            // category so an outage cannot become a bypass vector.
+            if let Some(ref svc) = self.screening_service {
+                let result = svc.screen_address(&w.destination_address, w.chain).await;
+                let provider_label = result.provider.clone();
+                if result.should_block() {
+                    custody_common::prometheus_metrics::COMPLIANCE_SCREENINGS
+                        .with_label_values(&[&provider_label, "blocked"]).inc();
+                    tracing::error!(
+                        id = %w.id, addr = %w.destination_address,
+                        risk = ?result.risk_level, categories = ?result.categories,
+                        provider = %provider_label,
+                        "AML screening BLOCKED"
+                    );
+                    self.db.update_withdrawal_status(w.id, WithdrawalStatus::Failed).await?;
+                    continue;
                 }
+                if result.needs_review() {
+                    custody_common::prometheus_metrics::COMPLIANCE_SCREENINGS
+                        .with_label_values(&[&provider_label, "review"]).inc();
+                    tracing::warn!(
+                        id = %w.id, addr = %w.destination_address,
+                        risk = ?result.risk_level, provider = %provider_label,
+                        "AML screening — manual review required"
+                    );
+                    self.db.update_withdrawal_status(w.id, WithdrawalStatus::PendingApproval).await?;
+                    continue;
+                }
+                custody_common::prometheus_metrics::COMPLIANCE_SCREENINGS
+                    .with_label_values(&[&provider_label, "clean"]).inc();
             }
 
             // Travel Rule check (FATF Recommendation 16)
