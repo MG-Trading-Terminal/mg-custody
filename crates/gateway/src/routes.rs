@@ -56,6 +56,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/health/features/refresh", post(health_features_refresh))
         .route("/v1/health/features/history", get(health_features_history))
         .route(
+            "/v1/health/features/uptime",
+            get(health_features_uptime),
+        )
+        .route(
             "/v1/health/features/silences",
             get(list_health_silences).post(create_health_silence),
         )
@@ -144,6 +148,10 @@ pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
         .route("/v1/health/features", get(health_features))
         .route("/v1/health/features/refresh", post(health_features_refresh))
         .route("/v1/health/features/history", get(health_features_history))
+        .route(
+            "/v1/health/features/uptime",
+            get(health_features_uptime),
+        )
         .route(
             "/v1/health/features/silences",
             get(list_health_silences).post(create_health_silence),
@@ -588,6 +596,129 @@ async fn clear_chaos_override(
         "Chaos override cleared — real probe state will be restored on next refresh"
     );
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(serde::Deserialize)]
+struct UptimeQuery {
+    /// Window size: "1h", "24h", "7d", "30d". Default 24h.
+    #[serde(default)]
+    window: Option<String>,
+}
+
+/// `GET /v1/health/features/uptime?window=24h` — per-feature uptime
+/// percentage over the given window, computed from
+/// readiness_transitions.
+///
+/// Algorithm: for each feature, sort transitions ascending. At t=0
+/// (window start) we assume the feature was Ready unless the very
+/// first event in-window is a Recovery (which implies it was down
+/// before). Walk events, tracking `down_since`; whenever we see a
+/// Recovery, close the down interval and add to `down_total`. Open
+/// intervals at window end close against `now`. Uptime % = 1 −
+/// down_total / window.
+///
+/// Features that had no transitions in the window are reported as
+/// 100% (happy path: never degraded).
+async fn health_features_uptime(
+    _auth: crate::rbac_middleware::RequireAdmin,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    axum::extract::Query(q): axum::extract::Query<UptimeQuery>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let window_str = q.window.as_deref().unwrap_or("24h");
+    let window_duration = parse_window(window_str)
+        .ok_or_else(|| ApiError::bad_request("window must be one of: 1h, 24h, 7d, 30d"))?;
+    let now = chrono::Utc::now();
+    let since = now - window_duration;
+    let transitions = state
+        .db
+        .transitions_in_window(since, now)
+        .await
+        .map_err(|e| ApiError::internal(&format!("transition query: {e}")))?;
+
+    // Group transitions per feature.
+    let mut per_feature: std::collections::HashMap<String, Vec<_>> =
+        std::collections::HashMap::new();
+    for t in &transitions {
+        per_feature.entry(t.feature.clone()).or_default().push(t);
+    }
+
+    // Every feature currently in the readiness report, even those
+    // with no transitions, should appear in the output — the
+    // dashboard wants a row per known feature, not only ones that
+    // bounced.
+    let snap = state.readiness.snapshot();
+    let mut uptimes: Vec<serde_json::Value> = Vec::new();
+    let window_secs = window_duration.num_seconds() as f64;
+    for f in &snap.features {
+        let events = per_feature.remove(&f.name).unwrap_or_default();
+        let down_secs = compute_down_seconds(&events, since, now);
+        let uptime_pct = if window_secs > 0.0 {
+            ((window_secs - down_secs) / window_secs * 100.0).clamp(0.0, 100.0)
+        } else {
+            100.0
+        };
+        uptimes.push(serde_json::json!({
+            "feature": f.name,
+            "uptime_pct": format!("{uptime_pct:.4}"),
+            "down_seconds": down_secs as i64,
+            "transitions": events.len(),
+        }));
+    }
+    Ok(Json(serde_json::json!({
+        "window": window_str,
+        "since": since.to_rfc3339(),
+        "until": now.to_rfc3339(),
+        "features": uptimes,
+    })))
+}
+
+fn parse_window(s: &str) -> Option<chrono::Duration> {
+    match s {
+        "1h" => Some(chrono::Duration::hours(1)),
+        "24h" => Some(chrono::Duration::hours(24)),
+        "7d" => Some(chrono::Duration::days(7)),
+        "30d" => Some(chrono::Duration::days(30)),
+        _ => None,
+    }
+}
+
+/// Walk ordered transitions for one feature and return total down
+/// seconds within `[window_start, window_end]`. See docstring on
+/// `health_features_uptime` for the algorithm.
+fn compute_down_seconds(
+    events: &[&custody_db::readiness_transitions::ReadinessTransition],
+    window_start: chrono::DateTime<chrono::Utc>,
+    window_end: chrono::DateTime<chrono::Utc>,
+) -> f64 {
+    let mut down_since: Option<chrono::DateTime<chrono::Utc>> = None;
+    // If the first event in-window is a Recovery, the feature was
+    // already down before the window opened. Count from window_start.
+    if let Some(first) = events.first()
+        && first.kind == "recovery"
+    {
+        down_since = Some(window_start);
+    }
+    let mut down_total = 0.0;
+    for e in events {
+        match e.kind.as_str() {
+            "degradation" | "misconfiguration" => {
+                if down_since.is_none() {
+                    down_since = Some(e.occurred_at);
+                }
+            }
+            "recovery" => {
+                if let Some(start) = down_since.take() {
+                    down_total += (e.occurred_at - start).num_milliseconds() as f64 / 1000.0;
+                }
+            }
+            _ => {}
+        }
+    }
+    // If still down at window_end, count the tail.
+    if let Some(start) = down_since {
+        down_total += (window_end - start).num_milliseconds() as f64 / 1000.0;
+    }
+    down_total.max(0.0)
 }
 
 async fn health_features(

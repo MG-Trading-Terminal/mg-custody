@@ -44,6 +44,17 @@
 	let silenceErr = $state('');
 	let silenceHistory = $state<Silence[]>([]);
 	let showSilenceHistory = $state(false);
+
+	interface UptimeEntry { feature: string; uptime_pct: string; down_seconds: number; transitions: number; }
+	interface ChaosOverride {
+		state: unknown;
+		reason: string;
+		created_at: string;
+		created_by: string;
+	}
+
+	let uptimes = $state<Record<string, UptimeEntry>>({});
+	let chaosActive = $state<Record<string, ChaosOverride>>({});
 	let loading = $state(true);
 	let error = $state('');
 	let lastLoaded = $state<Date | null>(null);
@@ -90,6 +101,62 @@
 			silenceErr = '';
 		} catch (e) {
 			silenceErr = e instanceof Error ? e.message : 'Failed to load silences';
+		}
+		loadUptimes();
+		loadChaos();
+	}
+
+	async function loadUptimes() {
+		try {
+			const data = await api.getJson<{ features: UptimeEntry[] }>(
+				'/v1/health/features/uptime?window=24h'
+			);
+			const m: Record<string, UptimeEntry> = {};
+			for (const e of data.features ?? []) m[e.feature] = e;
+			uptimes = m;
+		} catch {
+			// Non-fatal. The uptime badge just doesn't render.
+		}
+	}
+
+	async function loadChaos() {
+		try {
+			const data = await api.getJson<{ overrides: Record<string, ChaosOverride> }>(
+				'/v1/admin/chaos/overrides'
+			);
+			chaosActive = data.overrides ?? {};
+		} catch {
+			chaosActive = {};
+		}
+	}
+
+	async function injectChaos(feature: string) {
+		const reason = prompt(
+			`Chaos drill: force "${feature}" to Degraded. This will fire your alert webhook on the next refresh. Reason (audit log):`,
+			'oncall drill'
+		);
+		if (!reason || !reason.trim()) return;
+		try {
+			await api.post('/v1/admin/chaos/overrides', {
+				feature,
+				state: 'degraded',
+				reason: reason.trim(),
+			});
+			await loadChaos();
+			setTimeout(load, 3_000);
+		} catch (e) {
+			alert(e instanceof Error ? e.message : 'Failed to inject chaos');
+		}
+	}
+
+	async function clearChaos(feature: string) {
+		if (!confirm(`Clear chaos override for "${feature}"? Real probe state will be restored.`)) return;
+		try {
+			await api.del(`/v1/admin/chaos/overrides/${encodeURIComponent(feature)}`);
+			await loadChaos();
+			setTimeout(load, 3_000);
+		} catch (e) {
+			alert(e instanceof Error ? e.message : 'Failed to clear chaos');
 		}
 	}
 
@@ -249,6 +316,12 @@
 	{#if probeNote}
 		<div class="banner banner-info">{probeNote}</div>
 	{/if}
+	{#if Object.keys(chaosActive).length > 0}
+		<div class="banner banner-chaos">
+			⚠ Chaos drill active on {Object.keys(chaosActive).length} feature(s): {Object.keys(chaosActive).join(', ')}.
+			Alert pipeline will fire as if these were real degradations.
+		</div>
+	{/if}
 	{#if error}
 		<div class="banner banner-error">{error}</div>
 	{/if}
@@ -307,13 +380,23 @@
 						</div>
 					</div>
 					<div class="feature-right">
-						<div class="feature-reason" title={reasonFor(f)}>{reasonFor(f)}</div>
+						<div class="feature-meta-line">
+							{#if uptimes[f.name]}
+								<span class="uptime-pill" title={`${uptimes[f.name].down_seconds}s down · ${uptimes[f.name].transitions} transitions in 24h`}>
+									{parseFloat(uptimes[f.name].uptime_pct).toFixed(2)}% 24h
+								</span>
+							{/if}
+							<div class="feature-reason" title={reasonFor(f)}>{reasonFor(f)}</div>
+						</div>
 						<div class="feature-actions">
-							{#if sil && sil.feature === f.name}
+							{#if chaosActive[f.name]}
+								<button class="btn-tiny btn-chaos" onclick={() => clearChaos(f.name)} title="Clear chaos override">Clear chaos</button>
+							{:else if sil && sil.feature === f.name}
 								<button class="btn-tiny" onclick={() => endSilence(f.name)} title="End silence now">Unmute</button>
 							{:else if !sil}
 								<button class="btn-tiny" onclick={() => createSilence(f.name, 1)} title="Silence alerts for 1 hour">Silence 1h</button>
 								<button class="btn-tiny" onclick={() => createSilence(f.name, 24)} title="Silence alerts for 24 hours">24h</button>
+								<button class="btn-tiny btn-chaos" onclick={() => injectChaos(f.name)} title="Inject fake degradation to test alert path">Chaos</button>
 							{/if}
 						</div>
 					</div>
@@ -529,6 +612,29 @@
 		transition: background 0.15s, color 0.15s;
 	}
 	.btn-tiny:hover { background: var(--surface-3); color: var(--fg); }
+	.btn-chaos { border-color: color-mix(in srgb, var(--red) 40%, transparent); color: var(--red); }
+	.btn-chaos:hover { background: var(--red-soft); color: var(--red); }
+
+	.banner-chaos {
+		background: var(--red-soft); color: var(--red);
+		border: 1px solid color-mix(in srgb, var(--red) 40%, transparent);
+		font-weight: 600;
+	}
+
+	.feature-meta-line {
+		display: flex; align-items: center; gap: 8px;
+		min-width: 0;
+	}
+	.uptime-pill {
+		font-size: 0.7rem;
+		font-family: var(--font-mono);
+		padding: 1px 6px;
+		background: var(--surface-2);
+		border: 1px solid var(--border);
+		border-radius: var(--r-full);
+		color: var(--fg-muted);
+		white-space: nowrap;
+	}
 
 	.feature-silenced { opacity: 0.75; }
 	.silenced-badge {

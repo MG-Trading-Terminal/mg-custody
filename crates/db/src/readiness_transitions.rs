@@ -55,6 +55,36 @@ impl CustodyDb {
         }
     }
 
+    /// Return every transition within `[since, until]`, oldest first.
+    /// Used for uptime calculation: pair consecutive degradation /
+    /// recovery events per feature to compute total down-time.
+    pub async fn transitions_in_window(
+        &self,
+        since: DateTime<Utc>,
+        until: DateTime<Utc>,
+    ) -> Result<Vec<ReadinessTransition>, sqlx::Error> {
+        let rows = sqlx::query_as::<_, (i64, String, String, Option<String>, DateTime<Utc>)>(
+            "SELECT id, feature, kind, reason, occurred_at \
+             FROM readiness_transitions \
+             WHERE occurred_at >= $1 AND occurred_at <= $2 \
+             ORDER BY occurred_at ASC",
+        )
+        .bind(since)
+        .bind(until)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, feature, kind, reason, occurred_at)| ReadinessTransition {
+                id,
+                feature,
+                kind,
+                reason,
+                occurred_at,
+            })
+            .collect())
+    }
+
     /// Delete transitions older than `before`. Called periodically
     /// by the retention task; returns the number of rows pruned so
     /// the task can log progress.
