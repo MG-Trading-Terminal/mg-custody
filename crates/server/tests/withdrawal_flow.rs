@@ -55,6 +55,7 @@ async fn setup() -> Option<(axum::Router, CustodyDb, Arc<WithdrawalPipeline>)> {
         user_rate_limiter: Arc::new(custody_gateway::rate_limit::UserRateLimiter::default_user()),
         frozen: custody_common::emergency::FreezeFlag::new(),
         email: Arc::new(custody_common::email::EmailSender::noop()),
+        travel_rule_provider: None,
     };
 
     Some((custody_gateway::routes::router(state), db, pipeline))

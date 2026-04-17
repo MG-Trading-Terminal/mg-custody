@@ -9,6 +9,7 @@ use custody_address_factory::{AddressAllocator, SeedBytes};
 use custody_common::email::EmailSender;
 use custody_common::emergency::FreezeFlag;
 use custody_common::events::EventBroadcaster;
+use custody_compliance::travel_rule::NotabeneProvider;
 use custody_db::CustodyDb;
 use custody_withdrawal_pipeline::WithdrawalPipeline;
 
@@ -29,4 +30,9 @@ pub struct AppState {
     /// Outbound email transport. Console-printing in dev (`console`), real
     /// SMTP when wired. Never dispatch email via raw `tracing` — use this.
     pub email: Arc<EmailSender>,
+    /// Travel Rule counterparty-VASP dispatcher (Notabene). `None`
+    /// when no API key is configured — `submit_travel_rule` still
+    /// persists the row, but flags the record `Required` (awaiting
+    /// out-of-band exchange) instead of `Submitted`.
+    pub travel_rule_provider: Option<Arc<NotabeneProvider>>,
 }

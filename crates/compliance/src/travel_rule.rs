@@ -21,6 +21,46 @@ pub const EU_THRESHOLD_EUR: Decimal = Decimal::ONE_THOUSAND;
 /// Travel Rule threshold (USD, per FinCEN).
 pub const US_THRESHOLD_USD: u64 = 3000;
 
+/// Build a provider-shaped `TravelRuleData` from the persistence-layer
+/// record the gateway writes (`custody_common::platform::TravelRuleData`).
+/// Centralises the field-name mapping so handlers don't do it inline.
+pub fn data_from_persisted(
+    persisted: &custody_common::platform::TravelRuleData,
+) -> TravelRuleData {
+    TravelRuleData {
+        transfer_id: persisted.id,
+        originator: PersonData {
+            name: persisted.originator.name.clone(),
+            account_number: persisted.originator.account_number.clone(),
+            address: persisted.originator.address.as_ref().map(|a| PhysicalAddress {
+                street: a.street.clone(),
+                city: a.city.clone(),
+                country: a.country.clone(),
+                postal_code: Some(a.postal_code.clone()),
+            }),
+            national_id: None,
+            date_of_birth: None,
+        },
+        beneficiary: PersonData {
+            name: persisted.beneficiary.name.clone(),
+            account_number: persisted.beneficiary.account_number.clone(),
+            address: persisted.beneficiary.address.as_ref().map(|a| PhysicalAddress {
+                street: a.street.clone(),
+                city: a.city.clone(),
+                country: a.country.clone(),
+                postal_code: Some(a.postal_code.clone()),
+            }),
+            national_id: None,
+            date_of_birth: None,
+        },
+        amount_usd: persisted.amount,
+        asset: persisted.asset.as_str().to_string(),
+        originator_vasp: persisted.originator.vasp_id.clone(),
+        beneficiary_vasp: persisted.beneficiary.vasp_id.clone(),
+        created_at: persisted.created_at,
+    }
+}
+
 /// Originator/beneficiary data for Travel Rule compliance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TravelRuleData {

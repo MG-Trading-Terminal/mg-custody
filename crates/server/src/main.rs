@@ -491,6 +491,77 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    // ─── MPC multi-host receiver (optional) ─────────────────────────
+    //
+    // Env-driven so existing single-host deployments keep working
+    // untouched:
+    //   CUSTODY_MPC__ENABLED       = "true" to spawn the receiver
+    //   CUSTODY_MPC__BIND_ADDR     = "0.0.0.0:9100" (default)
+    //   CUSTODY_MPC__HMAC_SECRET   = shared peer secret (required)
+    //   CUSTODY_MPC__PARTY_INDEX   = this party's 0-based index (logged,
+    //                                 used by ceremony orchestration)
+    //   CUSTODY_MPC__PEERS         = comma-separated peer endpoints,
+    //                                 e.g. "http://p1:9100,http://p2:9100"
+    //
+    // Spawn only the receiver side here. The actual ceremony
+    // (DKG / sign) is driven by an operator calling coordinator_v2
+    // / distributed_dkg against the shared HMAC secret + peer
+    // endpoints; this service holds the inbox so peer messages have
+    // somewhere to land. Without this spawn, the existing
+    // HttpTransport could `send()` but never `receive()`, and every
+    // multi-host ceremony would hang on round 1.
+    let _mpc_receiver: Option<tokio::task::JoinHandle<()>> =
+        if std::env::var("CUSTODY_MPC__ENABLED").ok().as_deref() == Some("true") {
+            let bind_str = std::env::var("CUSTODY_MPC__BIND_ADDR")
+                .unwrap_or_else(|_| "0.0.0.0:9100".to_string());
+            let hmac = std::env::var("CUSTODY_MPC__HMAC_SECRET").ok();
+            let peers = std::env::var("CUSTODY_MPC__PEERS").unwrap_or_default();
+            let party_idx = std::env::var("CUSTODY_MPC__PARTY_INDEX")
+                .ok()
+                .and_then(|s| s.parse::<u16>().ok())
+                .unwrap_or(0);
+
+            match (hmac, bind_str.parse::<std::net::SocketAddr>()) {
+                (Some(secret), Ok(bind_addr)) if !secret.is_empty() => {
+                    let inbox = Arc::new(std::sync::Mutex::new(Vec::new()));
+                    tracing::info!(
+                        %bind_addr,
+                        party_index = party_idx,
+                        peers = %peers,
+                        "Starting MPC multi-host receiver — inbox ready for peer messages"
+                    );
+                    match custody_mpc::http_server::spawn_mpc_server(
+                        bind_addr,
+                        inbox,
+                        secret.into_bytes(),
+                    ).await {
+                        Ok(h) => Some(h),
+                        Err(e) => {
+                            tracing::error!(error = %e, "MPC receiver failed to start — aborting");
+                            return Err(e);
+                        }
+                    }
+                }
+                (None, _) => {
+                    tracing::error!(
+                        "CUSTODY_MPC__ENABLED=true but CUSTODY_MPC__HMAC_SECRET is missing — \
+                         refusing to start without peer authentication"
+                    );
+                    return Err(anyhow::anyhow!("missing MPC HMAC secret"));
+                }
+                (_, Err(e)) => {
+                    tracing::error!(error = %e, bind = %bind_str, "Invalid CUSTODY_MPC__BIND_ADDR");
+                    return Err(anyhow::anyhow!("invalid MPC bind address: {e}"));
+                }
+                _ => None,
+            }
+        } else {
+            tracing::debug!(
+                "MPC receiver disabled (set CUSTODY_MPC__ENABLED=true + HMAC_SECRET to enable)"
+            );
+            None
+        };
+
     // ─── Webhook Sender ──────────────────────────────────────────────
     let webhook_secret = std::env::var("CUSTODY_WEBHOOK_SECRET")
         .unwrap_or_else(|_| "dev_webhook_secret".to_string());
@@ -722,6 +793,20 @@ async fn main() -> anyhow::Result<()> {
     let email_from = std::env::var("CUSTODY_EMAIL__FROM")
         .unwrap_or_else(|_| "MG Custody <no-reply@custody.local>".to_string());
     let email_mode = std::env::var("CUSTODY_EMAIL__MODE").unwrap_or_else(|_| "console".to_string());
+    // Travel Rule provider (Notabene). Read from env:
+    //   CUSTODY_TRAVELRULE__NOTABENE_API_KEY
+    // If unset, the `submit_travel_rule` handler persists the row with
+    // status = Required (awaiting out-of-band exchange). If set, the
+    // handler dispatches originator data to the counterparty VASP via
+    // the provider and flips the status based on success.
+    let travel_rule_provider = std::env::var("CUSTODY_TRAVELRULE__NOTABENE_API_KEY")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(|key| {
+            tracing::info!("Notabene Travel Rule provider enabled");
+            std::sync::Arc::new(custody_compliance::travel_rule::NotabeneProvider::new(&key))
+        });
+
     let email_sender = match email_mode.as_str() {
         "noop" => custody_common::email::EmailSender::noop(),
         "smtp" => {
@@ -788,6 +873,7 @@ async fn main() -> anyhow::Result<()> {
         ),
         frozen: freeze_flag,
         email: std::sync::Arc::new(email_sender),
+        travel_rule_provider: travel_rule_provider.clone(),
     };
 
     // Use middleware if HMAC secret is configured

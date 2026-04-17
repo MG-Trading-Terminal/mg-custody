@@ -376,15 +376,14 @@ async fn submit_travel_rule(
         ("EUR".to_string(), dec!(1000))
     };
 
-    // IMPORTANT: `Submitted` previously implied the counterparty VASP
-    // had been notified via a provider like Notabene. No provider call
-    // happens here — `NotabeneProvider::send_originator_data` is not
-    // wired. Persisting the originator/beneficiary data locally is
-    // real work (it's what an auditor would review), but until a
-    // provider dispatch lands we must NOT claim the handshake was
-    // performed. The row is stored with `status: Required` so the
-    // dashboard can show "awaiting VASP dispatch" instead of "done".
-    let tr_data = TravelRuleData {
+    // Record starts at `Required`. If a Travel Rule provider is
+    // configured in AppState, we dispatch to the counterparty VASP
+    // synchronously and flip the status to `Submitted` on success or
+    // `Failed` on dispatch error. If no provider is wired, status
+    // stays `Required` — operators must exchange data out-of-band and
+    // manually mark complete. The status written here is the truth
+    // of what actually happened, not a blanket optimistic claim.
+    let mut tr_data = TravelRuleData {
         id: Uuid::new_v4(),
         withdrawal_id: req.withdrawal_id,
         originator: req.originator,
@@ -398,14 +397,35 @@ async fn submit_travel_rule(
         created_at: Utc::now(),
     };
 
+    if let Some(provider) = state.travel_rule_provider.as_ref() {
+        use custody_compliance::travel_rule::TravelRuleProvider;
+        let mapped = custody_compliance::travel_rule::data_from_persisted(&tr_data);
+        match provider.send_originator_data(&mapped).await {
+            Ok(()) => {
+                tr_data.status = TravelRuleStatus::Submitted;
+                tracing::info!(
+                    withdrawal_id = %req.withdrawal_id,
+                    "Travel Rule originator data dispatched to counterparty VASP"
+                );
+            }
+            Err(e) => {
+                tr_data.status = TravelRuleStatus::Failed;
+                tracing::warn!(
+                    withdrawal_id = %req.withdrawal_id,
+                    error = %e,
+                    "Travel Rule VASP dispatch failed — recorded as Failed, operator must retry"
+                );
+            }
+        }
+    } else {
+        tracing::warn!(
+            withdrawal_id = %req.withdrawal_id,
+            "Travel rule data persisted with status=Required — no VASP provider configured"
+        );
+    }
+
     state.db.insert_travel_rule_data(&tr_data).await
         .map_err(|e| ApiError::internal(&e.to_string()))?;
-
-    tracing::warn!(
-        withdrawal_id = %req.withdrawal_id,
-        amount = %withdrawal.amount,
-        "Travel rule data persisted with status=Required — no VASP provider wired, counterparty NOT notified"
-    );
 
     Ok((StatusCode::CREATED, Json(tr_data)))
 }

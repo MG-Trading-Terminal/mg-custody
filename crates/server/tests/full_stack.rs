@@ -83,6 +83,7 @@ async fn full_stack_app() -> Option<(axum::Router, custody_db::CustodyDb)> {
         user_rate_limiter: std::sync::Arc::new(custody_gateway::rate_limit::UserRateLimiter::default_user()),
         frozen: custody_common::emergency::FreezeFlag::new(),
         email: std::sync::Arc::new(custody_common::email::EmailSender::noop()),
+        travel_rule_provider: None,
     };
 
     // Use router WITH middleware

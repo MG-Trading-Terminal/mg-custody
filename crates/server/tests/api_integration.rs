@@ -55,6 +55,7 @@ fn build_app_no_db() -> axum::Router {
         user_rate_limiter: Arc::new(custody_gateway::rate_limit::UserRateLimiter::default_user()),
         frozen: FreezeFlag::new(),
         email: Arc::new(custody_common::email::EmailSender::noop()),
+        travel_rule_provider: None,
     };
 
     // Use router() — no HMAC layer.
@@ -127,6 +128,7 @@ async fn build_app_with_db() -> Option<(axum::Router, CustodyDb)> {
         user_rate_limiter: Arc::new(custody_gateway::rate_limit::UserRateLimiter::default_user()),
         frozen: FreezeFlag::new(),
         email: Arc::new(custody_common::email::EmailSender::noop()),
+        travel_rule_provider: None,
     };
 
     let app = custody_gateway::routes::router(state);
