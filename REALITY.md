@@ -67,6 +67,19 @@ Security work done this session is real but the following remain open.
 Labeled by bite size so future-me knows where to start.
 
 ### Fixed since last published snapshot
+- **Batch withdrawal USD total is real.** `/v1/withdrawals/batch`
+  previously summed heterogeneous native-unit amounts (BTC + USDT +
+  ETH) and labelled the result `total_amount_usd`. The field is now
+  `Option<String>` — present only when every item's asset has a live
+  price in the oracle cache; otherwise `null` with a new
+  `unpriced_items: N` counter so the UI can flag "partial total".
+- **ERC-20 constructor args now spec-compliant.** `erc20_constructor_args`
+  previously stripped the decimal point from `initial_supply.to_string()`
+  and encoded the digits as ASCII bytes, with a `u32` length field in
+  place of Solidity's `uint256` length. Rebuilt around a proper
+  head/tail ABI layout for `constructor(string,string,uint8,uint256)`
+  with supply scaled by `10^decimals` into a uint256. Rejects
+  negative supplies and inputs that overflow u128.
 - **Swap status now real.** Migration 032 + `swap_executions` table;
   `POST /v1/swaps` persists the execution record, `GET /v1/swaps/{id}`
   reads from it (owner-scoped for non-Admins). Previously `GET`

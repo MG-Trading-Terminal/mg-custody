@@ -285,13 +285,34 @@ async fn batch_withdraw(
         )));
     }
 
+    // Load cached USD prices once so we can compute a real total below
+    // instead of summing heterogeneous native-unit amounts (the old
+    // response added BTC to USDT and called the result "USD").
+    let price_rows = state
+        .db
+        .get_token_prices()
+        .await
+        .map_err(|e| ApiError::internal(&format!("price lookup failed: {e}")))?;
+    let mut price_map: std::collections::HashMap<String, Decimal> =
+        std::collections::HashMap::new();
+    for (symbol, _chain, price) in price_rows {
+        if let Some(p) = price {
+            price_map.entry(symbol.to_uppercase()).or_insert(p);
+        }
+    }
+
     // ── Phase 2: idempotency — all items that already exist are returned
     //    as-is without touching the DB. If NONE are new we short-circuit. ──
     let mut results: Vec<BatchItemResult> = Vec::with_capacity(req.withdrawals.len());
     let mut new_withdrawals: Vec<Withdrawal> = Vec::new();
-    let mut total_amount = Decimal::ZERO;
+    let mut total_usd = Decimal::ZERO;
+    let mut unpriced_items: usize = 0;
 
     for item in &req.withdrawals {
+        match price_map.get(item.asset.as_str().to_uppercase().as_str()) {
+            Some(p) => total_usd += item.amount * *p,
+            None => unpriced_items += 1,
+        }
         let existing = state.db.find_withdrawal_by_exchange_id(item.withdrawal_id).await
             .map_err(|e| ApiError::internal(&format!(
                 "DB error checking withdrawal {}: {e}", item.withdrawal_id
@@ -304,7 +325,6 @@ async fn batch_withdraw(
                 status: "duplicate".into(),
                 error: None,
             });
-            total_amount += item.amount;
         } else {
             let w = Withdrawal {
                 id: Uuid::new_v4(),
@@ -330,7 +350,6 @@ async fn batch_withdraw(
                 memo: None,
                 destination_tag: None,
             };
-            total_amount += item.amount;
             new_withdrawals.push(w);
         }
     }
@@ -364,13 +383,22 @@ async fn batch_withdraw(
         "Batch withdrawal inserted atomically"
     );
 
-    // total_amount_usd is a placeholder — real USD conversion requires a price
-    // oracle call. We surface the sum in the withdrawal's native asset units
-    // and label it accordingly so callers are not misled.
+    // Only surface a USD total when every item's asset has a live
+    // price. A partial sum (skipping unpriced items) would look like
+    // "the batch is smaller than it is" and is worse than an honest
+    // null. The `unpriced_items` counter tells callers why the field
+    // is missing so the UI can render "N items unpriced".
+    let total_amount_usd = if unpriced_items == 0 {
+        Some(total_usd.round_dp(2).to_string())
+    } else {
+        None
+    };
+
     Ok((StatusCode::ACCEPTED, Json(BatchWithdrawalResponse {
         batch_id,
         count: req.withdrawals.len(),
-        total_amount_usd: total_amount.to_string(),
+        total_amount_usd,
+        unpriced_items,
         results,
     })))
 }
@@ -726,7 +754,8 @@ mod tests {
         let resp = BatchWithdrawalResponse {
             batch_id: "abc".into(),
             count: 2,
-            total_amount_usd: "3.0".into(),
+            total_amount_usd: Some("3.00".into()),
+            unpriced_items: 0,
             results: vec![],
         };
         let json = serde_json::to_string(&resp).unwrap();

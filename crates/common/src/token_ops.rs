@@ -49,50 +49,105 @@ pub enum TokenOperation {
     Unfreeze { account: String },
 }
 
-/// Build ERC-20 constructor calldata for deployment.
+/// Build ABI-encoded arguments for `constructor(string,string,uint8,uint256)`.
 ///
-/// Simplified: encodes name, symbol, decimals, initial_supply as constructor args.
+/// Solidity ABI layout for this signature is head/tail:
+///
+/// ```text
+/// head (4 × 32 bytes):
+///   [0x00]  offset of `name`   tail = 0x80   (uint256)
+///   [0x20]  offset of `symbol` tail = dynamic (uint256)
+///   [0x40]  decimals                         (uint256, right-aligned)
+///   [0x60]  initial_supply * 10^decimals     (uint256, right-aligned)
+/// tail:
+///   name:   uint256 length || UTF-8 bytes || zero-pad to 32-byte boundary
+///   symbol: uint256 length || UTF-8 bytes || zero-pad to 32-byte boundary
+/// ```
+///
+/// The old implementation put the length in a u32 at an arbitrary
+/// offset and encoded `initial_supply` as its ASCII-digit bytes with
+/// the decimal point stripped — both of which produce bytes a
+/// Solidity constructor will decode into garbage, not "1000000.5 USDX".
+///
+/// `initial_supply` is scaled by `10^decimals` to match the on-chain
+/// uint256 representation. Returns `Err` if the scaled amount does
+/// not fit in a `u128` (about 3.4 × 10^38), which covers every
+/// reasonable ERC-20 supply; assets with supplies beyond that should
+/// use a specialised deploy path.
 pub fn erc20_constructor_args(
     name: &str,
     symbol: &str,
     decimals: u8,
     initial_supply: Decimal,
-) -> Vec<u8> {
-    let mut data = Vec::new();
-    // This is a simplified ABI encoding for constructor(string,string,uint8,uint256)
-    // In production, use proper ABI encoding with offsets
+) -> anyhow::Result<Vec<u8>> {
+    if initial_supply.is_sign_negative() {
+        return Err(anyhow::anyhow!("initial_supply must be non-negative"));
+    }
+    if name.len() > 255 || symbol.len() > 32 {
+        return Err(anyhow::anyhow!(
+            "name/symbol too long: name.len={}, symbol.len={} (caps: 255/32)",
+            name.len(), symbol.len()
+        ));
+    }
 
-    // Encode initial_supply as uint256 (32 bytes, big-endian)
-    let supply_str = initial_supply.to_string().replace('.', "");
-    let supply_bytes = supply_str.as_bytes();
+    // Scale supply: (supply * 10^decimals) rounded, then fit into u128.
+    // rust_decimal holds up to 28 significant digits, so decimals > 28
+    // would lose precision silently; reject that early.
+    if decimals > 28 {
+        return Err(anyhow::anyhow!(
+            "decimals {decimals} exceeds rust_decimal's 28-digit precision"
+        ));
+    }
+    let scale = Decimal::from(10u64.pow(decimals as u32));
+    let scaled = initial_supply.checked_mul(scale)
+        .ok_or_else(|| anyhow::anyhow!("initial_supply × 10^decimals overflows"))?;
+    let scaled = scaled.round();
+    let supply_u128: u128 = scaled.to_string().parse()
+        .map_err(|_| anyhow::anyhow!("scaled supply does not fit in u128"))?;
 
-    // name length + name bytes + symbol length + symbol bytes + decimals + supply
-    data.extend_from_slice(&[0u8; 28]); // padding
-    data.extend_from_slice(&(name.len() as u32).to_be_bytes());
-    data.extend_from_slice(name.as_bytes());
-    // Pad to 32 bytes
-    let name_pad = 32 - (name.len() % 32);
-    if name_pad < 32 { data.extend(vec![0u8; name_pad]); }
+    let mut data = Vec::with_capacity(4 * 32 + aligned_tail_len(name) + aligned_tail_len(symbol));
 
-    data.extend_from_slice(&[0u8; 28]);
-    data.extend_from_slice(&(symbol.len() as u32).to_be_bytes());
-    data.extend_from_slice(symbol.as_bytes());
-    let sym_pad = 32 - (symbol.len() % 32);
-    if sym_pad < 32 { data.extend(vec![0u8; sym_pad]); }
+    // --- head ---
+    let head_size: u64 = 4 * 32;
+    let name_offset: u64 = head_size; // 0x80
+    let symbol_offset: u64 = head_size + aligned_tail_len(name) as u64;
 
-    // decimals as uint8 in 32-byte slot
-    let mut dec_slot = [0u8; 32];
-    dec_slot[31] = decimals;
-    data.extend_from_slice(&dec_slot);
+    data.extend_from_slice(&u256_be(name_offset as u128));
+    data.extend_from_slice(&u256_be(symbol_offset as u128));
+    data.extend_from_slice(&u256_be(decimals as u128));
+    data.extend_from_slice(&u256_be(supply_u128));
 
-    // supply as bytes in 32-byte slot
-    let mut supply_slot = [0u8; 32];
-    let start = 32 - supply_bytes.len().min(32);
-    supply_slot[start..start + supply_bytes.len().min(32)]
-        .copy_from_slice(&supply_bytes[..supply_bytes.len().min(32)]);
-    data.extend_from_slice(&supply_slot);
+    // --- tail ---
+    data.extend_from_slice(&encode_abi_string(name));
+    data.extend_from_slice(&encode_abi_string(symbol));
 
-    data
+    Ok(data)
+}
+
+/// Length in bytes of a dynamic `string` in the ABI tail:
+///   32 bytes for the length prefix + content padded to a 32-byte boundary.
+fn aligned_tail_len(s: &str) -> usize {
+    let content = s.len();
+    let padded = content.div_ceil(32) * 32;
+    32 + padded
+}
+
+/// ABI-encode a dynamic string: uint256 length || bytes || zero-pad to 32.
+fn encode_abi_string(s: &str) -> Vec<u8> {
+    let len = s.len();
+    let padded = len.div_ceil(32) * 32;
+    let mut out = Vec::with_capacity(32 + padded);
+    out.extend_from_slice(&u256_be(len as u128));
+    out.extend_from_slice(s.as_bytes());
+    out.extend(std::iter::repeat_n(0u8, padded - len));
+    out
+}
+
+/// Left-zero-pad a u128 into a 32-byte uint256 in big-endian.
+fn u256_be(value: u128) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    out[16..].copy_from_slice(&value.to_be_bytes());
+    out
 }
 
 /// Encode ERC-20 `mint(address,uint256)` calldata.
@@ -165,10 +220,55 @@ mod tests {
     }
 
     #[test]
-    fn constructor_args_non_empty() {
-        let args = erc20_constructor_args("Test Token", "TEST", 18, dec!(1000000));
-        assert!(!args.is_empty());
-        assert!(args.len() > 100); // should have substantial encoding
+    fn constructor_args_layout_is_head_plus_tails() {
+        // name = "Test Token" (10 bytes), symbol = "TEST" (4 bytes).
+        // head  = 4 × 32 = 128 bytes
+        // name  tail: 32 (length) + 32 (padded content) = 64 bytes
+        // sym   tail: 32 (length) + 32 (padded content) = 64 bytes
+        // total = 256 bytes.
+        let args = erc20_constructor_args("Test Token", "TEST", 18, dec!(1_000_000)).unwrap();
+        assert_eq!(args.len(), 256);
+
+        // Head slot 0 = offset of name tail = 0x80 (128)
+        let name_off = u128::from_be_bytes(args[16..32].try_into().unwrap());
+        assert_eq!(name_off, 128);
+        // Head slot 1 = offset of symbol tail = 128 + 64 = 192
+        let sym_off = u128::from_be_bytes(args[48..64].try_into().unwrap());
+        assert_eq!(sym_off, 192);
+        // Head slot 2 = decimals = 18
+        assert_eq!(args[64 + 31], 18);
+        // Head slot 3 = supply scaled by 10^18 = 1_000_000 * 10^18
+        let supply = u128::from_be_bytes(args[112..128].try_into().unwrap());
+        assert_eq!(supply, 1_000_000u128 * 10u128.pow(18));
+    }
+
+    #[test]
+    fn constructor_args_reproduce_name_bytes() {
+        let args = erc20_constructor_args("USDX", "USDX", 6, dec!(100)).unwrap();
+        // name tail begins at offset 128: 32-byte length, then 4-byte content.
+        let name_len = u128::from_be_bytes(args[128 + 16..128 + 32].try_into().unwrap());
+        assert_eq!(name_len, 4);
+        assert_eq!(&args[128 + 32..128 + 36], b"USDX");
+    }
+
+    #[test]
+    fn constructor_args_fractional_supply_scales_correctly() {
+        // 1.5 tokens at 6 decimals = 1_500_000 atomic units.
+        let args = erc20_constructor_args("X", "X", 6, dec!(1.5)).unwrap();
+        let supply = u128::from_be_bytes(args[112..128].try_into().unwrap());
+        assert_eq!(supply, 1_500_000);
+    }
+
+    #[test]
+    fn constructor_args_rejects_negative_supply() {
+        let err = erc20_constructor_args("X", "X", 18, dec!(-1)).unwrap_err();
+        assert!(err.to_string().contains("non-negative"));
+    }
+
+    #[test]
+    fn constructor_args_rejects_oversized_name() {
+        let long = "a".repeat(256);
+        assert!(erc20_constructor_args(&long, "X", 18, dec!(1)).is_err());
     }
 
     #[test]

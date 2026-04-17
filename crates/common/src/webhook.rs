@@ -96,7 +96,18 @@ pub struct BatchWithdrawalItem {
 pub struct BatchWithdrawalResponse {
     pub batch_id: String,
     pub count: usize,
-    pub total_amount_usd: String,
+    /// Sum of item amounts converted to USD using cached prices. `None`
+    /// when at least one asset lacks a live price. Returning a bare
+    /// native-unit sum labelled "USD" (the old behaviour) silently
+    /// misled callers into reading a mixed-asset batch as a single
+    /// dollar figure that was never computed.
+    #[serde(default)]
+    pub total_amount_usd: Option<String>,
+    /// Number of items whose USD value could not be computed. Non-zero
+    /// means `total_amount_usd` is missing or only partial, and the UI
+    /// should surface "partial total" rather than implying precision.
+    #[serde(default)]
+    pub unpriced_items: usize,
     pub results: Vec<BatchItemResult>,
 }
 
@@ -275,7 +286,8 @@ mod tests {
         let resp = BatchWithdrawalResponse {
             batch_id: "b-001".into(),
             count: 2,
-            total_amount_usd: "1.5".into(),
+            total_amount_usd: Some("1.5".into()),
+            unpriced_items: 0,
             results: vec![
                 BatchItemResult {
                     withdrawal_id: Uuid::nil(),

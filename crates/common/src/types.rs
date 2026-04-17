@@ -424,6 +424,7 @@ mod tests {
     fn submit_withdrawal_memo_defaults_to_none() {
         let json = r#"{
             "withdrawal_id": "00000000-0000-0000-0000-000000000000",
+            "user_id": "00000000-0000-0000-0000-000000000001",
             "asset": "ETH",
             "chain": "ethereum",
             "address": "0x1234",
