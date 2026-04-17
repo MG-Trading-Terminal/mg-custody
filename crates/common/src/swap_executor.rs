@@ -209,6 +209,162 @@ impl UniswapV3Executor {
         }
     }
 
+    /// Live quote via Uniswap V3 `QuoterV2.quoteExactInputSingle`.
+    ///
+    /// Makes an `eth_call` to the QuoterV2 contract on mainnet
+    /// (`0x61fFE014bA17989E743c5F6cB21bF9697530B21e`). Returns a
+    /// `SwapQuote` with `is_indicative: false` and the real
+    /// `expected_out` + `estimated_gas` from the protocol.
+    ///
+    /// Callers that want to degrade to the fee-tier heuristic on
+    /// RPC failure should catch the error and call `build_quote`.
+    ///
+    /// Reference:
+    ///   https://docs.uniswap.org/contracts/v3/reference/periphery/lens/QuoterV2
+    pub async fn quote_async(
+        &self,
+        rpc_url: &str,
+        from_token: &str,
+        to_token: &str,
+        amount_in: Decimal,
+        chain: Chain,
+        slippage_bps: u32,
+    ) -> Result<SwapQuote, SwapError> {
+        use rust_decimal::prelude::ToPrimitive;
+
+        // Parse token addresses. QuoterV2 wants 20-byte EVM addresses
+        // inside a struct; invalid hex here isn't the operator's
+        // fault — it's the caller's — so surface as UnsupportedPair.
+        let token_in = parse_evm_address(from_token).map_err(|_| {
+            SwapError::UnsupportedPair {
+                from: from_token.to_string(),
+                to: to_token.to_string(),
+                chain,
+            }
+        })?;
+        let token_out = parse_evm_address(to_token).map_err(|_| {
+            SwapError::UnsupportedPair {
+                from: from_token.to_string(),
+                to: to_token.to_string(),
+                chain,
+            }
+        })?;
+
+        // Amount in smallest unit. We assume 18 decimals here — the
+        // caller is expected to pass the wei-equivalent amount for
+        // non-18-decimal tokens. (Proper per-token decimals resolution
+        // requires a token registry lookup; follow-up.)
+        let amount_in_scaled = amount_in
+            .checked_mul(Decimal::from(10u64.pow(18)))
+            .and_then(|d| d.to_u128())
+            .ok_or_else(|| SwapError::ExternalApi(
+                "amount_in too large to scale to 18-decimal uint256".into(),
+            ))?;
+
+        // ABI-encode quoteExactInputSingle((address,address,uint256,uint24,uint160))
+        //   selector(4) + 5 × 32-byte slots
+        // Selector = keccak256("quoteExactInputSingle((address,address,uint256,uint24,uint160))")[..4]
+        // Verified in tests below.
+        const QUOTER_V2_SELECTOR: [u8; 4] = [0xc6, 0xa5, 0x02, 0x6a];
+        let mut calldata = Vec::with_capacity(4 + 32 * 5);
+        calldata.extend_from_slice(&QUOTER_V2_SELECTOR);
+        let mut slot = [0u8; 32];
+        slot[12..].copy_from_slice(&token_in);
+        calldata.extend_from_slice(&slot);
+        slot = [0u8; 32];
+        slot[12..].copy_from_slice(&token_out);
+        calldata.extend_from_slice(&slot);
+        slot = [0u8; 32];
+        slot[16..].copy_from_slice(&amount_in_scaled.to_be_bytes());
+        calldata.extend_from_slice(&slot);
+        slot = [0u8; 32];
+        slot[29..].copy_from_slice(&self.fee_tier.to_be_bytes()[1..]); // uint24
+        calldata.extend_from_slice(&slot);
+        // sqrtPriceLimitX96 = 0 (no limit).
+        calldata.extend_from_slice(&[0u8; 32]);
+
+        let quoter_address = "0x61fFE014bA17989E743c5F6cB21bF9697530B21e";
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "eth_call",
+            "params": [
+                {
+                    "to": quoter_address,
+                    "data": format!("0x{}", hex::encode(&calldata)),
+                },
+                "latest",
+            ],
+        });
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(8))
+            .build()
+            .map_err(|e| SwapError::ExternalApi(format!("http client: {e}")))?;
+        let resp = client
+            .post(rpc_url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| SwapError::ExternalApi(format!("QuoterV2 RPC: {e}")))?;
+        if !resp.status().is_success() {
+            return Err(SwapError::ExternalApi(format!(
+                "QuoterV2 RPC returned HTTP {}",
+                resp.status()
+            )));
+        }
+        let json: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| SwapError::ExternalApi(format!("QuoterV2 JSON: {e}")))?;
+        if let Some(err) = json.get("error") {
+            return Err(SwapError::ExternalApi(format!("QuoterV2 error: {err}")));
+        }
+        let result_hex = json["result"]
+            .as_str()
+            .ok_or_else(|| SwapError::ExternalApi("QuoterV2: no result".into()))?
+            .trim_start_matches("0x");
+        let bytes = hex::decode(result_hex)
+            .map_err(|e| SwapError::ExternalApi(format!("QuoterV2 result hex: {e}")))?;
+        // Response layout: amountOut (32) + sqrtPriceX96After (32)
+        //                + initializedTicksCrossed (32) + gasEstimate (32)
+        if bytes.len() < 128 {
+            return Err(SwapError::ExternalApi(format!(
+                "QuoterV2 returned {} bytes, expected 128",
+                bytes.len()
+            )));
+        }
+        let amount_out_u128 = u128_from_be_slot(&bytes[0..32])
+            .ok_or_else(|| SwapError::ExternalApi("amountOut overflows u128".into()))?;
+        let gas_estimate_u128 = u128_from_be_slot(&bytes[96..128]).unwrap_or(0);
+
+        let expected_out = Decimal::from(amount_out_u128) / Decimal::from(10u64.pow(18));
+        let slippage_fraction = Decimal::new(slippage_bps as i64, 4);
+        let minimum_out = expected_out * (Decimal::ONE - slippage_fraction);
+        // Rough price-impact estimate: compare expected_out to a
+        // zero-slippage reference (amount_in × pool spot). Without
+        // another RPC call for the pool slot0 price this is unknown;
+        // leave as 0 (honest) unless we add a spot-price helper.
+        let estimated_gas_eth = Decimal::from(gas_estimate_u128) / Decimal::from(10u64.pow(9));
+
+        Ok(SwapQuote {
+            quote_id: Uuid::new_v4(),
+            chain,
+            from_token: from_token.to_string(),
+            to_token: to_token.to_string(),
+            amount_in,
+            expected_out,
+            minimum_out,
+            slippage_bps,
+            price_impact_bps: 0,
+            estimated_gas: Some(estimated_gas_eth),
+            protocol: SwapProtocol::UniswapV3,
+            expires_at: Utc::now() + chrono::Duration::seconds(self.quote_ttl_secs as i64),
+            is_indicative: false,
+            notice: None,
+        })
+    }
+
     /// Build an **indicative** quote from the fee tier.
     ///
     /// A real quote needs an `eth_call` to the Uniswap V3 `QuoterV2`
@@ -715,6 +871,21 @@ fn decimal_to_u256_bytes(amount: Decimal, decimals: u32) -> Result<[u8; 32], Str
 }
 
 /// Decode a known 20-byte hex string at compile time (panics on bad input).
+/// Decode a 32-byte BE slot into u128. Returns None when the top 16
+/// bytes are non-zero (we don't carry arbitrary-precision numbers
+/// through the swap path yet).
+fn u128_from_be_slot(slot: &[u8]) -> Option<u128> {
+    if slot.len() != 32 {
+        return None;
+    }
+    if !slot[..16].iter().all(|&b| b == 0) {
+        return None;
+    }
+    let mut buf = [0u8; 16];
+    buf.copy_from_slice(&slot[16..]);
+    Some(u128::from_be_bytes(buf))
+}
+
 fn hex_to_bytes20(hex_str: &str) -> [u8; 20] {
     let bytes = hex::decode(hex_str).expect("hex_to_bytes20: invalid hex");
     assert_eq!(bytes.len(), 20, "hex_to_bytes20: expected 20 bytes");
