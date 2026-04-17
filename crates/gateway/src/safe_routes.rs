@@ -12,13 +12,14 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::StatusCode,
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use custody_common::safe_executor::{
     AddSafeSignatureRequest, ProposeSafeTxRequest, RegisterSafeRequest,
     SafeManagedTx, SafeManagedTxResponse, SafeWallet, SafeWalletResponse,
     SafeTxStatus, compute_safe_tx_hash,
 };
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::errors::ApiError;
@@ -31,6 +32,11 @@ pub fn safe_router() -> Router<AppState> {
         .route("/v1/safe-wallets/{address}/transactions", post(propose_transaction).get(list_transactions))
         .route("/v1/safe-wallets/{address}/transactions/{id}/sign", post(add_signature))
         .route("/v1/safe-wallets/{address}/transactions/{id}/execute", post(execute_transaction))
+        .route("/v1/safe-wallets/{address}/members", post(add_member).get(list_members))
+        .route(
+            "/v1/safe-wallets/{address}/members/{owner_address}",
+            delete(remove_member),
+        )
 }
 
 // ---------------------------------------------------------------------------
@@ -120,7 +126,7 @@ async fn propose_transaction(
     }
 
     let wallet = load_wallet(&state, &address).await?;
-    assert_safe_access(&auth.0, &wallet)?;
+    assert_safe_access(&state, &auth.0, &wallet).await?;
 
     let data = decode_hex_data(&req.data_hex)
         .map_err(|e| ApiError::bad_request(&format!("bad data_hex: {e}")))?;
@@ -165,10 +171,27 @@ async fn add_signature(
     Json(req): Json<AddSafeSignatureRequest>,
 ) -> Result<Json<SafeManagedTxResponse>, ApiError> {
     let wallet = load_wallet(&state, &address).await?;
-    assert_safe_access(&auth.0, &wallet)?;
+    let linked_owners = assert_safe_access(&state, &auth.0, &wallet).await?;
     let mut tx = load_tx(&state, id).await?;
 
     verify_tx_belongs_to_safe(&tx, &address)?;
+
+    // Signer-identity check. Workspace Owner can still proxy any
+    // signer (e.g., submitting a pre-collected co-signature from a
+    // HSM), but a plain member MUST be signing from one of their own
+    // linked owner addresses — no lateral signing on behalf of others.
+    let is_workspace_owner = auth
+        .0
+        .role
+        .has_at_least(&custody_db::sessions::Role::Owner);
+    if !is_workspace_owner {
+        let signer_lower = req.signer.to_lowercase();
+        if !linked_owners.iter().any(|a| a == &signer_lower) {
+            return Err(ApiError::forbidden(
+                "Signer address is not one of your linked Safe owner addresses",
+            ));
+        }
+    }
 
     let sig_bytes = decode_hex_data(&req.signature_hex)
         .map_err(|e| ApiError::bad_request(&format!("bad signature_hex: {e}")))?;
@@ -220,7 +243,7 @@ async fn execute_transaction(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Load wallet to confirm it exists and the address is valid.
     let wallet = load_wallet(&state, &address).await?;
-    assert_safe_access(&auth.0, &wallet)?;
+    assert_safe_access(&state, &auth.0, &wallet).await?;
     let mut tx = load_tx(&state, id).await?;
 
     verify_tx_belongs_to_safe(&tx, &address)?;
@@ -286,22 +309,52 @@ fn verify_tx_belongs_to_safe(tx: &SafeManagedTx, address: &str) -> Result<(), Ap
     Ok(())
 }
 
-/// Ownership check for Safe operations. Owner-role users pass through;
-/// other admins must match the `registered_by` field on the wallet.
-/// Legacy wallets (registered_by = NULL) are admin-open to keep
-/// pre-migration data reachable — operators should re-register them.
-fn assert_safe_access(
+/// Ownership check for Safe operations.
+///
+/// Access precedence:
+///   1. Workspace Owner — always.
+///   2. User linked via `safe_wallet_members` to at least one of the
+///      Safe's on-chain owner addresses. This is the membership path.
+///   3. Admin who registered the Safe (`registered_by` match) — kept
+///      so a fresh registration still works before members are linked.
+///   4. Legacy wallets with `registered_by = NULL` — admin-open to
+///      keep pre-migration data reachable. Operators should re-register.
+///
+/// Returns the list of owner addresses (lowercased) that the caller
+/// controls on this Safe. `add_signature` uses it to verify that
+/// `req.signer` is actually one of the caller's linked addresses,
+/// preventing a member from signing on behalf of a co-owner.
+async fn assert_safe_access(
+    state: &AppState,
     auth: &crate::rbac_middleware::AuthContext,
     wallet: &SafeWallet,
-) -> Result<(), ApiError> {
+) -> Result<Vec<String>, ApiError> {
     if auth.role.has_at_least(&custody_db::sessions::Role::Owner) {
-        return Ok(());
+        // Owner can operate on any registered Safe. We still return
+        // the user's linked owner addresses (if any) so signing
+        // endpoints can enforce signer-identity without special-casing.
+        let linked = state
+            .db
+            .user_safe_owner_addresses(&wallet.address, wallet.chain.as_str(), auth.user_id)
+            .await
+            .map_err(|e| ApiError::internal(&e.to_string()))?;
+        return Ok(linked);
     }
+
+    let linked = state
+        .db
+        .user_safe_owner_addresses(&wallet.address, wallet.chain.as_str(), auth.user_id)
+        .await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+    if !linked.is_empty() {
+        return Ok(linked);
+    }
+
     match wallet.registered_by {
-        None => Ok(()), // legacy row — admin can still operate
-        Some(id) if id == auth.user_id => Ok(()),
+        None => Ok(Vec::new()), // legacy row — admin can still operate
+        Some(id) if id == auth.user_id => Ok(Vec::new()),
         Some(_) => Err(ApiError::forbidden(
-            "This Safe was registered by a different admin",
+            "Not a member of this Safe — ask an Admin to link your on-chain owner address",
         )),
     }
 }
@@ -312,6 +365,137 @@ fn decode_hex_data(hex_str: &str) -> Result<Vec<u8>, String> {
         return Ok(vec![]);
     }
     hex::decode(stripped).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Safe members (on-chain owner address → workspace user ID mapping)
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct AddMemberRequest {
+    /// On-chain Safe owner address (EIP-55 or lowercase; normalised on
+    /// insert so lookups are exact).
+    owner_address: String,
+    user_id: Uuid,
+}
+
+#[derive(Serialize)]
+struct MemberResponse {
+    owner_address: String,
+    user_id: Uuid,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// POST /v1/safe-wallets/{address}/members
+///
+/// Link an on-chain Safe owner address to a workspace user. Admin-only.
+/// The supplied `owner_address` MUST currently appear in `wallet.owners`
+/// — linking an address the Safe doesn't recognise would be an
+/// evidence-free permission grant.
+async fn add_member(
+    auth: RequireAdmin,
+    State(state): State<AppState>,
+    Path(address): Path<String>,
+    Json(req): Json<AddMemberRequest>,
+) -> Result<(StatusCode, Json<MemberResponse>), ApiError> {
+    if req.owner_address.len() != 42 || !req.owner_address.starts_with("0x") {
+        return Err(ApiError::bad_request(
+            "owner_address must be a 42-character 0x-prefixed EVM address",
+        ));
+    }
+
+    let wallet = load_wallet(&state, &address).await?;
+    // The Admin doing the linking needs membership-or-admin rights on
+    // the Safe itself, same as proposing a transaction.
+    assert_safe_access(&state, &auth.0, &wallet).await?;
+
+    // Owner address must belong to the on-chain Safe.
+    let target_lc = req.owner_address.to_lowercase();
+    let owner_known = wallet.owners.iter().any(|o| o.to_lowercase() == target_lc);
+    if !owner_known {
+        return Err(ApiError::bad_request(
+            "owner_address is not listed among this Safe's on-chain owners",
+        ));
+    }
+
+    state
+        .db
+        .add_safe_member(&wallet.address, wallet.chain.as_str(), &target_lc, req.user_id)
+        .await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+
+    tracing::info!(
+        safe = %wallet.address,
+        owner = %target_lc,
+        user_id = %req.user_id,
+        linked_by = %auth.0.email,
+        "Safe member linked"
+    );
+
+    Ok((
+        StatusCode::CREATED,
+        Json(MemberResponse {
+            owner_address: target_lc,
+            user_id: req.user_id,
+            created_at: chrono::Utc::now(),
+        }),
+    ))
+}
+
+/// DELETE /v1/safe-wallets/{address}/members/{owner_address}
+async fn remove_member(
+    auth: RequireAdmin,
+    State(state): State<AppState>,
+    Path((address, owner_address)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let wallet = load_wallet(&state, &address).await?;
+    assert_safe_access(&state, &auth.0, &wallet).await?;
+
+    let removed = state
+        .db
+        .remove_safe_member(&wallet.address, wallet.chain.as_str(), &owner_address)
+        .await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+
+    if !removed {
+        return Err(ApiError::not_found("Member not found on this Safe"));
+    }
+    tracing::info!(
+        safe = %wallet.address,
+        owner = %owner_address.to_lowercase(),
+        unlinked_by = %auth.0.email,
+        "Safe member unlinked"
+    );
+    Ok(Json(serde_json::json!({"status": "unlinked"})))
+}
+
+/// GET /v1/safe-wallets/{address}/members
+async fn list_members(
+    auth: RequireViewer,
+    State(state): State<AppState>,
+    Path(address): Path<String>,
+) -> Result<Json<Vec<MemberResponse>>, ApiError> {
+    let wallet = load_wallet(&state, &address).await?;
+    // Viewer can read the member roster only for Safes they have
+    // access to (membership or admin-registered). Otherwise the roster
+    // itself becomes a reconnaissance tool.
+    assert_safe_access(&state, &auth.0, &wallet).await?;
+
+    let rows = state
+        .db
+        .list_safe_members(&wallet.address, wallet.chain.as_str())
+        .await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|(owner_address, user_id, created_at)| MemberResponse {
+                owner_address,
+                user_id,
+                created_at,
+            })
+            .collect(),
+    ))
 }
 
 #[cfg(test)]

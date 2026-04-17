@@ -71,6 +71,101 @@ impl CustodyDb {
     }
 
     // -----------------------------------------------------------------------
+    // Safe Wallet Members
+    // -----------------------------------------------------------------------
+
+    /// Link an on-chain Safe owner address to a workspace user. Idempotent:
+    /// re-registering the same triple is a no-op. `owner_address` is stored
+    /// lowercase so subsequent case-insensitive lookups are exact.
+    pub async fn add_safe_member(
+        &self,
+        safe_address: &str,
+        chain: &str,
+        owner_address: &str,
+        user_id: Uuid,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO safe_wallet_members
+                 (safe_address, chain, owner_address, user_id, created_at)
+             VALUES (LOWER($1), $2, LOWER($3), $4, NOW())
+             ON CONFLICT (safe_address, chain, owner_address) DO UPDATE
+             SET user_id = EXCLUDED.user_id",
+        )
+        .bind(safe_address)
+        .bind(chain)
+        .bind(owner_address)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Remove a Safe member link. Returns true when a row was deleted.
+    pub async fn remove_safe_member(
+        &self,
+        safe_address: &str,
+        chain: &str,
+        owner_address: &str,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "DELETE FROM safe_wallet_members
+             WHERE LOWER(safe_address) = LOWER($1)
+               AND chain = $2
+               AND LOWER(owner_address) = LOWER($3)",
+        )
+        .bind(safe_address)
+        .bind(chain)
+        .bind(owner_address)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// List members of a Safe. Returns `(owner_address, user_id, created_at)`.
+    pub async fn list_safe_members(
+        &self,
+        safe_address: &str,
+        chain: &str,
+    ) -> anyhow::Result<Vec<(String, Uuid, DateTime<Utc>)>> {
+        let rows: Vec<(String, Uuid, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT owner_address, user_id, created_at
+             FROM safe_wallet_members
+             WHERE LOWER(safe_address) = LOWER($1)
+               AND chain = $2
+             ORDER BY created_at ASC",
+        )
+        .bind(safe_address)
+        .bind(chain)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Return the set of on-chain owner addresses (lowercased) that
+    /// `user_id` is linked to on the given Safe. Empty vec means the
+    /// caller has no membership and must not operate on this Safe.
+    pub async fn user_safe_owner_addresses(
+        &self,
+        safe_address: &str,
+        chain: &str,
+        user_id: Uuid,
+    ) -> anyhow::Result<Vec<String>> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT owner_address
+             FROM safe_wallet_members
+             WHERE LOWER(safe_address) = LOWER($1)
+               AND chain = $2
+               AND user_id = $3",
+        )
+        .bind(safe_address)
+        .bind(chain)
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(a,)| a).collect())
+    }
+
+    // -----------------------------------------------------------------------
     // Safe Transactions
     // -----------------------------------------------------------------------
 

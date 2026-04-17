@@ -98,10 +98,15 @@ Labeled by bite size so future-me knows where to start.
   HSM to get hardware protection. On a laptop this is, at best, DPAPI-grade.
 - **Batch-withdraw address validation** is format-level only. A typo
   that produces a valid-format but wrong destination will not be caught.
-- **No Safe-owner membership table.** Ownership of a registered Gnosis
-  Safe is currently scoped to the admin who registered it. A proper
-  mapping from onchain owner addresses to workspace user IDs is a
-  follow-up migration.
+- ~~**No Safe-owner membership table.**~~ Migration 031 landed:
+  `safe_wallet_members (safe_address, chain, owner_address, user_id)`.
+  Access check on Safe routes now threads through membership —
+  propose/sign/execute require either workspace Owner, a linked
+  membership row, or the registering Admin. The sign endpoint
+  additionally pins `req.signer` to the caller's own linked owner
+  addresses so members cannot sign on each other's behalf. Admin
+  CRUD endpoints (`POST /v1/safe-wallets/{addr}/members`,
+  `DELETE .../{owner_address}`, `GET .../members`) manage the roster.
 - ~~**Withdrawal memo/tag validation** is length-only.~~ Now
   chain-aware (`validate_withdrawal_memo` in `custody_common::validation`):
   BTC/ETH/TRX reject any memo or tag; Solana allows ≤512-byte UTF-8
