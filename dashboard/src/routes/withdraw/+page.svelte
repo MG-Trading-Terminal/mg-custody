@@ -3,6 +3,7 @@
 	import { api } from '$lib/api';
 	import { chainIcon, tokenIcon } from '$lib/icons/tokens';
 	import { icon } from '$lib/icons/ui';
+	import { t, locale } from '$lib/i18n';
 
 	interface FeeEstimate {
 		amount: string;
@@ -187,8 +188,8 @@
 <!-- ═════════════════ Header ═════════════════ -->
 <div class="page-head">
 	<div>
-		<h1>Withdraw</h1>
-		<p class="page-sub">Initiate an on-chain transfer. All withdrawals are subject to policy engine rules.</p>
+		<h1>{$locale, t('withdraw.title')}</h1>
+		<p class="page-sub">{$locale, t('withdraw.subtitle')}</p>
 	</div>
 </div>
 
@@ -198,8 +199,8 @@
 	<section class="panel">
 		<header class="panel-head">
 			<div>
-				<h2>New withdrawal</h2>
-				<p class="panel-sub">Double-check destination — blockchain transfers are irreversible.</p>
+				<h2>{$locale, t('withdraw.new')}</h2>
+				<p class="panel-sub">{$locale, t('withdraw.new_sub')}</p>
 			</div>
 		</header>
 
@@ -207,7 +208,7 @@
 			<!-- Chain + asset row -->
 			<div class="pair-row">
 				<div class="field">
-					<label for="chain">Network</label>
+					<label for="chain">{$locale, t('withdraw.network')}</label>
 					<div class="select-wrap">
 						<span class="select-icon">{@html chainIcon(chain, 16)}</span>
 						<select id="chain" bind:value={chain}>
@@ -220,7 +221,7 @@
 				</div>
 
 				<div class="field">
-					<label for="asset">Asset</label>
+					<label for="asset">{$locale, t('withdraw.asset')}</label>
 					<div class="select-wrap">
 						<span class="select-icon">{@html tokenIcon(asset, 16)}</span>
 						<select id="asset" bind:value={asset}>
@@ -236,7 +237,7 @@
 			<!-- Amount -->
 			<div class="field">
 				<div class="label-row">
-					<label for="amount">Amount</label>
+					<label for="amount">{$locale, t('withdraw.amount')}</label>
 					<span class="label-aux mono">≈ {fmtUsd(amountUsd() ?? 0)}</span>
 				</div>
 				<div class="amount-wrap">
@@ -255,7 +256,7 @@
 			<!-- Destination -->
 			<div class="field">
 				<div class="label-row">
-					<label for="dest">Destination address</label>
+					<label for="dest">{$locale, t('withdraw.destination')}</label>
 					{#if destination}
 						<span class="label-aux {isAddrPlausible(destination) ? 'ok' : 'warn'}">
 							{isAddrPlausible(destination) ? '✓ Format looks valid' : '⚠ Format mismatch'}
@@ -275,16 +276,16 @@
 			<!-- Tier indicator -->
 			<div class="tier-panel">
 				<div class="tier-head">
-					<span class="tier-label">Approval tier</span>
+					<span class="tier-label">{$locale, t('withdraw.approval_tier')}</span>
 					<span class="tier-badge tone-{currentTier.tone}">{currentTier.label}</span>
 				</div>
 				<div class="tier-body">
 					<div>
-						<span class="tier-meta-label">Approval</span>
+						<span class="tier-meta-label">{$locale, t('withdraw.approval')}</span>
 						<span class="tier-meta-val">{currentTier.approval}</span>
 					</div>
 					<div>
-						<span class="tier-meta-label">Time delay</span>
+						<span class="tier-meta-label">{$locale, t('withdraw.time_delay')}</span>
 						<span class="tier-meta-val mono">{currentTier.delay}</span>
 					</div>
 				</div>
@@ -300,21 +301,21 @@
 			{#if estimate}
 				<div class="fee-panel">
 					<div class="fee-row">
-						<span class="fee-label">Amount</span>
+						<span class="fee-label">{$locale, t('withdraw.amount')}</span>
 						<span class="mono">{estimate.amount} {asset}</span>
 					</div>
 					<div class="fee-row">
-						<span class="fee-label">Network fee</span>
+						<span class="fee-label">{$locale, t('withdraw.fee')}</span>
 						<span class="mono fee-highlight">{estimate.network_fee} {asset}</span>
 					</div>
 					{#if estimate.estimated_time_seconds}
 						<div class="fee-row">
-							<span class="fee-label">Estimated time</span>
+							<span class="fee-label">{$locale, t('withdraw.est_time')}</span>
 							<span class="mono">~{Math.round((estimate.estimated_time_seconds ?? 0) / 60)}m</span>
 						</div>
 					{/if}
 					<div class="fee-row total">
-						<span class="fee-label">Total debit</span>
+						<span class="fee-label">{$locale, t('withdraw.total_debit')}</span>
 						<span class="mono strong">{totalDebit(estimate)} {asset}</span>
 					</div>
 				</div>
@@ -330,7 +331,7 @@
 				<div class="alert success">
 					<span>{@html icon('check', 16)}</span>
 					<div>
-						<span class="alert-title">Withdrawal submitted</span>
+						<span class="alert-title">{$locale, t('withdraw.submitted')}</span>
 						<span class="alert-sub mono">Ref {submitOk}</span>
 					</div>
 				</div>
@@ -347,10 +348,10 @@
 				<button class="btn btn-secondary" onclick={estimateFee} disabled={estLoading || !amount || !destination}>
 					{#if estLoading}
 						<span class="spinner sm"></span>
-						<span>Estimating…</span>
+						<span>{$locale, t('withdraw.estimating')}</span>
 					{:else}
 						<span>{@html icon('sliders', 14)}</span>
-						<span>Estimate fee</span>
+						<span>{$locale, t('withdraw.estimate')}</span>
 					{/if}
 				</button>
 				<button
@@ -360,9 +361,9 @@
 				>
 					{#if submitting}
 						<span class="spinner"></span>
-						<span>Submitting…</span>
+						<span>{$locale, t('withdraw.submitting')}</span>
 					{:else}
-						<span>Submit withdrawal</span>
+						<span>{$locale, t('withdraw.submit')}</span>
 						<span>{@html icon('arrow-up-right', 14)}</span>
 					{/if}
 				</button>
@@ -375,7 +376,7 @@
 		<header class="panel-head">
 			<h2>
 				<span class="info-icon">{@html icon('shield-check', 14)}</span>
-				What happens next
+				{$locale, t('withdraw.flow_title')}
 			</h2>
 		</header>
 
@@ -383,8 +384,8 @@
 			<li class="active">
 				<span class="step-dot"></span>
 				<div>
-					<strong>Policy check</strong>
-					<p>Rules engine validates destination, amount, and asset against whitelist.</p>
+					<strong>{$locale, t('withdraw.flow1')}</strong>
+					<p>{$locale, t('withdraw.flow1_sub')}</p>
 				</div>
 			</li>
 			<li>
@@ -397,15 +398,15 @@
 			<li>
 				<span class="step-dot"></span>
 				<div>
-					<strong>Sign &amp; broadcast</strong>
-					<p>Signing service validates HMAC, signs, submits to network.</p>
+					<strong>{$locale, t('withdraw.flow3')}</strong>
+					<p>{$locale, t('withdraw.flow3_sub')}</p>
 				</div>
 			</li>
 			<li>
 				<span class="step-dot"></span>
 				<div>
-					<strong>Confirmation</strong>
-					<p>Credited after required confirmations. Webhook fires to exchange.</p>
+					<strong>{$locale, t('withdraw.flow4')}</strong>
+					<p>{$locale, t('withdraw.flow4_sub')}</p>
 				</div>
 			</li>
 		</ol>
@@ -427,7 +428,7 @@
 <section class="panel">
 	<header class="panel-head">
 		<div>
-			<h2>Recent withdrawals</h2>
+			<h2>{$locale, t('withdraw.recent')}</h2>
 			<p class="panel-sub">Outgoing transfers — latest {Math.min(history.length, 50)} of {history.length}</p>
 		</div>
 		<span class="badge-count">{history.length}</span>
@@ -447,8 +448,8 @@
 		<div class="panel-empty">
 			<span class="empty-mark">{@html icon('arrow-up-right', 22)}</span>
 			<div>
-				<p class="empty-title">No withdrawals yet</p>
-				<p class="muted">Outgoing transfers appear here once submitted. All are policy-checked.</p>
+				<p class="empty-title">{$locale, t('withdraw.no_withdrawals')}</p>
+				<p class="muted">{$locale, t('withdraw.no_withdrawals_sub')}</p>
 			</div>
 		</div>
 	{:else}

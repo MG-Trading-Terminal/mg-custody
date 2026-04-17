@@ -143,10 +143,10 @@
 	}
 
 	function chainToneLabel(s: string): string {
-		if (s === 'healthy' || s === 'ok') return 'Online';
-		if (s === 'degraded') return 'Degraded';
-		if (s === 'down') return 'Offline';
-		return 'Unknown';
+		if (s === 'healthy' || s === 'ok') return t('chain.online');
+		if (s === 'degraded') return t('chain.degraded');
+		if (s === 'down') return t('chain.offline');
+		return t('chain.unknown');
 	}
 
 	// ─── Chart builders (inline SVG, no deps) ──────────────────
@@ -222,13 +222,13 @@
 		<h1>{$locale, t('portfolio.title')}</h1>
 		<span class="live-indicator" title="Auto-refresh every 30s">
 			<span class="live-dot"></span>
-			<span class="live-label">Live · synced {fmtRel(lastSync)}</span>
+			<span class="live-label">{$locale, t('portfolio.live')} · {$locale, t('portfolio.synced')} {fmtRel(lastSync)}</span>
 		</span>
 	</div>
 	<div class="head-actions">
 		<a class="btn btn-ghost" href="/transactions">
 			<span>{@html icon('transactions', 14)}</span>
-			<span>History</span>
+			<span>{$locale, t('portfolio.history')}</span>
 		</a>
 		<a class="btn btn-secondary" href="/withdraw">
 			<span>{@html icon('arrow-up-right', 14)}</span>
@@ -253,7 +253,7 @@
 <section class="kpi-strip">
 	<div class="kpi-tile">
 		<div class="kpi-head">
-			<span class="kpi-label">Total AUM</span>
+			<span class="kpi-label">{$locale, t('portfolio.total')}</span>
 			<span class="kpi-change neutral">—</span>
 		</div>
 		<div class="kpi-value mono">
@@ -266,7 +266,7 @@
 
 	<div class="kpi-tile">
 		<div class="kpi-head">
-			<span class="kpi-label">24h change</span>
+			<span class="kpi-label">{$locale, t('portfolio.change_24h')}</span>
 		</div>
 		<div class="kpi-value mono neutral">
 			<span class="ccy">$</span>0.00
@@ -276,7 +276,7 @@
 
 	<div class="kpi-tile">
 		<div class="kpi-head">
-			<span class="kpi-label">Assets</span>
+			<span class="kpi-label">{$locale, t('portfolio.assets_count')}</span>
 		</div>
 		<div class="kpi-value mono">{balances.length}</div>
 		<span class="kpi-foot muted">across {Math.max(1, new Set(balances.map(b => b.chain ?? 'ethereum')).size)} chain{new Set(balances.map(b => b.chain)).size === 1 ? '' : 's'}</span>
@@ -284,16 +284,16 @@
 
 	<div class="kpi-tile">
 		<div class="kpi-head">
-			<span class="kpi-label">Chains online</span>
+			<span class="kpi-label">{$locale, t('portfolio.chains_online')}</span>
 		</div>
 		<div class="kpi-value mono">
 			{chainsLive}<span class="of">/{chainsTotal}</span>
 		</div>
 		<span class="kpi-foot">
 			{#if chainsLive === chainsTotal && chainsTotal > 0}
-				<span class="chip-ok"><span class="dot"></span>All operational</span>
+				<span class="chip-ok"><span class="dot"></span>{$locale, t('portfolio.all_operational')}</span>
 			{:else if chainsLive === 0}
-				<span class="chip-warn"><span class="dot"></span>Awaiting sync</span>
+				<span class="chip-warn"><span class="dot"></span>{$locale, t('portfolio.awaiting_sync')}</span>
 			{:else}
 				<span class="chip-warn"><span class="dot"></span>{chainsTotal - chainsLive} offline</span>
 			{/if}
@@ -302,15 +302,15 @@
 
 	<div class="kpi-tile">
 		<div class="kpi-head">
-			<span class="kpi-label">Pending ops</span>
+			<span class="kpi-label">{$locale, t('portfolio.pending_ops')}</span>
 			{#if (portfolio?.pending_approvals ?? 0) > 0}
-				<a href="/approvals" class="kpi-link">Review {@html icon('chevron-right', 12)}</a>
+				<a href="/approvals" class="kpi-link">{$locale, t('portfolio.review')} {@html icon('chevron-right', 12)}</a>
 			{/if}
 		</div>
 		<div class="kpi-value mono" class:warn={(portfolio?.pending_approvals ?? 0) > 0}>
 			{portfolio?.pending_approvals ?? 0}
 		</div>
-		<span class="kpi-foot muted">awaiting approval</span>
+		<span class="kpi-foot muted">{$locale, t('portfolio.awaiting_approval')}</span>
 	</div>
 </section>
 
@@ -320,8 +320,8 @@
 	<section class="panel">
 		<header class="panel-head">
 			<div>
-				<h2>Allocation</h2>
-				<p class="panel-sub">Portfolio distribution by asset</p>
+				<h2>{$locale, t('portfolio.allocation')}</h2>
+				<p class="panel-sub">{$locale, t('portfolio.allocation_sub')}</p>
 			</div>
 		</header>
 
@@ -333,7 +333,7 @@
 					</svg>
 					<div class="empty-label">
 						<span class="mono big">$0.00</span>
-						<span class="muted">No holdings</span>
+						<span class="muted">{$locale, t('portfolio.no_holdings')}</span>
 					</div>
 				</div>
 			{:else}
@@ -367,8 +367,8 @@
 	<section class="panel">
 		<header class="panel-head">
 			<div>
-				<h2>Chain infrastructure</h2>
-				<p class="panel-sub">RPC status and block sync for each network</p>
+				<h2>{$locale, t('portfolio.infrastructure')}</h2>
+				<p class="panel-sub">{$locale, t('portfolio.infrastructure_sub')}</p>
 			</div>
 			<button class="btn-icon-only" title="Refresh" onclick={loadAll}>{@html icon('refresh', 14)}</button>
 		</header>
@@ -412,8 +412,8 @@
 <section class="panel">
 	<header class="panel-head">
 		<div>
-			<h2>Holdings</h2>
-			<p class="panel-sub">Balances across all assets and chains</p>
+			<h2>{$locale, t('portfolio.assets')}</h2>
+			<p class="panel-sub">{$locale, t('portfolio.infrastructure_sub')}</p>
 		</div>
 		<span class="badge-count">{balances.length}</span>
 	</header>
@@ -422,23 +422,23 @@
 		<div class="panel-empty">
 			<span class="empty-mark">{@html icon('coins', 22)}</span>
 			<div>
-				<p class="empty-title">Account not funded yet</p>
-				<p class="muted">Generate a deposit address — scanners detect incoming transfers automatically.</p>
+				<p class="empty-title">{$locale, t('portfolio.no_balances')}</p>
+				<p class="muted">{$locale, t('portfolio.no_balances_sub')}</p>
 			</div>
 			<a href="/deposit" class="btn btn-primary">
 				<span>{@html icon('arrow-down-left', 14)}</span>
-				<span>Generate deposit address</span>
+				<span>{$locale, t('portfolio.gen_address')}</span>
 			</a>
 		</div>
 	{:else}
 		<table class="data-table">
 			<thead>
 				<tr>
-					<th>Asset</th>
-					<th class="num">Balance</th>
-					<th class="num">Price</th>
-					<th class="num">Value</th>
-					<th class="num">Allocation</th>
+					<th>{$locale, t('portfolio.col_asset')}</th>
+					<th class="num">{$locale, t('portfolio.col_balance')}</th>
+					<th class="num">{$locale, t('portfolio.col_price')}</th>
+					<th class="num">{$locale, t('portfolio.col_value')}</th>
+					<th class="num">{$locale, t('portfolio.col_allocation')}</th>
 					<th></th>
 				</tr>
 			</thead>
@@ -483,26 +483,26 @@
 <section class="panel">
 	<header class="panel-head">
 		<div>
-			<h2>Recent activity</h2>
-			<p class="panel-sub">Latest deposits, withdrawals, and approvals</p>
+			<h2>{$locale, t('portfolio.activity')}</h2>
+			<p class="panel-sub">{$locale, t('portfolio.activity_sub')}</p>
 		</div>
-		<a href="/transactions" class="panel-action">View all <span>{@html icon('chevron-right', 12)}</span></a>
+		<a href="/transactions" class="panel-action">{$locale, t('portfolio.view_all')} <span>{@html icon('chevron-right', 12)}</span></a>
 	</header>
 
 	{#if activity.length === 0}
 		<div class="panel-empty small">
 			<span class="empty-mark muted">{@html icon('clock', 18)}</span>
-			<p class="muted">No activity yet.</p>
+			<p class="muted">{$locale, t('portfolio.no_activity')}</p>
 		</div>
 	{:else}
 		<table class="data-table">
 			<thead>
 				<tr>
-					<th>Type</th>
-					<th>Asset</th>
-					<th class="num">Amount</th>
-					<th>Status</th>
-					<th class="num">When</th>
+					<th>{$locale, t('portfolio.col_type')}</th>
+					<th>{$locale, t('portfolio.col_asset')}</th>
+					<th class="num">{$locale, t('portfolio.col_amount')}</th>
+					<th>{$locale, t('portfolio.col_status')}</th>
+					<th class="num">{$locale, t('portfolio.col_time')}</th>
 				</tr>
 			</thead>
 			<tbody>

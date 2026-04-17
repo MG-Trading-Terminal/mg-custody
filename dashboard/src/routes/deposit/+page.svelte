@@ -3,6 +3,7 @@
 	import { api } from '$lib/api';
 	import { chainIcon, tokenIcon } from '$lib/icons/tokens';
 	import { icon } from '$lib/icons/ui';
+	import { t, locale } from '$lib/i18n';
 
 	interface DepositAddress {
 		address: string;
@@ -141,10 +142,10 @@
 
 	function scannerLabel(id: string): string {
 		const s = scannerStatus[id];
-		if (s === 'healthy' || s === 'ok') return 'Scanner online';
-		if (s === 'degraded') return 'Degraded';
-		if (s === 'down') return 'Offline';
-		return 'Unknown';
+		if (s === 'healthy' || s === 'ok') return t('deposit.scanner_online');
+		if (s === 'degraded') return t('chain.degraded');
+		if (s === 'down') return t('chain.offline');
+		return t('chain.unknown');
 	}
 
 	function trunc(s: string, pre = 10, post = 8): string {
@@ -162,8 +163,8 @@
 <!-- ════════════════════ Header ════════════════════ -->
 <div class="page-head">
 	<div>
-		<h1>Deposit</h1>
-		<p class="page-sub">Generate a deterministic address for any supported network. Transfers are credited automatically after confirmations.</p>
+		<h1>{$locale, t('deposit.title')}</h1>
+		<p class="page-sub">{$locale, t('deposit.subtitle')}</p>
 	</div>
 </div>
 
@@ -185,7 +186,7 @@
 		<button class="chain-pill soon" disabled title="Coming soon">
 			<span class="chain-pill-icon">{@html chainIcon(c.id, 16)}</span>
 			<span class="chain-pill-label">{c.label}</span>
-			<span class="soon-tag">Soon</span>
+			<span class="soon-tag">{$locale, t('deposit.soon')}</span>
 		</button>
 	{/each}
 </section>
@@ -199,9 +200,9 @@
 				<h2>
 					<span class="chain-title-icon">{@html chainIcon(selectedChain.id, 18)}</span>
 					<span>{selectedChain.label}</span>
-					<span class="network-tag">Mainnet</span>
+					<span class="network-tag">{$locale, t('deposit.mainnet')}</span>
 				</h2>
-				<p class="panel-sub">Deterministic address derived from your workspace HD key</p>
+				<p class="panel-sub">{$locale, t('deposit.address')}</p>
 			</div>
 			<span class="scanner-chip tone-{scannerTone(selectedChain.id)}">
 				<span class="dot"></span>
@@ -236,14 +237,14 @@
 								</div>
 							{/if}
 						</div>
-						<span class="qr-caption">Scan with any compatible wallet</span>
+						<span class="qr-caption">{$locale, t('deposit.scan_wallet')}</span>
 					</div>
 
 					<!-- Details -->
 					<div class="addr-details">
 						<div class="addr-block">
 							<div class="field-label-row">
-								<span class="field-label">Deposit address</span>
+								<span class="field-label">{$locale, t('deposit.address')}</span>
 								<span class="addr-net">{selectedChain.label}</span>
 							</div>
 							<div class="addr-card">
@@ -263,8 +264,8 @@
 						{#if addrInfo.memo}
 							<div class="addr-block">
 								<div class="field-label-row">
-									<span class="field-label required">Memo / Destination tag</span>
-									<span class="required-badge">Required</span>
+									<span class="field-label required">{$locale, t('deposit.memo')}</span>
+									<span class="required-badge">{$locale, t('deposit.required')}</span>
 								</div>
 								<div class="addr-card memo">
 									<code class="addr-text mono">{addrInfo.memo}</code>
@@ -279,16 +280,16 @@
 						<!-- Metadata -->
 						<dl class="meta-grid">
 							<div>
-								<dt>Required confirmations</dt>
+								<dt>{$locale, t('deposit.required_conf')}</dt>
 								<dd class="mono">{selectedChain.confirmations}</dd>
 							</div>
 							<div>
-								<dt>Estimated arrival</dt>
+								<dt>{$locale, t('deposit.estimated_arrival')}</dt>
 								<dd class="mono">~{selectedChain.arrivalMin}m</dd>
 							</div>
 							{#if addrInfo.derivation_path}
 								<div class="meta-wide">
-									<dt>Derivation path</dt>
+									<dt>{$locale, t('deposit.derivation_path')}</dt>
 									<dd class="mono">{addrInfo.derivation_path}</dd>
 								</div>
 							{/if}
@@ -296,7 +297,7 @@
 
 						<!-- Supported assets -->
 						<div class="assets-strip">
-							<span class="field-label">Accepted on this address</span>
+							<span class="field-label">{$locale, t('deposit.accepted_assets')}</span>
 							<div class="assets-chips">
 								{#each selectedChain.tokens as tok}
 									<span class="asset-chip">
@@ -326,7 +327,7 @@
 		<header class="panel-head">
 			<h2>
 				<span class="instr-icon">{@html icon('file-text', 14)}</span>
-				How it works
+				{$locale, t('deposit.how_title')}
 			</h2>
 		</header>
 
@@ -334,21 +335,21 @@
 			<li>
 				<span class="step-num">1</span>
 				<div>
-					<strong>Copy address</strong>
-					<p>Send from any exchange or wallet. Double-check the network matches.</p>
+					<strong>{$locale, t('deposit.how_step1')}</strong>
+					<p>{$locale, t('deposit.how_step1_sub')}</p>
 				</div>
 			</li>
 			<li>
 				<span class="step-num">2</span>
 				<div>
-					<strong>Confirmations accumulate</strong>
-					<p>Scanner tracks the tx in real time. Status updates at each block.</p>
+					<strong>{$locale, t('deposit.how_step2')}</strong>
+					<p>{$locale, t('deposit.how_step2_sub')}</p>
 				</div>
 			</li>
 			<li>
 				<span class="step-num">3</span>
 				<div>
-					<strong>Credit posted</strong>
+					<strong>{$locale, t('deposit.how_step3')}</strong>
 					<p>After {selectedChain.confirmations} confirmations, balance is credited and double-entry booked.</p>
 				</div>
 			</li>
@@ -357,11 +358,11 @@
 		<div class="instr-footer">
 			<div class="instr-meta">
 				<span>{@html icon('shield-check', 12)}</span>
-				<span>Address is deterministic — regenerable from HD seed</span>
+				<span>{$locale, t('deposit.deterministic')}</span>
 			</div>
 			<div class="instr-meta">
 				<span>{@html icon('radio', 12)}</span>
-				<span>Deposits monitored continuously — no manual action required</span>
+				<span>{$locale, t('deposit.monitored')}</span>
 			</div>
 		</div>
 	</aside>
@@ -371,8 +372,8 @@
 <section class="panel">
 	<header class="panel-head">
 		<div>
-			<h2>Deposit history</h2>
-			<p class="panel-sub">All incoming transfers across networks</p>
+			<h2>{$locale, t('deposit.history')}</h2>
+			<p class="panel-sub">{$locale, t('deposit.history_sub')}</p>
 		</div>
 		<span class="badge-count">{history.length}</span>
 	</header>
@@ -391,8 +392,8 @@
 		<div class="panel-empty">
 			<span class="empty-mark">{@html icon('arrow-down-left', 22)}</span>
 			<div>
-				<p class="empty-title">No deposits received yet</p>
-				<p class="muted">Incoming transfers will appear here the moment they're detected on-chain.</p>
+				<p class="empty-title">{$locale, t('deposit.no_deposits')}</p>
+				<p class="muted">{$locale, t('deposit.no_deposits_sub')}</p>
 			</div>
 		</div>
 	{:else}
