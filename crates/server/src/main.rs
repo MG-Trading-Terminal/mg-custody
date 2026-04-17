@@ -951,6 +951,62 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    // Scheduled audit-log integrity check.
+    //
+    // The audit log is the tamper-evident record operators rely on during
+    // incident response. A broken hash chain is useless the moment someone
+    // notices, so we check it hourly in the background and emit a loud
+    // error log when a break is detected. A PagerDuty/webhook alert hook
+    // would plug in here (see `circuit_breaker_alert` for the pattern).
+    {
+        let audit_db = db.clone();
+        tokio::spawn(async move {
+            tracing::info!("Starting audit integrity scheduler (hourly)");
+            // Small initial delay so first check runs after warm-up.
+            tokio::time::sleep(Duration::from_secs(120)).await;
+            loop {
+                use custody_common::audit_integrity::{
+                    AuditEntryForVerification, AuditIntegrityChecker,
+                };
+                match audit_db.recent_audit_entries(10_000).await {
+                    Ok(raw) => {
+                        let entries: Vec<AuditEntryForVerification> = raw
+                            .into_iter()
+                            .rev()
+                            .map(|e| AuditEntryForVerification {
+                                id: e.id,
+                                timestamp: e.timestamp,
+                                operation_json: serde_json::to_string(&e.operation)
+                                    .unwrap_or_else(|_| "\"unknown\"".to_string()),
+                                actor: e.actor,
+                                stored_hash: e.prev_hash,
+                            })
+                            .collect();
+                        let total = entries.len();
+                        let result = AuditIntegrityChecker::verify_chain(&entries);
+                        if !result.valid {
+                            tracing::error!(
+                                first_broken_at = ?result.first_broken_at,
+                                entries_checked = result.entries_checked,
+                                total,
+                                "AUDIT LOG INTEGRITY VIOLATION — scheduled check"
+                            );
+                        } else {
+                            tracing::info!(
+                                entries_checked = result.entries_checked,
+                                "Audit integrity scheduled check passed"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Audit integrity check: query failed");
+                    }
+                }
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+            }
+        });
+    }
+
     // Price refresh task (every 60s — CoinGecko free tier: 10-30 req/min)
     {
         let price_db = db.clone();
