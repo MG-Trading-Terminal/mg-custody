@@ -513,6 +513,189 @@ async fn main() -> anyhow::Result<()> {
         block_height_fns.insert(Chain::Ethereum, height_fn);
     }
 
+    // ─── Push notification service ──────────────────────────────────
+    //
+    // FCM HTTP v1 (Android), APNs (iOS, HTTP/2 + ES256 JWT), Web Push
+    // (RFC 8291 + VAPID) — each platform is wired independently.
+    // Missing credentials ⇒ that platform is simply not available;
+    // the registered-device path still persists tokens so when
+    // credentials are provisioned later, alerts start reaching
+    // devices without a code change. Broadcast success counters
+    // reflect real reach: an unconfigured platform returns `Err` at
+    // send time and never counts as a delivered message.
+    let push_service: Option<Arc<custody_common::push_notifications::PushNotificationService>> = {
+        use custody_common::push_notifications::{
+            ApnsClient, ApnsConfig, FcmServiceAccount, FcmV1Client,
+            PushNotificationService, WebPushClient, WebPushConfig,
+        };
+
+        let fcm_client = match std::env::var("CUSTODY_FCM__SERVICE_ACCOUNT_JSON") {
+            Ok(raw) if !raw.trim().is_empty() => match FcmServiceAccount::from_json(&raw) {
+                Ok(sa) => {
+                    tracing::info!(project = %sa.project_id, "FCM v1 push enabled");
+                    Some(Arc::new(FcmV1Client::new(sa, ::reqwest::Client::new())))
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "FCM service-account JSON invalid — FCM push disabled");
+                    None
+                }
+            },
+            _ => None,
+        };
+
+        let apns_client = match (
+            std::env::var("CUSTODY_APNS__TEAM_ID").ok(),
+            std::env::var("CUSTODY_APNS__KEY_ID").ok(),
+            std::env::var("CUSTODY_APNS__KEY_P8").ok(),
+            std::env::var("CUSTODY_APNS__BUNDLE_ID").ok(),
+        ) {
+            (Some(team), Some(kid), Some(key), Some(bundle))
+                if !team.is_empty() && !kid.is_empty() && !key.is_empty() && !bundle.is_empty() =>
+            {
+                let production = std::env::var("CUSTODY_APNS__PRODUCTION")
+                    .map(|v| !matches!(v.as_str(), "0" | "false" | "no"))
+                    .unwrap_or(true);
+                tracing::info!(bundle = %bundle, production, "APNs push enabled");
+                Some(Arc::new(ApnsClient::new(
+                    ApnsConfig {
+                        team_id: team,
+                        key_id: kid,
+                        private_key_pem: key,
+                        bundle_id: bundle,
+                        production,
+                    },
+                    ::reqwest::Client::new(),
+                )))
+            }
+            _ => None,
+        };
+
+        let web_push_client = match (
+            std::env::var("CUSTODY_VAPID__PRIVATE_KEY_PEM").ok(),
+            std::env::var("CUSTODY_VAPID__SUBJECT").ok(),
+        ) {
+            (Some(key), Some(sub)) if !key.is_empty() && !sub.is_empty() => {
+                let ttl = std::env::var("CUSTODY_VAPID__TTL_SECS")
+                    .ok()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(24 * 3600);
+                tracing::info!(subject = %sub, "Web Push enabled");
+                Some(Arc::new(WebPushClient::new(
+                    WebPushConfig {
+                        vapid_private_key_pem: key,
+                        vapid_subject: sub,
+                        default_ttl_secs: ttl,
+                    },
+                    ::reqwest::Client::new(),
+                )))
+            }
+            _ => None,
+        };
+
+        if fcm_client.is_some() || apns_client.is_some() || web_push_client.is_some() {
+            Some(Arc::new(PushNotificationService::new(
+                fcm_client,
+                apns_client,
+                web_push_client,
+            )))
+        } else {
+            tracing::warn!(
+                "Push notifications disabled — no FCM / APNs / Web Push credentials configured."
+            );
+            None
+        }
+    };
+
+    // ─── Push-alert subscriber ──────────────────────────────────────
+    //
+    // Listens on the EventBroadcaster and pushes relevant events to
+    // every registered device for the affected user:
+    //   - DepositConfirmed  → "Large deposit received"
+    //   - WithdrawalFailed  → "Withdrawal failed — requires attention"
+    // WithdrawalConfirmed / WithdrawalBroadcast don't include a
+    // user_id in the event shape; handling them would require a DB
+    // lookup per event, deferred until the event struct gains user_id.
+    if let Some(ref svc) = push_service {
+        let push_svc = svc.clone();
+        let push_db = db.clone();
+        let mut rx = event_broadcaster.subscribe();
+        tokio::spawn(async move {
+            tracing::info!("Push-alert subscriber started");
+            loop {
+                match rx.recv().await {
+                    Ok(event) => {
+                        let (user_id_opt, payload_opt) = match &event {
+                            custody_common::CustodyEvent::DepositConfirmed {
+                                user_id, amount, asset, user_address, ..
+                            } => (
+                                Some(*user_id),
+                                Some(custody_common::push_notifications::PushPayload::large_deposit(
+                                    &amount.to_string(),
+                                    asset.as_str(),
+                                    user_address,
+                                )),
+                            ),
+                            custody_common::CustodyEvent::WithdrawalFailed {
+                                withdrawal_id, reason, ..
+                            } => {
+                                let title = "Withdrawal Failed";
+                                let body = format!("Withdrawal {withdrawal_id} failed: {reason}");
+                                let mut data = std::collections::HashMap::new();
+                                data.insert("action".into(), "withdrawal_failed".into());
+                                data.insert("withdrawal_id".into(), withdrawal_id.to_string());
+                                let user_id = match push_db.find_withdrawal(*withdrawal_id).await {
+                                    Ok(Some(w)) => Some(w.user_id),
+                                    _ => None,
+                                };
+                                (
+                                    user_id,
+                                    Some(custody_common::push_notifications::PushPayload {
+                                        title: title.into(),
+                                        body,
+                                        data,
+                                        badge: None,
+                                        sound: Some("critical".into()),
+                                    }),
+                                )
+                            }
+                            _ => (None, None),
+                        };
+
+                        if let (Some(uid), Some(payload)) = (user_id_opt, payload_opt) {
+                            match push_db.list_device_tokens(uid).await {
+                                Ok(tokens) if !tokens.is_empty() => {
+                                    let delivered = push_svc.broadcast(&tokens, &payload).await;
+                                    tracing::info!(
+                                        user_id = %uid,
+                                        registered = tokens.len(),
+                                        delivered,
+                                        "Push alert dispatched"
+                                    );
+                                }
+                                Ok(_) => {
+                                    tracing::debug!(user_id = %uid, "No registered devices — skipping push");
+                                }
+                                Err(e) => {
+                                    tracing::warn!(user_id = %uid, error = %e, "Device-token lookup failed");
+                                }
+                            }
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        tracing::warn!(
+                            skipped,
+                            "Push-alert subscriber lagged behind broadcaster — events dropped"
+                        );
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        tracing::warn!("EventBroadcaster closed — push-alert subscriber exiting");
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
     let confirmation_tracker = Arc::new(ConfirmationTracker::new(
         db.clone(),
         block_height_fns,
