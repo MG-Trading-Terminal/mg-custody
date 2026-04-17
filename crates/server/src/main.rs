@@ -286,6 +286,44 @@ async fn main() -> anyhow::Result<()> {
         }).unwrap_or(1)
     );
 
+    // Optional PKCS#11 HSM signing backend. If `HSM_LIB_PATH` is set,
+    // every ETH / ERC-20 signature goes through `C_Sign` on an
+    // HSM-resident key instead of BIP-32 derivation from the master
+    // seed. The seed is still retained for deposit-address derivation
+    // and remains the signer for BTC / Tron / Solana until their
+    // prepare/finalize helpers land. If HSM init fails we log loudly
+    // and refuse to start — "silently fell back to seed signing" is
+    // exactly the kind of fund-safety lie we're trying to eliminate.
+    if let Some(hsm_cfg) = custody_signing::Pkcs11SigningConfig::from_env() {
+        tracing::warn!(
+            library = %hsm_cfg.library_path,
+            slot = hsm_cfg.slot_id,
+            "HSM_LIB_PATH set — attempting to initialise PKCS#11 signing backend"
+        );
+        match custody_signing::Pkcs11SigningBackend::connect(hsm_cfg) {
+            Ok(backend) => {
+                let backend: Arc<dyn custody_signing::SigningBackend> = Arc::new(backend);
+                pipeline_builder = pipeline_builder.with_signing_backend(backend);
+                tracing::info!(
+                    "PKCS#11 signing backend engaged — ETH / ERC-20 will sign via C_Sign"
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    error = %e,
+                    "HSM_LIB_PATH was set but PKCS#11 init failed — refusing to start \
+                     so we don't silently fall back to seed signing."
+                );
+                return Err(e);
+            }
+        }
+    } else {
+        tracing::info!(
+            "HSM_LIB_PATH not set — signing will derive keys from the local seed. \
+             For production custody, provision a PKCS#11 HSM and set HSM_LIB_PATH."
+        );
+    }
+
     if let Some(ref nm) = nonce_manager {
         pipeline_builder = pipeline_builder.with_nonce_manager(nm.clone());
     }

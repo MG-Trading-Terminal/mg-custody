@@ -25,8 +25,10 @@ use custody_fee_estimator::solana::SolanaFeeEstimator;
 use custody_fee_estimator::tron::TronFeeEstimator;
 use custody_policy::{DestinationType, PolicyAction, PolicyEngine};
 use custody_policy::rbac::Role;
+use custody_signing::SigningBackend;
 use custody_signing::ethereum::{
-    Erc20TransferParams, EthTransferParams, sign_erc20_transfer, sign_eth_transfer,
+    Erc20TransferParams, EthTransferParams, finalize_eth_signed_tx, prepare_erc20_transfer,
+    prepare_eth_transfer, sign_erc20_transfer, sign_eth_transfer,
 };
 use rust_decimal::Decimal;
 
@@ -42,6 +44,12 @@ pub struct WithdrawalPipeline {
     policy_engine: Option<Arc<PolicyEngine>>,
     sanctions_checker: Option<Arc<SanctionsChecker>>,
     seed: Option<Arc<[u8; 64]>>,
+    /// External signing backend (PKCS#11 HSM, signer-service IPC, or
+    /// other `SigningBackend` impl). When set, outbound signatures
+    /// are computed by the backend instead of derived from `seed`.
+    /// The seed is still used for deposit-address derivation and for
+    /// the HSM fallback path if the backend fails.
+    signing_backend: Option<Arc<dyn SigningBackend>>,
     mpc_shares: Option<Arc<Vec<Vec<u8>>>>,
     mpc_group_pubkey: Option<Vec<u8>>,
     // Per-chain broadcasters
@@ -76,6 +84,7 @@ impl WithdrawalPipeline {
         Self {
             db, max_single_usd, max_hourly_usd, max_daily_usd,
             policy_engine: None, sanctions_checker: None, seed: None,
+            signing_backend: None,
             mpc_shares: None, mpc_group_pubkey: None,
             eth_broadcaster: None, btc_broadcaster: None,
             trx_broadcaster: None, sol_broadcaster: None,
@@ -99,6 +108,15 @@ impl WithdrawalPipeline {
     pub fn with_policy_engine(mut self, e: Arc<PolicyEngine>) -> Self { self.policy_engine = Some(e); self }
     pub fn with_sanctions_checker(mut self, c: Arc<SanctionsChecker>) -> Self { self.sanctions_checker = Some(c); self }
     pub fn with_seed(mut self, s: Arc<[u8; 64]>) -> Self { self.seed = Some(s); self }
+    /// Plug in an external signing backend (PKCS#11 HSM, signer-service
+    /// IPC, etc.). When present, ETH + ERC-20 signatures come from the
+    /// backend's `sign(Chain::Ethereum, prehash)` call; the seed path
+    /// is bypassed. BTC / Tron / Solana still use the seed path until
+    /// their `prepare_*` helpers land.
+    pub fn with_signing_backend(mut self, b: Arc<dyn SigningBackend>) -> Self {
+        self.signing_backend = Some(b);
+        self
+    }
     pub fn with_mpc_shares(mut self, shares: Vec<Vec<u8>>, group_pubkey: Vec<u8>) -> Self {
         self.mpc_shares = Some(Arc::new(shares));
         self.mpc_group_pubkey = Some(group_pubkey);
@@ -352,13 +370,28 @@ impl WithdrawalPipeline {
         let is_native = token_registry.is_native(asset_str, w.chain);
         let decimals = token_registry.decimals(asset_str, w.chain).unwrap_or(18);
 
+        // Build the signing params once; branch on backend availability.
         let signed_tx = if is_native {
-            sign_eth_transfer(seed, 0, &EthTransferParams {
+            let params = EthTransferParams {
                 to, value_wei: custody_scanner::decimal_to_uint256(w.amount, decimals),
                 nonce, chain_id: self.eth_chain_id,
                 max_fee_per_gas: max_fee, max_priority_fee_per_gas: priority_fee,
                 gas_limit: 21_000,
-            })?
+            };
+            match &self.signing_backend {
+                Some(backend) => {
+                    // HSM / MPC / signer-service path. Prepare the
+                    // unsigned tx + 32-byte prehash, hand the prehash
+                    // to the backend for a 65-byte r||s||v, then
+                    // attach + serialise. Private key never leaves
+                    // the backend.
+                    let (tx, prehash) = prepare_eth_transfer(&params);
+                    let sig = backend.sign(Chain::Ethereum, &prehash)
+                        .map_err(|e| anyhow::anyhow!("HSM sign(ETH) failed: {e}"))?;
+                    finalize_eth_signed_tx(tx, &sig)?
+                }
+                None => sign_eth_transfer(seed, 0, &params)?,
+            }
         } else {
             // ERC-20: resolve contract address from token registry
             let contract_addr = token_registry.contract_address(asset_str, w.chain)
@@ -366,13 +399,22 @@ impl WithdrawalPipeline {
             let token_contract: alloy::primitives::Address = contract_addr.parse()
                 .map_err(|_| anyhow::anyhow!("Invalid contract address: {contract_addr}"))?;
 
-            sign_erc20_transfer(seed, 0, &Erc20TransferParams {
+            let params = Erc20TransferParams {
                 token_contract,
                 to, amount: custody_scanner::decimal_to_uint256(w.amount, decimals),
                 nonce, chain_id: self.eth_chain_id,
                 max_fee_per_gas: max_fee, max_priority_fee_per_gas: priority_fee,
                 gas_limit: 65_000,
-            })?
+            };
+            match &self.signing_backend {
+                Some(backend) => {
+                    let (tx, prehash) = prepare_erc20_transfer(&params);
+                    let sig = backend.sign(Chain::Ethereum, &prehash)
+                        .map_err(|e| anyhow::anyhow!("HSM sign(ERC-20) failed: {e}"))?;
+                    finalize_eth_signed_tx(tx, &sig)?
+                }
+                None => sign_erc20_transfer(seed, 0, &params)?,
+            }
         };
 
         let gas_gwei = custody_fee_estimator::ethereum::wei_to_gwei(max_fee);
