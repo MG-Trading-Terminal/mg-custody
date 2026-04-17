@@ -223,6 +223,94 @@ fn truncate(s: &str, width: usize) -> String {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Cold-start probes
+// ---------------------------------------------------------------------------
+//
+// Each probe does ONE network call with a short timeout and returns
+// `Ok(())` on success or `Err(reason)` on any failure. The reason
+// string lands in a `FeatureState::Degraded { reason }` so operators
+// see WHY the probe failed, not just that it did. All probes are
+// best-effort — we never block startup on them forever.
+
+/// Timeout every probe is expected to honour. Five seconds is long
+/// enough for a transatlantic TCP handshake + TLS round-trip but
+/// short enough that a misconfigured endpoint doesn't delay boot.
+pub const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// `eth_chainId` probe — the cheapest read to confirm an Ethereum RPC
+/// endpoint is live, understands JSON-RPC, and returns a chain id
+/// that parses as a hex integer.
+pub async fn probe_ethereum_rpc(url: &str) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(PROBE_TIMEOUT)
+        .build()
+        .map_err(|e| format!("http client: {e}"))?;
+    let body = serde_json::json!({
+        "jsonrpc": "2.0", "id": 1, "method": "eth_chainId", "params": [],
+    });
+    let resp = client
+        .post(url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("eth_chainId request: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("eth_chainId returned HTTP {}", resp.status()));
+    }
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("eth_chainId JSON: {e}"))?;
+    if let Some(err) = json.get("error") {
+        return Err(format!("eth_chainId RPC error: {err}"));
+    }
+    json["result"]
+        .as_str()
+        .ok_or_else(|| "eth_chainId result missing".to_string())?;
+    Ok(())
+}
+
+/// TCP-connect probe for an SMTP relay. No EHLO yet — a successful
+/// connect tells us the host resolves + accepts TCP on the configured
+/// port, which is 80 % of the value. EHLO+TLS negotiation is a
+/// separate follow-up because it means reaching into `lettre` internals.
+pub async fn probe_smtp_tcp(host: &str, port: u16) -> Result<(), String> {
+    let addr = format!("{host}:{port}");
+    let fut = tokio::net::TcpStream::connect(&addr);
+    tokio::time::timeout(PROBE_TIMEOUT, fut)
+        .await
+        .map_err(|_| format!("SMTP connect to {addr} timed out after {PROBE_TIMEOUT:?}"))?
+        .map_err(|e| format!("SMTP connect to {addr}: {e}"))?;
+    Ok(())
+}
+
+/// Generic HTTP HEAD/GET probe for vendor status endpoints. A 2xx
+/// means "reachable". 401/403 also counts as "reachable" — we're
+/// testing network reachability + DNS + TLS, not authentication,
+/// because the auth check would require the operator's live API
+/// key and spending a request quota on a no-op.
+pub async fn probe_http_reachable(url: &str) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(PROBE_TIMEOUT)
+        .build()
+        .map_err(|e| format!("http client: {e}"))?;
+    let resp = client
+        .head(url)
+        .send()
+        .await
+        .map_err(|e| format!("HTTP HEAD {url}: {e}"))?;
+    let status = resp.status();
+    // 2xx, 3xx, 401, 403 — server is there, we just can't auth.
+    // 404 is ambiguous (endpoint gone vs bad URL) but still counts
+    // as "host reachable" for our purposes.
+    if status.is_success() || status.is_redirection() || matches!(status.as_u16(), 401 | 403 | 404) {
+        Ok(())
+    } else {
+        Err(format!("HTTP HEAD {url}: returned {status}"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,5 +366,27 @@ mod tests {
         let json = serde_json::to_string(&s).unwrap();
         assert!(json.contains("\"state\":\"misconfigured\""));
         assert!(json.contains("\"missing\""));
+    }
+
+    #[tokio::test]
+    async fn probe_smtp_tcp_times_out_on_closed_port() {
+        // Loopback on a refused port. Connect should fail fast with
+        // a non-empty reason string; it must NOT succeed.
+        let res = probe_smtp_tcp("127.0.0.1", 1).await;
+        assert!(res.is_err());
+        assert!(!res.unwrap_err().is_empty());
+    }
+
+    #[tokio::test]
+    async fn probe_ethereum_rpc_errors_on_unresolvable_host() {
+        // `.invalid` TLD is guaranteed to never resolve per RFC 6761.
+        let res = probe_ethereum_rpc("http://never-resolves.invalid/rpc").await;
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn probe_http_reachable_errors_on_unresolvable_host() {
+        let res = probe_http_reachable("https://never-resolves.invalid/").await;
+        assert!(res.is_err());
     }
 }

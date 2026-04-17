@@ -921,12 +921,28 @@ async fn main() -> anyhow::Result<()> {
     let mut readiness = custody_common::readiness::ReadinessReport::new();
     use custody_common::readiness::FeatureStatus;
 
-    // Email transport
+    // Email transport. For smtp mode we probe the TCP connection so a
+    // misconfigured host surfaces as Degraded at boot instead of
+    // silently failing on the first password reset.
     match email_sender.transport_name() {
-        "smtp" => readiness.push(FeatureStatus::ready(
-            "email.smtp",
-            "Outbound email via lettre SMTP",
-        )),
+        "smtp" => {
+            let host = std::env::var("CUSTODY_EMAIL__SMTP_HOST").unwrap_or_default();
+            let port: u16 = std::env::var("CUSTODY_EMAIL__SMTP_PORT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(465);
+            match custody_common::readiness::probe_smtp_tcp(&host, port).await {
+                Ok(()) => readiness.push(FeatureStatus::ready(
+                    "email.smtp",
+                    "Outbound email via lettre SMTP",
+                )),
+                Err(e) => readiness.push(FeatureStatus::degraded(
+                    "email.smtp",
+                    "Outbound email via lettre SMTP",
+                    e,
+                )),
+            }
+        }
         "console" => readiness.push(FeatureStatus::disabled(
             "email.smtp",
             "Outbound email — currently printing to stdout (dev transport)",
@@ -1048,11 +1064,45 @@ async fn main() -> anyhow::Result<()> {
         )
     });
 
-    // Chain scanners — these always attempt; actual reachability
-    // reports itself through /health/chains. Here we just mark
-    // whether a chain was configured at all.
+    // Chain scanners. For ETH we probe `eth_chainId` so a misconfigured
+    // RPC URL surfaces as Degraded at boot rather than spamming errors
+    // once the scanner loop starts. BTC/Tron/Solana fall back to
+    // configuration-presence for now (probes are a straightforward
+    // follow-up).
+    //
+    // scanner.ethereum
+    match config.chains.ethereum.as_ref() {
+        Some(eth) => {
+            let rpc_url = std::env::var("CUSTODY_CHAINS__ETHEREUM__RPC_URL")
+                .unwrap_or_else(|_| eth.rpc_url.clone());
+            if rpc_url.is_empty() {
+                readiness.push(FeatureStatus::misconfigured(
+                    "scanner.ethereum",
+                    "Ethereum scanner + broadcaster",
+                    vec!["chains.ethereum.rpc_url".into()],
+                ));
+            } else {
+                match custody_common::readiness::probe_ethereum_rpc(&rpc_url).await {
+                    Ok(()) => readiness.push(FeatureStatus::ready(
+                        "scanner.ethereum",
+                        "Ethereum scanner + broadcaster",
+                    )),
+                    Err(e) => readiness.push(FeatureStatus::degraded(
+                        "scanner.ethereum",
+                        "Ethereum scanner + broadcaster",
+                        e,
+                    )),
+                }
+            }
+        }
+        None => readiness.push(FeatureStatus::disabled(
+            "scanner.ethereum",
+            "Ethereum chain not present in config.chains.*",
+        )),
+    }
+
+    // Non-ETH scanners — configuration check only for now.
     for (name, present) in [
-        ("scanner.ethereum", config.chains.ethereum.is_some()),
         ("scanner.bitcoin", config.chains.bitcoin.is_some()),
         ("scanner.tron", config.chains.tron.is_some()),
         ("scanner.solana", config.chains.solana.is_some()),

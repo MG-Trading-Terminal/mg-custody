@@ -213,6 +213,27 @@ async fn stake(
     State(state): State<AppState>,
     Json(req): Json<StakeRequest>,
 ) -> Result<(StatusCode, Json<StakingPosition>), ApiError> {
+    // Gate at the handler boundary. Accepting a stake when the ETH
+    // scanner/broadcaster isn't reachable means the driving withdrawal
+    // sits in the DB forever — the user wires up thinking it worked.
+    // Refuse early with the operator-facing reason so the caller sees
+    // exactly which config knob is missing.
+    if !state.readiness.feature_ready("scanner.ethereum") {
+        let reason = state
+            .readiness
+            .feature("scanner.ethereum")
+            .map(|f| f.state.reason())
+            .unwrap_or_else(|| "scanner.ethereum not reported".into());
+        return Err(ApiError {
+            error: "feature_unavailable".into(),
+            message: format!(
+                "ETH staking requires a reachable Ethereum RPC (scanner.ethereum). {reason}"
+            ),
+            request_id: Uuid::new_v4().to_string(),
+            status: StatusCode::SERVICE_UNAVAILABLE,
+        });
+    }
+
     let amount: Decimal = req.amount.parse()
         .map_err(|_| ApiError::bad_request("Invalid amount — must be string-encoded decimal"))?;
 
