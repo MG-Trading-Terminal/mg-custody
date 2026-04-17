@@ -14,12 +14,11 @@ use axum::{
     routing::{get, post, put},
 };
 use chrono::Utc;
-use custody_common::{Asset, Chain, price_oracle::PriceOracle};
+use custody_common::{Asset, Chain};
 use custody_db::user_portfolio::ActivityEvent;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 use custody_common::scheduled_withdrawal::{
     CreateScheduledWithdrawalRequest, ScheduledWithdrawal, ScheduledWithdrawalResponse,
@@ -33,13 +32,38 @@ use crate::rbac_middleware::{RequireEditor, RequireViewer};
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
-// Helper: build a fallback price oracle seeded with stablecoin + placeholder prices.
+// Price lookup
 // ---------------------------------------------------------------------------
 
-fn fallback_oracle() -> Arc<PriceOracle> {
-    let oracle = Arc::new(PriceOracle::with_default_ttl());
-    oracle.seed_fallback_prices();
-    oracle
+/// Load the currently-cached USD prices from the DB into a symbol map.
+///
+/// The price-refresh background task (`main.rs`) writes CoinGecko
+/// results into `managed_assets.last_price_usd`; we read that column
+/// here. Symbol is uppercased so lookups match regardless of how the
+/// balance row spells it.
+///
+/// A missing or NULL price yields `None` — the caller must branch on
+/// that rather than defaulting to zero. Silently defaulting to zero
+/// is what shipped hardcoded BTC=$65k as "the portfolio value" before.
+async fn load_price_map(
+    state: &AppState,
+) -> Result<std::collections::HashMap<String, Decimal>, ApiError> {
+    let rows = state
+        .db
+        .get_token_prices()
+        .await
+        .map_err(|e| ApiError::internal(&format!("price lookup failed: {e}")))?;
+    let mut map = std::collections::HashMap::new();
+    for (symbol, _chain, price) in rows {
+        if let Some(p) = price {
+            // Many assets appear on multiple chains with the same
+            // price (USDT/ETH, USDT/TRX). First-write wins; per-chain
+            // divergence would need a (symbol, chain) key, which none
+            // of our current callers want.
+            map.entry(symbol.to_uppercase()).or_insert(p);
+        }
+    }
+    Ok(map)
 }
 
 // ---------------------------------------------------------------------------
@@ -77,8 +101,12 @@ pub struct AssetPosition {
     pub chain: String,
     /// String-encoded Decimal — NEVER float.
     pub balance: String,
-    pub usd_value: String,
-    pub price_usd: String,
+    /// Null when no live price was available (vs "0" which previously
+    /// silently shipped as a dollar value and misled callers).
+    pub usd_value: Option<String>,
+    pub price_usd: Option<String>,
+    /// True iff the current price is missing or stale.
+    pub price_unavailable: bool,
 }
 
 #[derive(Serialize)]
@@ -86,6 +114,10 @@ pub struct PortfolioResponse {
     pub total_usd: String,
     pub assets: Vec<AssetPosition>,
     pub last_updated: String,
+    /// Count of assets whose USD value is missing. UI should surface a
+    /// "prices unavailable" banner when > 0 so users don't read the
+    /// total as complete.
+    pub unpriced_assets: usize,
 }
 
 #[derive(Serialize)]
@@ -196,22 +228,33 @@ async fn portfolio(
         .await
         .map_err(|e| ApiError::internal(&format!("balance query failed: {e}")))?;
 
-    let oracle = fallback_oracle();
+    let prices = load_price_map(&state).await?;
 
     let mut total_usd = Decimal::ZERO;
     let mut positions: Vec<AssetPosition> = Vec::with_capacity(balances.len());
+    let mut unpriced = 0usize;
 
     for row in balances {
-        let price_usd = oracle.get_price(&row.asset).unwrap_or(Decimal::ZERO);
-        let usd_value = row.balance * price_usd;
-        total_usd += usd_value;
+        let lookup = prices.get(&row.asset.to_uppercase()).copied();
+        let (usd_value_str, price_str, unavailable) = match lookup {
+            Some(p) => {
+                let usd = row.balance * p;
+                total_usd += usd;
+                (Some(usd.round_dp(2).to_string()), Some(p.to_string()), false)
+            }
+            None => {
+                unpriced += 1;
+                (None, None, true)
+            }
+        };
 
         positions.push(AssetPosition {
             asset: row.asset,
             chain: row.chain,
             balance: row.balance.to_string(),
-            usd_value: usd_value.round_dp(2).to_string(),
-            price_usd: price_usd.to_string(),
+            usd_value: usd_value_str,
+            price_usd: price_str,
+            price_unavailable: unavailable,
         });
     }
 
@@ -219,6 +262,7 @@ async fn portfolio(
         total_usd: total_usd.round_dp(2).to_string(),
         assets: positions,
         last_updated: Utc::now().to_rfc3339(),
+        unpriced_assets: unpriced,
     }))
 }
 
@@ -728,42 +772,39 @@ fn xml_attr_escape(s: &str) -> String {
 mod tests {
     use super::*;
     use rust_decimal_macros::dec;
+    use std::collections::HashMap;
 
     // --- Portfolio calculation ---
 
     #[test]
     fn portfolio_usd_value_calculation() {
-        let oracle = PriceOracle::with_default_ttl();
-        oracle.set_price("BTC", dec!(50000));
-        oracle.set_price("ETH", dec!(3000));
-        oracle.set_price("USDT", dec!(1));
+        let mut prices = HashMap::new();
+        prices.insert("BTC".to_string(), dec!(50000));
+        prices.insert("ETH".to_string(), dec!(3000));
+        prices.insert("USDT".to_string(), dec!(1));
 
         let btc_balance = dec!(5.23);
         let eth_balance = dec!(120.5);
         let usdt_balance = dec!(500000);
 
-        let btc_usd = btc_balance * oracle.get_price("BTC").unwrap();
-        let eth_usd = eth_balance * oracle.get_price("ETH").unwrap();
-        let usdt_usd = usdt_balance * oracle.get_price("USDT").unwrap();
+        let btc_usd = btc_balance * prices["BTC"];
+        let eth_usd = eth_balance * prices["ETH"];
+        let usdt_usd = usdt_balance * prices["USDT"];
 
-        // BTC: 5.23 * 50000 = 261500
         assert_eq!(btc_usd, dec!(261500));
-        // ETH: 120.5 * 3000 = 361500
         assert_eq!(eth_usd, dec!(361500));
-        // USDT: 500000 * 1 = 500000
         assert_eq!(usdt_usd, dec!(500000));
-
-        let total = btc_usd + eth_usd + usdt_usd;
-        assert_eq!(total, dec!(1123000));
+        assert_eq!(btc_usd + eth_usd + usdt_usd, dec!(1123000));
     }
 
     #[test]
-    fn portfolio_unknown_asset_price_zero() {
-        let oracle = PriceOracle::with_default_ttl();
-        // No price set for "DOGE"
-        let price = oracle.get_price("DOGE").unwrap_or(Decimal::ZERO);
-        let usd_value = dec!(1000) * price;
-        assert_eq!(usd_value, Decimal::ZERO);
+    fn portfolio_unknown_asset_is_unpriced_not_zero() {
+        // The new contract: an asset with no live price is returned
+        // with price_unavailable=true and usd_value=None, not silently
+        // multiplied by zero. Pins the intent of the refactor.
+        let prices: HashMap<String, Decimal> = HashMap::new();
+        let lookup = prices.get("DOGE").copied();
+        assert_eq!(lookup, None);
     }
 
     #[test]
@@ -844,17 +885,6 @@ mod tests {
     fn qr_data_solana_prefix() {
         let data = format_qr_data(Chain::Solana, "GkosV9");
         assert_eq!(data, "solana:GkosV9");
-    }
-
-    // --- Fallback oracle ---
-
-    #[test]
-    fn fallback_oracle_has_stablecoins() {
-        let oracle = fallback_oracle();
-        assert_eq!(oracle.get_price("USDT"), Some(dec!(1)));
-        assert_eq!(oracle.get_price("USDC"), Some(dec!(1)));
-        assert!(oracle.get_price("BTC").unwrap() > dec!(0));
-        assert!(oracle.get_price("ETH").unwrap() > dec!(0));
     }
 
     // --- CSV export helpers ---

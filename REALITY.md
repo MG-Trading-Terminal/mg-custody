@@ -67,6 +67,15 @@ Security work done this session is real but the following remain open.
 Labeled by bite size so future-me knows where to start.
 
 ### Fixed since last published snapshot
+- **Removed hardcoded price fallback.** `PriceOracle::seed_fallback_prices()`
+  planted BTC=$65k / ETH=$3.5k / SOL=$150 into the cache on startup,
+  and the `/v1/user/portfolio` endpoint used a *fresh* seeded oracle
+  on every request — so real-looking USD totals were invented from
+  those numbers even after CoinGecko replies had landed. Portfolio
+  now reads the DB price column (written by the 60s refresh task) and
+  returns `usd_value: null, price_unavailable: true` per-asset when a
+  price is missing. Dashboard shows an "N asset(s) unpriced" chip so
+  the total is never misread as complete.
 - Session tokens now ride an `HttpOnly; Secure; SameSite=Strict` cookie
   instead of `localStorage`; an XSS on the dashboard can no longer
   exfiltrate the session. Bearer-header path kept for HMAC/service
@@ -75,6 +84,9 @@ Labeled by bite size so future-me knows where to start.
   verification (OTP issue + confirm + status, plus registration-time
   dispatch) now go through a real transport, not `tracing::info!`.
 - `detailed_health` / `circuit_breaker_status` endpoints are Admin-only.
+- Safe-owner membership table (migration 031) replaces the
+  "scoped to registering admin" stopgap; `add_signature` pins
+  `req.signer` to the caller's linked owner addresses.
 
 ### Fixed this session
 - 17 ownership-check bugs across `vault_routes`, `governance_routes`,

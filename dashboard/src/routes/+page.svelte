@@ -10,7 +10,10 @@
 		asset: string;
 		chain?: string;
 		balance: string;
-		usd_value: string;
+		/** Null when the backend has no live USD price for this asset. */
+		usd_value: string | null;
+		price_usd?: string | null;
+		price_unavailable?: boolean;
 		pct: string;
 	}
 
@@ -28,6 +31,8 @@
 		balances: AssetBalance[];
 		assets: AssetBalance[];
 		pending_approvals: number;
+		/** Count of holdings whose USD value could not be priced. */
+		unpriced_assets?: number;
 	}
 
 	interface ChainHealth {
@@ -82,6 +87,9 @@
 	// ─── Derived ────────────────────────────────────────────────
 	let totalUsd = $derived(Number(portfolio?.total_usd ?? '0'));
 	let balances = $derived(portfolio?.balances ?? []);
+	let unpricedCount = $derived(
+		portfolio?.unpriced_assets ?? balances.filter((b) => b.price_unavailable || b.usd_value == null).length
+	);
 	let chainEntries = $derived(Object.entries(chains));
 	let chainsLive = $derived(chainEntries.filter(([, c]) => c.status === 'healthy' || c.status === 'ok').length);
 	let chainsTotal = $derived(chainEntries.length || 4);
@@ -259,6 +267,11 @@
 		<div class="kpi-value mono">
 			<span class="ccy">$</span>{fmtUsd(totalUsd)}
 		</div>
+		{#if unpricedCount > 0}
+			<div class="kpi-warn" title="One or more assets have no live USD price — the total shown excludes them.">
+				{unpricedCount} asset{unpricedCount === 1 ? '' : 's'} unpriced
+			</div>
+		{/if}
 		<svg class="sparkline" viewBox="0 0 80 24" preserveAspectRatio="none" aria-hidden="true">
 			<path d={sparkPath(AUM_SERIES)} fill="none" stroke="var(--accent)" stroke-width="1.5" />
 		</svg>
@@ -456,11 +469,19 @@
 						</td>
 						<td class="num mono">{row.balance}</td>
 						<td class="num mono muted">
-							{#if Number(row.balance) > 0 && Number(row.usd_value) > 0}
+							{#if row.price_unavailable || row.usd_value == null}
+								—
+							{:else if Number(row.balance) > 0 && Number(row.usd_value) > 0}
 								${(Number(row.usd_value) / Number(row.balance)).toFixed(2)}
 							{:else}—{/if}
 						</td>
-						<td class="num mono strong">{fmtUsdFull(Number(row.usd_value))}</td>
+						<td class="num mono strong">
+							{#if row.price_unavailable || row.usd_value == null}
+								<span class="muted" title="Price unavailable">—</span>
+							{:else}
+								{fmtUsdFull(Number(row.usd_value))}
+							{/if}
+						</td>
 						<td class="num">
 							<div class="pct-row">
 								<div class="pct-bar">
@@ -691,6 +712,17 @@
 	}
 	.kpi-value.neutral { color: var(--fg-muted); }
 	.kpi-value.warn { color: var(--yellow); }
+
+	.kpi-warn {
+		margin-top: 6px;
+		font-size: 0.7rem;
+		letter-spacing: 0.02em;
+		color: var(--yellow, #d97706);
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		cursor: help;
+	}
 
 	.ccy { color: var(--fg-muted); font-size: 0.9rem; font-weight: 500; }
 	.of  { color: var(--fg-muted); font-size: 0.85rem; font-weight: 500; margin-left: 2px; }

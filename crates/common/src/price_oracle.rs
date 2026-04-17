@@ -74,20 +74,6 @@ impl PriceOracle {
         }
     }
 
-    /// Seed with hardcoded fallback prices (used when API is unavailable).
-    pub fn seed_fallback_prices(&self) {
-        use rust_decimal_macros::dec;
-        self.set_price("BTC", dec!(65000));
-        self.set_price("ETH", dec!(3500));
-        self.set_price("SOL", dec!(150));
-        self.set_price("TRX", dec!(0.12));
-        self.set_price("USDT", dec!(1));
-        self.set_price("USDC", dec!(1));
-        self.set_price("BNB", dec!(600));
-        self.set_price("AVAX", dec!(35));
-        self.set_price("MATIC", dec!(0.7));
-    }
-
     /// Number of cached prices.
     pub fn cache_size(&self) -> usize {
         self.cache.read().map(|c| c.len()).unwrap_or(0)
@@ -203,15 +189,18 @@ mod tests {
     }
 
     #[test]
-    fn fallback_prices() {
+    fn fresh_oracle_returns_none_before_first_fetch() {
+        // Historical behaviour was to seed hardcoded BTC=$65k / ETH=$3.5k /
+        // etc. as a "fallback" — so for the first 60s after startup the UI
+        // would present those as live prices. That was actively harmful:
+        // the circuit breaker and the user-facing portfolio would both
+        // trust figures that never hit an API. We removed the fallback
+        // seed; this test pins the new contract so a future regression
+        // is caught.
         let oracle = PriceOracle::with_default_ttl();
-        oracle.seed_fallback_prices();
-
-        assert!(oracle.get_price("BTC").unwrap() > dec!(0));
-        assert!(oracle.get_price("ETH").unwrap() > dec!(0));
-        assert_eq!(oracle.get_price("USDT"), Some(dec!(1)));
-        assert_eq!(oracle.get_price("USDC"), Some(dec!(1)));
-        assert!(oracle.cache_size() >= 9);
+        assert_eq!(oracle.get_price("BTC"), None);
+        assert_eq!(oracle.get_price("USDT"), None);
+        assert_eq!(oracle.cache_size(), 0);
     }
 
     #[test]

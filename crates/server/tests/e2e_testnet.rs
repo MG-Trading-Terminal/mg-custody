@@ -210,8 +210,13 @@ fn circuit_breaker_with_price_oracle() {
     use custody_common::middleware_types::CircuitBreakerState;
     use custody_common::price_oracle::PriceOracle;
 
+    // Seed explicit test prices instead of relying on the
+    // (removed) hardcoded fallback. Keeps the scenario deterministic
+    // and decouples it from whatever live CoinGecko prices do today.
     let oracle = PriceOracle::with_default_ttl();
-    oracle.seed_fallback_prices();
+    oracle.set_price("ETH", dec!(3500));
+    oracle.set_price("BTC", dec!(65000));
+    oracle.set_price("USDT", dec!(1));
 
     let mut cb = CircuitBreakerState::default_limits();
 
@@ -259,18 +264,20 @@ fn circuit_breaker_with_price_oracle() {
 fn price_oracle_zero_price_guard() {
     use custody_common::price_oracle::PriceOracle;
 
+    // With the hardcoded fallback removed, a freshly-constructed
+    // oracle is empty — no prices to mistake for live data. This
+    // test pins that the guard has to live in the live fetch path,
+    // not in a "seed with plausible numbers" fallback.
     let oracle = PriceOracle::with_default_ttl();
-    oracle.seed_fallback_prices();
-
-    // All fallback prices should be positive
     for symbol in &["BTC", "ETH", "SOL", "TRX", "USDT", "USDC"] {
-        let price = oracle.get_price(symbol).unwrap();
-        assert!(price > Decimal::ZERO, "{symbol} price should be > 0, got {price}");
+        assert_eq!(oracle.get_price(symbol), None, "no seed expected for {symbol}");
     }
 
-    // to_usd should never return $0 for non-zero amount with real price
+    // Once explicitly set, the oracle honours it — and zero is
+    // rejected upstream in fetch_coingecko_prices, not at set_price.
+    oracle.set_price("BTC", dec!(65000));
     let btc_usd = oracle.to_usd("BTC", dec!(1)).unwrap();
-    assert!(btc_usd > dec!(10_000), "1 BTC should be > $10K, got {btc_usd}");
+    assert_eq!(btc_usd, dec!(65000));
 }
 
 // ── Cross-Chain Amount Conversion ───────────────────────────────

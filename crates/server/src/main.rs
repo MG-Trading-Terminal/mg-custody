@@ -1032,28 +1032,31 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // Price refresh task (every 60s — CoinGecko free tier: 10-30 req/min)
+    // Price refresh task (every 60s — CoinGecko free tier: 10-30 req/min).
+    //
+    // No fallback seed: presenting a hardcoded BTC=$65k as "the current
+    // price" for the first 60s of uptime, or indefinitely if CoinGecko
+    // is down, is actively harmful. The portfolio endpoint surfaces
+    // `price_unavailable: true` per-asset when the DB has no price yet,
+    // so the UI can show an honest "prices unavailable" state.
     {
         let price_db = db.clone();
         let price_oracle = std::sync::Arc::new(custody_common::price_oracle::PriceOracle::with_default_ttl());
-        // Seed fallback prices immediately
-        price_oracle.seed_fallback_prices();
 
         tokio::spawn(async move {
             let client = ::reqwest::Client::new();
-            tracing::info!("Starting price refresh loop (60s interval)");
-            loop {
-                tokio::time::sleep(Duration::from_secs(60)).await;
+            tracing::info!("Starting price refresh loop (60s interval, no fallback)");
 
+            // Helper closure to avoid duplicating the fetch-and-persist
+            // path between the startup tick and the steady-state loop.
+            let tick = async |client: &::reqwest::Client| {
                 match custody_common::price_oracle::fetch_coingecko_prices(
-                    &client,
+                    client,
                     custody_common::price_oracle::COINGECKO_IDS,
                 ).await {
                     Ok(prices) => {
                         price_oracle.set_prices(&prices);
-                        // Persist to DB for dashboard
                         for (symbol, price) in &prices {
-                            // Update across all chains for this symbol
                             for chain in &["ethereum", "tron", "solana", "bitcoin"] {
                                 let _ = price_db.update_token_price(symbol, chain, *price).await;
                             }
@@ -1061,9 +1064,17 @@ async fn main() -> anyhow::Result<()> {
                         tracing::debug!(count = prices.len(), "Prices refreshed from CoinGecko");
                     }
                     Err(e) => {
-                        tracing::warn!(error = %e, "CoinGecko price refresh failed — using cached prices");
+                        tracing::warn!(error = %e, "CoinGecko price refresh failed — last-known prices retained (may be absent)");
                     }
                 }
+            };
+
+            // First tick immediately so the UI has prices on first load.
+            tick(&client).await;
+
+            loop {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                tick(&client).await;
             }
         });
     }
