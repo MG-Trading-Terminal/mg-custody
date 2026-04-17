@@ -1015,6 +1015,57 @@ pub fn build_web_push_payload(p: &PushPayload) -> serde_json::Value {
 }
 
 // ---------------------------------------------------------------------------
+// Cold-start probes — parse-only, no network
+// ---------------------------------------------------------------------------
+//
+// The readiness report uses these to tell an operator *why* a push
+// provider looks wired but can't actually send. Parse errors are the
+// most common cause — a JSON that was transcribed by hand, a .p8 file
+// with Windows line endings, a VAPID key that was copied from the
+// wrong curve. Catching them at boot means the operator fixes the
+// config before the first user ever registers a device; without
+// these probes the failure only surfaces on the first send attempt.
+
+/// Validate a raw FCM service-account JSON blob end-to-end:
+///   1. JSON parses
+///   2. Required fields are present and non-empty
+///   3. `private_key` is a valid RSA PEM (RS256 is what the OAuth2
+///      JWT assertion uses)
+/// Returns a short operator-readable reason on failure. Does NOT
+/// touch the network — minting a real token would require Google to
+/// be reachable, and we want the probe to be cheap and local.
+pub fn probe_fcm_service_account(raw: &str) -> Result<(), String> {
+    use jsonwebtoken::EncodingKey;
+    let sa = FcmServiceAccount::from_json(raw).map_err(|e| format!("{e:#}"))?;
+    EncodingKey::from_rsa_pem(sa.private_key.as_bytes())
+        .map_err(|e| format!("private_key is not a valid RSA PEM: {e}"))?;
+    Ok(())
+}
+
+/// Validate an APNs ES256 `.p8` key: parse as a PKCS#8 EC PEM usable
+/// for JWT signing. Catches "wrong file type pasted in", "key is an
+/// RSA not EC", and truncated PEMs.
+pub fn probe_apns_private_key(pem: &str) -> Result<(), String> {
+    use jsonwebtoken::EncodingKey;
+    EncodingKey::from_ec_pem(pem.as_bytes())
+        .map_err(|e| format!("APNs .p8 is not a valid EC PEM: {e}"))?;
+    Ok(())
+}
+
+/// Validate a VAPID private key PEM. RFC 8292 requires a P-256 EC
+/// key; we accept either PKCS#8 or SEC1 encoding since both come out
+/// of OpenSSL with different flags.
+pub fn probe_vapid_private_key(pem: &str) -> Result<(), String> {
+    use p256::pkcs8::DecodePrivateKey;
+    if p256::SecretKey::from_pkcs8_pem(pem).is_ok() {
+        return Ok(());
+    }
+    p256::SecretKey::from_sec1_pem(pem)
+        .map(|_| ())
+        .map_err(|e| format!("VAPID key PEM parse (tried PKCS#8 and SEC1): {e}"))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1188,6 +1239,59 @@ mod tests {
     fn fcm_service_account_rejects_empty_fields() {
         let bad = r#"{"client_email":"","private_key":"","project_id":""}"#;
         assert!(FcmServiceAccount::from_json(bad).is_err());
+    }
+
+    #[test]
+    fn probe_fcm_rejects_malformed_json() {
+        let res = probe_fcm_service_account("{not json");
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_lowercase().contains("json"));
+    }
+
+    #[test]
+    fn probe_fcm_rejects_non_rsa_key() {
+        let sa = serde_json::json!({
+            "client_email": "x@y.iam.gserviceaccount.com",
+            "private_key": "-----BEGIN RSA PRIVATE KEY-----\nbogus\n-----END RSA PRIVATE KEY-----",
+            "project_id": "proj",
+        })
+        .to_string();
+        let res = probe_fcm_service_account(&sa);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("private_key"));
+    }
+
+    #[test]
+    fn probe_apns_rejects_plain_text() {
+        let res = probe_apns_private_key("not a pem");
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn probe_apns_rejects_rsa_key() {
+        // RSA is the wrong algorithm — APNs requires ES256 (EC P-256).
+        let res = probe_apns_private_key(TEST_RSA_PEM);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn probe_vapid_rejects_plain_text() {
+        let res = probe_vapid_private_key("also not a pem");
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn probe_vapid_accepts_p256_pkcs8_pem() {
+        // Generated with: openssl genpkey -algorithm EC \
+        //   -pkeyopt ec_paramgen_curve:P-256 -out /dev/stdout
+        // and truncated to a known-valid fixture.
+        let pem = "-----BEGIN PRIVATE KEY-----\n\
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgevZzL1gdAFr88hb2\n\
+OF/2NxApJCzGCEDdfSp6VQO30hyhRANCAAQRWz+jn65BtOMvdyHKcvjBeBSDZH2r\n\
+1RTwjmYSi9R/zpBnuQ4EiMnCqfMPWiZqB4QdbAd0E7oH50VpuZ1P087G\n\
+-----END PRIVATE KEY-----\n";
+        let res = probe_vapid_private_key(pem);
+        assert!(res.is_ok(), "should accept P-256 PKCS#8 PEM: {res:?}");
     }
 
     #[test]

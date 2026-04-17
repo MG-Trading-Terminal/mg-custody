@@ -999,7 +999,11 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Push notifications
+    // Push notifications. Env vars being set just means the operator
+    // *tried* to configure push; the probes below turn that attempt
+    // into a definitive Ready/Degraded answer by parsing each key.
+    // Parse-only — no network calls. A malformed JSON or wrong-algo
+    // PEM is caught here instead of on the first real send.
     {
         let fcm = std::env::var("CUSTODY_FCM__SERVICE_ACCOUNT_JSON").ok().filter(|s| !s.trim().is_empty());
         let apns_keys = [
@@ -1015,17 +1019,37 @@ async fn main() -> anyhow::Result<()> {
         let vapid_key = std::env::var("CUSTODY_VAPID__PRIVATE_KEY_PEM").ok().filter(|s| !s.is_empty());
         let vapid_sub = std::env::var("CUSTODY_VAPID__SUBJECT").ok().filter(|s| !s.is_empty());
 
-        readiness.push(if fcm.is_some() {
-            FeatureStatus::ready("push.fcm", "FCM HTTP v1 (Android + background Web)")
-        } else {
-            FeatureStatus::disabled(
+        readiness.push(match fcm.as_deref() {
+            Some(raw) => match custody_common::push_notifications::probe_fcm_service_account(raw) {
+                Ok(()) => FeatureStatus::ready(
+                    "push.fcm",
+                    "FCM HTTP v1 (Android + background Web)",
+                ),
+                Err(e) => FeatureStatus::degraded(
+                    "push.fcm",
+                    "FCM HTTP v1",
+                    e,
+                ),
+            },
+            None => FeatureStatus::disabled(
                 "push.fcm",
                 "FCM push. Set CUSTODY_FCM__SERVICE_ACCOUNT_JSON to enable.",
-            )
+            ),
         });
 
         if apns_present.len() == apns_keys.len() {
-            readiness.push(FeatureStatus::ready("push.apns", "APNs (iOS) HTTP/2 + ES256 JWT"));
+            let key_pem = std::env::var("CUSTODY_APNS__KEY_P8").unwrap_or_default();
+            match custody_common::push_notifications::probe_apns_private_key(&key_pem) {
+                Ok(()) => readiness.push(FeatureStatus::ready(
+                    "push.apns",
+                    "APNs (iOS) HTTP/2 + ES256 JWT",
+                )),
+                Err(e) => readiness.push(FeatureStatus::degraded(
+                    "push.apns",
+                    "APNs (iOS)",
+                    e,
+                )),
+            }
         } else if apns_present.is_empty() {
             readiness.push(FeatureStatus::disabled("push.apns", "APNs. Set all 4 CUSTODY_APNS__* env vars to enable."));
         } else {
@@ -1036,8 +1060,11 @@ async fn main() -> anyhow::Result<()> {
             ));
         }
 
-        readiness.push(match (vapid_key, vapid_sub) {
-            (Some(_), Some(_)) => FeatureStatus::ready("push.web", "Web Push (RFC 8291 + VAPID)"),
+        readiness.push(match (vapid_key.as_deref(), vapid_sub) {
+            (Some(pem), Some(_)) => match custody_common::push_notifications::probe_vapid_private_key(pem) {
+                Ok(()) => FeatureStatus::ready("push.web", "Web Push (RFC 8291 + VAPID)"),
+                Err(e) => FeatureStatus::degraded("push.web", "Web Push (RFC 8291 + VAPID)", e),
+            },
             (None, None) => FeatureStatus::disabled(
                 "push.web",
                 "Web Push. Set CUSTODY_VAPID__PRIVATE_KEY_PEM + CUSTODY_VAPID__SUBJECT.",
