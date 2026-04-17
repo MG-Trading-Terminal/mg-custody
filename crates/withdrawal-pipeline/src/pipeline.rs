@@ -44,14 +44,14 @@ pub struct WithdrawalPipeline {
     policy_engine: Option<Arc<PolicyEngine>>,
     sanctions_checker: Option<Arc<SanctionsChecker>>,
     seed: Option<Arc<[u8; 64]>>,
-    /// External signing backend (PKCS#11 HSM, signer-service IPC, or
-    /// other `SigningBackend` impl). When set, outbound signatures
-    /// are computed by the backend instead of derived from `seed`.
-    /// The seed is still used for deposit-address derivation and for
-    /// the HSM fallback path if the backend fails.
+    /// External signing backend (PKCS#11 HSM, MPC coordinator client,
+    /// signer-service IPC, etc.). When set, outbound signatures are
+    /// computed by the backend instead of derived from `seed`. MPC
+    /// multi-host signing plugs in at this same trait boundary — the
+    /// pipeline does NOT hold key shares directly; shares live on
+    /// the respective MPC party hosts and the backend orchestrates
+    /// the ceremony per signature.
     signing_backend: Option<Arc<dyn SigningBackend>>,
-    mpc_shares: Option<Arc<Vec<Vec<u8>>>>,
-    mpc_group_pubkey: Option<Vec<u8>>,
     // Per-chain broadcasters
     eth_broadcaster: Option<Arc<EthereumBroadcaster>>,
     btc_broadcaster: Option<Arc<BitcoinBroadcaster>>,
@@ -91,7 +91,6 @@ impl WithdrawalPipeline {
             db, max_single_usd, max_hourly_usd, max_daily_usd,
             policy_engine: None, sanctions_checker: None, seed: None,
             signing_backend: None,
-            mpc_shares: None, mpc_group_pubkey: None,
             eth_broadcaster: None, btc_broadcaster: None,
             trx_broadcaster: None, sol_broadcaster: None,
             eth_fee_estimator: None, btc_fee_estimator: None,
@@ -123,9 +122,30 @@ impl WithdrawalPipeline {
         self.signing_backend = Some(b);
         self
     }
-    pub fn with_mpc_shares(mut self, shares: Vec<Vec<u8>>, group_pubkey: Vec<u8>) -> Self {
-        self.mpc_shares = Some(Arc::new(shares));
-        self.mpc_group_pubkey = Some(group_pubkey);
+    /// Deprecated placeholder for direct-shares MPC signing.
+    ///
+    /// Previously accepted the raw ECDSA shares + group public key and
+    /// had the pipeline call `cggmp21::threshold_sign` in-process. That
+    /// is NOT multi-host MPC — it is single-process threshold signing
+    /// where every share lives in the service memory (defeating the
+    /// entire point of the threshold scheme). It also produced a
+    /// non-RLP custom-JSON "signed tx" blob that no broadcaster could
+    /// submit, so the path was spec-wise broken top to bottom.
+    ///
+    /// Real multi-host MPC plugs in via `with_signing_backend` — a
+    /// future `MpcSigningBackend` impl orchestrates the ceremony
+    /// across party hosts, and the pipeline only provides the
+    /// prehash (for EVM/Tron) or message (for Solana). This method
+    /// is retained as a hard-fail to surface the misconfiguration
+    /// to any caller still invoking it.
+    #[deprecated(
+        note = "Direct-shares MPC signing was broken and single-process-only. Use `with_signing_backend` with an MPC-backed SigningBackend impl instead."
+    )]
+    pub fn with_mpc_shares(self, _shares: Vec<Vec<u8>>, _group_pubkey: Vec<u8>) -> Self {
+        tracing::error!(
+            "with_mpc_shares is deprecated and ignored — use with_signing_backend with an \
+             MPC-backed SigningBackend. Pipeline will sign via seed/HSM until then."
+        );
         self
     }
     pub fn with_eth_broadcaster(mut self, b: Arc<EthereumBroadcaster>) -> Self { self.eth_broadcaster = Some(b); self }
@@ -335,13 +355,12 @@ impl WithdrawalPipeline {
     }
 
     async fn sign_eth(&self, w: &Withdrawal) -> Result<()> {
-        // Check if MPC signing is available
-        if let (Some(shares), Some(group_pk)) = (&self.mpc_shares, &self.mpc_group_pubkey) {
-            return self.sign_eth_mpc(w, shares, group_pk).await;
-        }
-
-        // Fall back to single-key signing
-        let seed = self.seed.as_ref().ok_or_else(|| anyhow::anyhow!("No seed (and no MPC shares)"))?;
+        // Signing backend (HSM / MPC) wins when configured; otherwise
+        // the pipeline derives from the seed. MPC is not called
+        // in-process — it must arrive through `signing_backend`
+        // because any pipeline-local shares would undermine the
+        // threshold property.
+        let seed = self.seed.as_ref().ok_or_else(|| anyhow::anyhow!("No seed and no signing_backend — refusing to sign"))?;
 
         // Fee estimation
         let (max_fee, priority_fee) = match &self.eth_fee_estimator {
@@ -439,98 +458,6 @@ impl WithdrawalPipeline {
         custody_common::prometheus_metrics::SIGNING_TOTAL
             .with_label_values(&[w.chain.as_str(), "success"]).inc();
         tracing::info!(id = %w.id, nonce, "Signed");
-        Ok(())
-    }
-
-    /// Sign ETH withdrawal using MPC threshold signing.
-    ///
-    /// Builds an unsigned EIP-1559 tx → Keccak-256 hash → MPC threshold sign → store.
-    /// The private key NEVER exists in full — only key shares participate.
-    async fn sign_eth_mpc(
-        &self,
-        w: &Withdrawal,
-        shares: &[Vec<u8>],
-        group_pubkey: &[u8],
-    ) -> Result<()> {
-        // Build the same EIP-1559 tx fields as sign_eth, but don't sign with seed
-        let nonce = match &self.nonce_manager {
-            Some(nm) => nm.next_nonce(&w.destination_address).await?,
-            None => 0,
-        };
-        let (max_fee, priority_fee) = match &self.eth_fee_estimator {
-            Some(est) => {
-                let fee = est.estimate().await?;
-                use rust_decimal::prelude::ToPrimitive;
-                let mf = (fee.max_fee * Decimal::new(1_000_000_000, 0)).to_u128().unwrap_or(30_000_000_000);
-                let pf = (fee.priority_fee * Decimal::new(1_000_000_000, 0)).to_u128().unwrap_or(2_000_000_000);
-                (mf, pf)
-            }
-            None => (30_000_000_000u128, 2_000_000_000u128),
-        };
-
-        // Build the unsigned tx hash (EIP-1559 type 2 signing hash)
-        use alloy::primitives::keccak256;
-        let to: alloy::primitives::Address = w.destination_address.parse()
-            .map_err(|_| anyhow::anyhow!("Invalid ETH address"))?;
-        let value = custody_scanner::decimal_to_uint256(w.amount, 18);
-
-        // Build signing input: hash critical tx fields with Keccak-256
-        let mut preimage = Vec::new();
-        preimage.push(0x02); // EIP-1559 type
-        preimage.extend_from_slice(&self.eth_chain_id.to_be_bytes());
-        preimage.extend_from_slice(&nonce.to_be_bytes());
-        preimage.extend_from_slice(&max_fee.to_be_bytes());
-        preimage.extend_from_slice(&priority_fee.to_be_bytes());
-        preimage.extend_from_slice(&21000u64.to_be_bytes());
-        preimage.extend_from_slice(to.as_slice());
-        preimage.extend_from_slice(&value.to_be_bytes::<32>());
-        let tx_hash = keccak256(&preimage);
-        let mut message = [0u8; 32];
-        message.copy_from_slice(tx_hash.as_slice());
-
-        // Threshold sign with MPC (2-of-n)
-        let threshold = 2u16;
-        let signing_shares = if shares.len() > threshold as usize {
-            &shares[..threshold as usize]
-        } else {
-            shares
-        };
-
-        let sig = custody_mpc::ecdsa::threshold_sign(signing_shares, &message, threshold)?;
-
-        // Verify the MPC signature
-        let valid = custody_mpc::ecdsa::sign::verify_ecdsa_signature(
-            group_pubkey, &message, &sig.signature,
-        )?;
-
-        if !valid {
-            anyhow::bail!("MPC signature verification failed");
-        }
-
-        // Store the signed tx (signature + tx metadata for reconstruction)
-        let signed_data = serde_json::to_vec(&serde_json::json!({
-            "type": "mpc_eip1559",
-            "chain_id": self.eth_chain_id,
-            "nonce": nonce,
-            "to": format!("{:?}", to),
-            "value": value.to_string(),
-            "max_fee_per_gas": max_fee,
-            "max_priority_fee_per_gas": priority_fee,
-            "gas_limit": 21000,
-            "signature": hex::encode(&sig.signature),
-            "signers": sig.signers,
-        }))?;
-
-        let gas_gwei = custody_fee_estimator::ethereum::wei_to_gwei(max_fee);
-        self.db.set_signed_tx(w.id, &signed_data, nonce, gas_gwei).await?;
-        self.db.update_withdrawal_status(w.id, WithdrawalStatus::Signed).await?;
-
-        tracing::info!(
-            id = %w.id, nonce,
-            signers = ?sig.signers,
-            "ETH withdrawal signed with MPC threshold ECDSA"
-        );
-
         Ok(())
     }
 
