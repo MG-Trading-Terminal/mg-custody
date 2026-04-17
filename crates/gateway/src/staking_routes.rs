@@ -61,25 +61,49 @@ const LIDO_STETH_HOLESKY: &str = "0x3F1c547b21f65e10480dE3ad8E19fAAC46C95034";
 /// self-check that pins this constant.
 const LIDO_SUBMIT_SELECTOR: [u8; 4] = [0xa1, 0x90, 0x3e, 0xab];
 
-/// Build ERC-20-shape calldata for `submit(address _referral)`: the
-/// 4-byte selector followed by the referral address left-padded to
-/// 32 bytes. Zero address = no referral (Lido accepts it; no rebate).
+/// RocketPool `RocketDepositPool` proxy contract on mainnet.
+/// Users POST ETH here with `deposit() payable`; rETH is minted at
+/// the current exchange rate and returned to the caller.
+const ROCKETPOOL_DEPOSIT_MAINNET: &str = "0xDD3f50F8A6CafbE9b31a427582963f465E745AF8";
+/// RocketPool deposit on Holesky testnet.
+const ROCKETPOOL_DEPOSIT_HOLESKY: &str = "0x320f3aAB9405e38b955178BBe75c477dECBA0C27";
+
+/// Function selector for `deposit()` — four bytes, no args.
+/// keccak256("deposit()")[0..4] = 0xd0e30db0.
+const ROCKETPOOL_DEPOSIT_SELECTOR: [u8; 4] = [0xd0, 0xe3, 0x0d, 0xb0];
+
+/// Build calldata for Lido `submit(address _referral)`: 4-byte
+/// selector + 20-byte referral left-padded to 32 bytes. Zero address
+/// = no referral (accepted; no rebate).
 fn lido_submit_calldata(referral: [u8; 20]) -> Vec<u8> {
     let mut data = Vec::with_capacity(36);
     data.extend_from_slice(&LIDO_SUBMIT_SELECTOR);
-    // Left-pad address to 32 bytes.
     data.extend(std::iter::repeat_n(0u8, 12));
     data.extend_from_slice(&referral);
     data
 }
 
-/// Pick the stETH contract address based on the `CUSTODY_TESTNET`
-/// env toggle the rest of the service already uses.
+/// Build calldata for RocketPool `deposit()` — just the 4-byte
+/// selector, no arguments. Referrals don't exist in this protocol.
+fn rocketpool_deposit_calldata() -> Vec<u8> {
+    ROCKETPOOL_DEPOSIT_SELECTOR.to_vec()
+}
+
+/// Pick the stETH contract based on `CUSTODY_TESTNET`.
 fn lido_address() -> &'static str {
     if std::env::var("CUSTODY_TESTNET").is_ok() {
         LIDO_STETH_HOLESKY
     } else {
         LIDO_STETH_MAINNET
+    }
+}
+
+/// Pick the RocketPool deposit contract based on `CUSTODY_TESTNET`.
+fn rocketpool_address() -> &'static str {
+    if std::env::var("CUSTODY_TESTNET").is_ok() {
+        ROCKETPOOL_DEPOSIT_HOLESKY
+    } else {
+        ROCKETPOOL_DEPOSIT_MAINNET
     }
 }
 
@@ -134,22 +158,35 @@ async fn stake(
     }
 
     let protocol = req.protocol.as_deref().unwrap_or("lido").to_ascii_lowercase();
-    if !matches!(protocol.as_str(), "lido" | "steth") {
-        return Err(ApiError::bad_request(&format!(
-            "Only protocol=\"lido\" is wired on Ethereum today (got \"{protocol}\"). \
-             RocketPool / Ether.fi / EigenLayer will follow the same shape."
-        )));
-    }
-    // Asset sanity-check — stake.rs expects ETH.
+    let (target, calldata, protocol_label) = match protocol.as_str() {
+        "lido" | "steth" => {
+            let referral = parse_referral(req.referral_address.as_deref())?;
+            (lido_address(), lido_submit_calldata(referral), "lido")
+        }
+        "rocketpool" | "reth" => {
+            // RocketPool has no referral mechanism; if the caller
+            // supplied one, reject loudly — silently dropping would
+            // be the same "accepted but ignored" dishonesty we
+            // excised elsewhere.
+            if req.referral_address.as_deref().is_some_and(|s| !s.is_empty() && s != "0x") {
+                return Err(ApiError::bad_request(
+                    "RocketPool has no referral program — omit referral_address",
+                ));
+            }
+            (rocketpool_address(), rocketpool_deposit_calldata(), "rocketpool")
+        }
+        other => {
+            return Err(ApiError::bad_request(&format!(
+                "Unsupported ETH protocol: \"{other}\". Supported: lido, rocketpool."
+            )));
+        }
+    };
+
     if !matches!(req.asset.to_ascii_uppercase().as_str(), "ETH") {
-        return Err(ApiError::bad_request("Lido staking requires asset=\"ETH\""));
+        return Err(ApiError::bad_request("ETH staking requires asset=\"ETH\""));
     }
     custody_signing::staking::validate_eth_stake_amount(amount)
         .map_err(|e| ApiError::bad_request(&e.to_string()))?;
-
-    let referral = parse_referral(req.referral_address.as_deref())?;
-    let calldata = lido_submit_calldata(referral);
-    let target = lido_address();
 
     // Insert the driving withdrawal. The pipeline will pick this up
     // on its next tick, sign via HSM/seed, and broadcast. Because
@@ -196,7 +233,7 @@ async fn stake(
         id: Uuid::new_v4(),
         user_id: auth.0.user_id,
         chain: "ethereum".into(),
-        protocol: "lido".into(),
+        protocol: protocol_label.into(),
         validator_address: target.to_string(),
         asset: "ETH".into(),
         amount,
@@ -221,8 +258,8 @@ async fn stake(
         user_id = %auth.0.user_id,
         amount = %amount,
         target = %target,
-        referral = %hex::encode(referral),
-        "Lido stake request queued — pipeline will sign + broadcast"
+        protocol = protocol_label,
+        "ETH stake request queued — pipeline will sign + broadcast"
     );
     Ok((StatusCode::CREATED, Json(position)))
 }
@@ -322,8 +359,11 @@ async fn list_validators(
             {
                 "chain": "ethereum",
                 "protocol": "rocketpool",
-                "wired": false,
-                "notes": "Follow same calldata pattern via rETH contract (follow-up).",
+                "asset": "ETH",
+                "contract": rocketpool_address(),
+                "wired": true,
+                "unstake_wired": false,
+                "notes": "deposit() payable → rETH at current exchange rate. Burn rETH to exit when RP queue has liquidity (not yet wired).",
             },
             {
                 "chain": "solana",
@@ -381,5 +421,27 @@ mod tests {
     #[test]
     fn parse_referral_rejects_wrong_length() {
         assert!(parse_referral(Some("0xdead")).is_err());
+    }
+
+    #[test]
+    fn compute_rocketpool_deposit_selector() {
+        use sha3::{Digest, Keccak256};
+        let hash = Keccak256::digest(b"deposit()");
+        assert_eq!(&hash[..4], &ROCKETPOOL_DEPOSIT_SELECTOR);
+    }
+
+    #[test]
+    fn rocketpool_deposit_calldata_is_selector_only() {
+        let cd = rocketpool_deposit_calldata();
+        assert_eq!(cd, &ROCKETPOOL_DEPOSIT_SELECTOR);
+        assert_eq!(cd.len(), 4);
+    }
+
+    #[test]
+    fn addresses_differ_by_network() {
+        // Sanity: never mix mainnet + testnet constants.
+        assert_ne!(LIDO_STETH_MAINNET, LIDO_STETH_HOLESKY);
+        assert_ne!(ROCKETPOOL_DEPOSIT_MAINNET, ROCKETPOOL_DEPOSIT_HOLESKY);
+        assert_ne!(LIDO_STETH_MAINNET, ROCKETPOOL_DEPOSIT_MAINNET);
     }
 }
