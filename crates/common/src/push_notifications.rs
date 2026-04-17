@@ -361,6 +361,148 @@ impl FcmV1Client {
     }
 }
 
+// ---------------------------------------------------------------------------
+// APNs — HTTP/2 + ES256 JWT
+// ---------------------------------------------------------------------------
+//
+// Apple's APNs provider protocol:
+//   POST https://api.push.apple.com/3/device/{device_token}       (prod)
+//   POST https://api.sandbox.push.apple.com/3/device/{device_token} (dev)
+//
+// Headers (required):
+//   authorization:   bearer <provider_token>
+//   apns-topic:      <bundle-id>
+//   apns-push-type:  alert | background | voip | complication | ...
+//   apns-priority:   10 (immediate) | 5 (conservative power)
+//
+// Body: JSON with an `aps` dictionary + optional custom keys.
+//
+// Provider token: ES256 JWT signed with the team's APNs key (p8 PEM).
+//   header: {alg:"ES256", kid:<apns_key_id>, typ:"JWT"}
+//   claims: {iss:<apns_team_id>, iat:<unix>}
+//
+// Apple asks that provider tokens be refreshed "no more often than
+// every 20 minutes and no less often than every 60 minutes". We refresh
+// at 50 minutes to leave comfortable headroom before rejection.
+//
+// Reference:
+//   https://developer.apple.com/documentation/usernotifications/establishing-a-token-based-connection-to-apns
+//   https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns
+
+/// Configuration for the APNs provider.
+#[derive(Clone, Debug)]
+pub struct ApnsConfig {
+    pub team_id: String,
+    pub key_id: String,
+    /// PKCS#8 PEM contents of the `.p8` file downloaded from Apple.
+    pub private_key_pem: String,
+    /// App bundle identifier — becomes the `apns-topic` header.
+    pub bundle_id: String,
+    /// `true` → api.push.apple.com. `false` → api.sandbox.push.apple.com.
+    pub production: bool,
+}
+
+pub struct ApnsClient {
+    cfg: ApnsConfig,
+    http: reqwest::Client,
+    token_cache: RwLock<Option<CachedToken>>,
+}
+
+const APNS_TOKEN_REFRESH_AT: Duration = Duration::from_secs(50 * 60);
+
+impl ApnsClient {
+    pub fn new(cfg: ApnsConfig, http: reqwest::Client) -> Self {
+        Self {
+            cfg,
+            http,
+            token_cache: RwLock::new(None),
+        }
+    }
+
+    fn base_url(&self) -> &'static str {
+        if self.cfg.production {
+            "https://api.push.apple.com"
+        } else {
+            "https://api.sandbox.push.apple.com"
+        }
+    }
+
+    /// Sign a fresh ES256 provider token. No `exp` claim — Apple
+    /// rejects tokens with one.
+    fn sign_token(&self) -> Result<String> {
+        use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+
+        #[derive(Serialize)]
+        struct Claims<'a> {
+            iss: &'a str,
+            iat: i64,
+        }
+        let mut header = Header::new(Algorithm::ES256);
+        header.kid = Some(self.cfg.key_id.clone());
+        let claims = Claims {
+            iss: &self.cfg.team_id,
+            iat: Utc::now().timestamp(),
+        };
+        let key = EncodingKey::from_ec_pem(self.cfg.private_key_pem.as_bytes())
+            .context("APNs: p8 key is not a valid PKCS#8 EC PEM")?;
+        encode(&header, &claims, &key).context("APNs: JWT encoding failed")
+    }
+
+    async fn provider_token(&self) -> Result<String> {
+        {
+            let guard = self.token_cache.read().await;
+            if let Some(t) = guard.as_ref()
+                && t.expires_at > Instant::now()
+            {
+                return Ok(t.access_token.clone());
+            }
+        }
+        let token = self.sign_token()?;
+        let expires_at = Instant::now() + APNS_TOKEN_REFRESH_AT;
+        *self.token_cache.write().await = Some(CachedToken {
+            access_token: token.clone(),
+            expires_at,
+        });
+        Ok(token)
+    }
+
+    /// Send a single alert to `device_token`.
+    pub async fn send(&self, device_token: &str, payload: &PushPayload) -> Result<()> {
+        if device_token.is_empty() {
+            bail!("APNs device token must not be empty");
+        }
+        let jwt = self.provider_token().await?;
+        let body = build_apns_payload(payload);
+        let url = format!("{}/3/device/{}", self.base_url(), device_token);
+
+        let resp = self
+            .http
+            .post(&url)
+            .header("authorization", format!("bearer {jwt}"))
+            .header("apns-topic", &self.cfg.bundle_id)
+            .header("apns-push-type", "alert")
+            .header("apns-priority", "10")
+            .json(&body)
+            .send()
+            .await
+            .context("APNs: HTTP/2 request failed")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            bail!("APNs send failed: HTTP {status}: {text}");
+        }
+        tracing::info!(
+            platform = "ios",
+            bundle = %self.cfg.bundle_id,
+            production = self.cfg.production,
+            title = %payload.title,
+            "Push notification sent via APNs"
+        );
+        Ok(())
+    }
+}
+
 /// Push notification service — wraps FCM v1, APNs, and Web Push.
 ///
 /// All fields are optional — the service gracefully skips unavailable providers.
@@ -371,23 +513,19 @@ pub struct PushNotificationService {
     /// Android path bails with a "not configured" error instead of
     /// pretending to deliver.
     pub fcm_v1: Option<Arc<FcmV1Client>>,
-    /// APNs key ID (used to sign JWT for HTTP/2 APNs requests).
-    pub apns_key_id: Option<String>,
-    /// APNs team ID.
-    pub apns_team_id: Option<String>,
+    /// Real APNs provider (HTTP/2 + ES256 JWT).
+    pub apns: Option<Arc<ApnsClient>>,
     client: reqwest::Client,
 }
 
 impl PushNotificationService {
     pub fn new(
         fcm_v1: Option<Arc<FcmV1Client>>,
-        apns_key_id: Option<String>,
-        apns_team_id: Option<String>,
+        apns: Option<Arc<ApnsClient>>,
     ) -> Self {
         Self {
             fcm_v1,
-            apns_key_id,
-            apns_team_id,
+            apns,
             client: reqwest::Client::new(),
         }
     }
@@ -397,7 +535,6 @@ impl PushNotificationService {
     pub fn fcm_only(sa: FcmServiceAccount) -> Self {
         Self::new(
             Some(Arc::new(FcmV1Client::new(sa, reqwest::Client::new()))),
-            None,
             None,
         )
     }
@@ -425,43 +562,16 @@ impl PushNotificationService {
         client.send(device_token, payload).await
     }
 
-    /// Send via APNs (Apple Push Notification Service).
-    ///
-    /// **Not wired.** Real APNs requires HTTP/2 (via `h2` or the `a2`
-    /// crate) plus JWT (p8) signing with the team's APNs key. None
-    /// of that is in the workspace. The prior implementation built
-    /// the payload, logged it, and returned `Ok(())` — callers read
-    /// that as a successful delivery and the broadcast success
-    /// counter was always == total devices, lying about reach.
-    ///
-    /// Returns `Err(NotImplemented)`-shaped error instead so the
-    /// caller can see zero-delivery and surface "APNs not wired"
-    /// instead of claiming the alert reached the iPhone.
+    /// Send via APNs. Delegates to `ApnsClient` if configured; errors
+    /// cleanly if not. The broadcast success counter reflects real
+    /// zero-delivery when APNs is absent rather than counting
+    /// log-only "sends".
     pub async fn send_apns(&self, device_token: &str, payload: &PushPayload) -> Result<()> {
-        if device_token.is_empty() {
-            bail!("APNs device token must not be empty");
-        }
-
-        let key_id = self.apns_key_id.as_deref().unwrap_or("<unset>");
-        let apns_payload = build_apns_payload(payload);
-
-        tracing::warn!(
-            platform = "ios",
-            device_token_prefix = &device_token[..device_token.len().min(8)],
-            key_id = %key_id,
-            title = %payload.title,
-            payload = ?apns_payload,
-            "APNs push not dispatched — HTTP/2 + JWT signing not wired"
-        );
-
-        // When the a2 crate is added, replace this bail with:
-        //   a2::Client::new(key, key_id, team_id, apns_url)
-        //     .send(Notification { device_token, payload })
-        //     .await?;
-        bail!(
-            "APNs delivery not implemented in this build. \
-             Attach the `a2` crate and wire JWT signing before relying on iOS alerts."
-        )
+        let client = self
+            .apns
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("APNs not configured (no team_id/key_id/p8 key)"))?;
+        client.send(device_token, payload).await
     }
 
     /// Send via Web Push (RFC 8030).
@@ -773,14 +883,14 @@ mod tests {
     fn service_fcm_only_has_v1_client() {
         let svc = PushNotificationService::fcm_only(sample_service_account());
         assert!(svc.fcm_v1.is_some());
-        assert!(svc.apns_key_id.is_none());
+        assert!(svc.apns.is_none());
     }
 
     #[test]
     fn service_no_providers() {
-        let svc = PushNotificationService::new(None, None, None);
+        let svc = PushNotificationService::new(None, None);
         assert!(svc.fcm_v1.is_none());
-        assert!(svc.apns_key_id.is_none());
+        assert!(svc.apns.is_none());
     }
 
     #[test]
@@ -803,11 +913,47 @@ mod tests {
 
     #[tokio::test]
     async fn send_fcm_errors_when_v1_not_configured() {
-        let svc = PushNotificationService::new(None, None, None);
+        let svc = PushNotificationService::new(None, None);
         let err = svc
             .send_fcm("token", &PushPayload::simple("x", "y"))
             .await
             .unwrap_err();
         assert!(err.to_string().contains("not configured"));
+    }
+
+    #[tokio::test]
+    async fn send_apns_errors_when_client_not_configured() {
+        let svc = PushNotificationService::new(None, None);
+        let err = svc
+            .send_apns("token", &PushPayload::simple("x", "y"))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("not configured"));
+    }
+
+    #[test]
+    fn apns_config_production_picks_prod_url() {
+        let cfg = ApnsConfig {
+            team_id: "T1".into(),
+            key_id: "K1".into(),
+            private_key_pem: String::new(),
+            bundle_id: "com.example.app".into(),
+            production: true,
+        };
+        let c = ApnsClient::new(cfg, reqwest::Client::new());
+        assert_eq!(c.base_url(), "https://api.push.apple.com");
+    }
+
+    #[test]
+    fn apns_config_sandbox_picks_sandbox_url() {
+        let cfg = ApnsConfig {
+            team_id: "T1".into(),
+            key_id: "K1".into(),
+            private_key_pem: String::new(),
+            bundle_id: "com.example.app".into(),
+            production: false,
+        };
+        let c = ApnsClient::new(cfg, reqwest::Client::new());
+        assert_eq!(c.base_url(), "https://api.sandbox.push.apple.com");
     }
 }

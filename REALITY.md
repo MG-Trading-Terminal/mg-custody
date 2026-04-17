@@ -67,6 +67,16 @@ Security work done this session is real but the following remain open.
 Labeled by bite size so future-me knows where to start.
 
 ### Fixed since last published snapshot
+- **APNs now real.** New `ApnsClient` + `ApnsConfig` do the full
+  Apple provider handshake: ES256 JWT signed with the team's p8 key
+  (`jsonwebtoken::EncodingKey::from_ec_pem`), `authorization: bearer
+  <token>` + `apns-topic` + `apns-push-type` + `apns-priority` headers,
+  POST `/3/device/{token}` over HTTP/2 to either
+  `api.push.apple.com` (production) or `api.sandbox.push.apple.com`.
+  Provider token cached and refreshed every 50 min (Apple rejects
+  tokens < 20 min apart and > 60 min old). `PushNotificationService`
+  now carries `apns: Option<Arc<ApnsClient>>`; `send_apns` delegates
+  or bails cleanly.
 - **FCM HTTP v1 now real.** New `FcmV1Client` mints an OAuth2 bearer
   token by signing an RS256 JWT with the Google service-account
   `private_key`, exchanges it at `oauth2.googleapis.com/token`, and
