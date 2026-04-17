@@ -438,18 +438,73 @@ async fn main() -> anyhow::Result<()> {
     ));
 
     // ─── Email transport ─────────────────────────────────────────────
-    // `CUSTODY_EMAIL__MODE` selects the transport: `console` (default in
-    // dev — pretty-prints to stdout) or `noop` (silent, useful for tests
-    // and local scripts). SMTP variant is a follow-up once lettre is
-    // added to the workspace.
+    //
+    // `CUSTODY_EMAIL__MODE` selects the transport:
+    //   - `console` (default) — pretty-prints to stdout for dev
+    //   - `smtp`              — real outbound via lettre (tokio+rustls)
+    //   - `noop`              — silent, for tests and local scripts
+    //
+    // SMTP config (only read when MODE=smtp):
+    //   CUSTODY_EMAIL__SMTP_HOST       required
+    //   CUSTODY_EMAIL__SMTP_PORT       default 465 for wrapper, 587 for starttls
+    //   CUSTODY_EMAIL__SMTP_USERNAME   optional (some relays are IP-gated)
+    //   CUSTODY_EMAIL__SMTP_PASSWORD   optional (paired with USERNAME)
+    //   CUSTODY_EMAIL__SMTP_TLS        `wrapper` (default, port 465) | `starttls`
+    //   CUSTODY_EMAIL__SMTP_TIMEOUT    seconds, default 15
+    //
+    // Falls back to the dev console transport (with a loud warning) if
+    // MODE=smtp but the config is incomplete — never plaintext.
     let email_from = std::env::var("CUSTODY_EMAIL__FROM")
         .unwrap_or_else(|_| "MG Custody <no-reply@custody.local>".to_string());
-    let email_sender = match std::env::var("CUSTODY_EMAIL__MODE")
-        .unwrap_or_else(|_| "console".to_string())
-        .as_str()
-    {
+    let email_mode = std::env::var("CUSTODY_EMAIL__MODE").unwrap_or_else(|_| "console".to_string());
+    let email_sender = match email_mode.as_str() {
         "noop" => custody_common::email::EmailSender::noop(),
-        _ => custody_common::email::EmailSender::console(email_from),
+        "smtp" => {
+            let tls = match std::env::var("CUSTODY_EMAIL__SMTP_TLS")
+                .unwrap_or_else(|_| "wrapper".to_string())
+                .to_ascii_lowercase()
+                .as_str()
+            {
+                "starttls" => custody_common::email::SmtpTls::Required,
+                _ => custody_common::email::SmtpTls::Wrapper,
+            };
+            let default_port = match tls {
+                custody_common::email::SmtpTls::Wrapper => 465,
+                custody_common::email::SmtpTls::Required => 587,
+            };
+            let port = std::env::var("CUSTODY_EMAIL__SMTP_PORT")
+                .ok()
+                .and_then(|s| s.parse::<u16>().ok())
+                .unwrap_or(default_port);
+            let timeout_secs = std::env::var("CUSTODY_EMAIL__SMTP_TIMEOUT")
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(15);
+
+            match std::env::var("CUSTODY_EMAIL__SMTP_HOST").ok() {
+                Some(host) if !host.is_empty() => {
+                    let cfg = custody_common::email::SmtpConfig {
+                        from: email_from.clone(),
+                        host,
+                        port,
+                        username: std::env::var("CUSTODY_EMAIL__SMTP_USERNAME").ok(),
+                        password: std::env::var("CUSTODY_EMAIL__SMTP_PASSWORD").ok(),
+                        tls,
+                        timeout_secs,
+                    };
+                    custody_common::email::EmailSender::smtp(cfg)
+                }
+                _ => {
+                    tracing::warn!(
+                        "CUSTODY_EMAIL__MODE=smtp but SMTP_HOST is missing — falling back to \
+                         console transport. Password-reset and email-verification mails will \
+                         be printed to logs, NOT sent."
+                    );
+                    custody_common::email::EmailSender::console(email_from.clone())
+                }
+            }
+        }
+        _ => custody_common::email::EmailSender::console(email_from.clone()),
     };
     tracing::info!(
         transport = email_sender.transport_name(),

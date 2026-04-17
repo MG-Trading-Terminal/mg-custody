@@ -48,7 +48,7 @@ live integration, no real counterparty, no production-grade driver.
 | MPC FROST Ed25519 | Same as above |
 | HSM (PKCS#11 via `cryptoki`) | File-backed `HsmSigningBackend` works; real HSM integration is stubbed |
 | Chainalysis / Elliptic AML | `ScreeningProvider` trait + cache layer; actual HTTP to vendors needs API keys |
-| Email delivery (SMTP) | `EmailSender` enum wired (Console/Noop); password reset + email verification dispatch through it. Real SMTP pending `lettre` add. |
+| Email delivery (SMTP) | Real `lettre`-backed SMTP variant wired (rustls, no OpenSSL). Tokio-async, pooled, implicit TLS or STARTTLS (no plaintext fallback). Configured via `CUSTODY_EMAIL__MODE=smtp` + `CUSTODY_EMAIL__SMTP_{HOST,PORT,USERNAME,PASSWORD,TLS,TIMEOUT}`. Falls back to Console with a loud warning if MODE=smtp but HOST is missing. Console + Noop remain for dev/tests. |
 | Staking (ETH / SOL) | Structs only — no beacon deposit or SOL delegate broadcast |
 | DeFi (WalletConnect, DEX aggregator) | Types only |
 | Settlement / counterparty network | Types only |
@@ -67,6 +67,13 @@ Security work done this session is real but the following remain open.
 Labeled by bite size so future-me knows where to start.
 
 ### Fixed since last published snapshot
+- **Real SMTP transport.** `EmailSender::Smtp` backed by `lettre`
+  (tokio1 + rustls, no OpenSSL). Two TLS modes: implicit (port 465)
+  and STARTTLS (port 587, no plaintext fallback — the build
+  explicitly refuses to downgrade). Optional SMTP AUTH. Selected
+  via `CUSTODY_EMAIL__MODE=smtp` + the usual host/port/user/pass
+  env vars. Password-reset and email-verification mails now actually
+  leave the host instead of being pretty-printed to logs.
 - **Removed `bc1q_hot_wallet_placeholder` fund-safety footgun.** The
   UTXO consolidation scheduler in `server/main.rs` baked a literal
   placeholder string as the sweep destination and logged "submitting

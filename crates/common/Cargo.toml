@@ -30,6 +30,7 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 figment = { workspace = true }
 toml = "0.8"
+lettre = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

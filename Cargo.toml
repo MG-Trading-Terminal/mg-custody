@@ -118,6 +118,18 @@ thiserror = "2"
 # HTTP client (for webhooks)
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 
+# SMTP transport for outbound email (password reset, email verify).
+# tokio1 + rustls for async + TLS without OpenSSL; default features
+# off so we don't pull in native-tls / OpenSSL on the build host.
+lettre = { version = "0.11", default-features = false, features = [
+    "smtp-transport",
+    "tokio1",
+    "tokio1-rustls-tls",
+    "builder",
+    "hostname",
+    "pool",
+] }
+
 # Concurrent collections
 dashmap = "6"
 

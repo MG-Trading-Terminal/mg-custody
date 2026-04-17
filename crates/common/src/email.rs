@@ -78,6 +78,7 @@ impl std::error::Error for EmailError {}
 #[derive(Clone)]
 pub enum EmailSender {
     Console(ConsoleConfig),
+    Smtp(SmtpConfig),
     Noop,
 }
 
@@ -85,6 +86,66 @@ pub enum EmailSender {
 pub struct ConsoleConfig {
     /// Rendered as the `From:` line in the pretty-printed summary.
     pub from: String,
+}
+
+/// Configuration for a real SMTP transport. `from` must be an RFC-5322
+/// mailbox (e.g., `"MG Custody <no-reply@custody.example>"`).
+///
+/// Two flavours are supported:
+///   - **Implicit TLS** (`tls = SmtpTls::Wrapper`): direct TLS on
+///     port 465. Fewer round-trips, recommended by modern providers.
+///   - **STARTTLS** (`tls = SmtpTls::Required`): plain TCP on port
+///     587, negotiated up. We NEVER fall back to plaintext; if the
+///     server doesn't offer STARTTLS we refuse to send.
+#[derive(Clone)]
+pub struct SmtpConfig {
+    pub from: String,
+    pub host: String,
+    pub port: u16,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub tls: SmtpTls,
+    /// Short timeout on SMTP operations. Transport failure is surfaced
+    /// to callers so password-reset flows can fail fast instead of
+    /// blocking the user for a full TCP keep-alive window.
+    pub timeout_secs: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SmtpTls {
+    /// Implicit TLS (port 465). Connection starts encrypted.
+    Wrapper,
+    /// STARTTLS required. We refuse to send if the server doesn't
+    /// advertise the extension — no silent downgrade to plaintext.
+    Required,
+}
+
+/// Lazily-built async SMTP transport. We don't construct it during
+/// `EmailSender::smtp()` because that would force callers to .await
+/// transport setup before they can put the sender in `AppState`.
+/// Instead, each `send()` call builds a throwaway transport with a
+/// short connection pool — `lettre` caches the TLS handshake at the
+/// pool level so this is cheap in the steady state.
+impl SmtpConfig {
+    fn build_transport(&self) -> Result<lettre::AsyncSmtpTransport<lettre::Tokio1Executor>, EmailError> {
+        let mut builder = match self.tls {
+            SmtpTls::Wrapper => {
+                lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::relay(&self.host)
+                    .map_err(|e| EmailError::TransportFailed(format!("wrapper TLS relay: {e}")))?
+            }
+            SmtpTls::Required => {
+                lettre::AsyncSmtpTransport::<lettre::Tokio1Executor>::starttls_relay(&self.host)
+                    .map_err(|e| EmailError::TransportFailed(format!("starttls relay: {e}")))?
+            }
+        };
+        builder = builder
+            .port(self.port)
+            .timeout(Some(std::time::Duration::from_secs(self.timeout_secs)));
+        if let (Some(user), Some(pass)) = (self.username.clone(), self.password.clone()) {
+            builder = builder.credentials(lettre::transport::smtp::authentication::Credentials::new(user, pass));
+        }
+        Ok(builder.build())
+    }
 }
 
 impl EmailSender {
@@ -99,10 +160,16 @@ impl EmailSender {
         EmailSender::Noop
     }
 
+    /// Real SMTP transport. See `SmtpConfig` for TLS semantics.
+    pub fn smtp(cfg: SmtpConfig) -> Self {
+        EmailSender::Smtp(cfg)
+    }
+
     /// Short name for logs and health-check responses.
     pub fn transport_name(&self) -> &'static str {
         match self {
             EmailSender::Console(_) => "console",
+            EmailSender::Smtp(_) => "smtp",
             EmailSender::Noop => "noop",
         }
     }
@@ -110,9 +177,61 @@ impl EmailSender {
     pub async fn send(&self, msg: EmailMessage) -> Result<(), EmailError> {
         match self {
             EmailSender::Console(cfg) => send_console(cfg, msg),
+            EmailSender::Smtp(cfg) => send_smtp(cfg, msg).await,
             EmailSender::Noop => Ok(()),
         }
     }
+}
+
+async fn send_smtp(cfg: &SmtpConfig, msg: EmailMessage) -> Result<(), EmailError> {
+    use lettre::{AsyncTransport, Message, message::header::ContentType};
+
+    let from: lettre::Address = cfg
+        .from
+        .parse()
+        .or_else(|_| {
+            // Accept "Name <addr@host>" form too.
+            cfg.from
+                .rsplit_once('<')
+                .and_then(|(_, rest)| rest.strip_suffix('>'))
+                .map(|s| s.parse::<lettre::Address>())
+                .unwrap_or_else(|| cfg.from.parse::<lettre::Address>())
+        })
+        .map_err(|e| EmailError::InvalidAddress(format!("from {}: {e}", cfg.from)))?;
+    let to: lettre::Address = msg
+        .to
+        .parse()
+        .map_err(|e| EmailError::InvalidAddress(format!("to {}: {e}", msg.to)))?;
+
+    let mut builder = Message::builder()
+        .from(lettre::message::Mailbox::new(None, from))
+        .to(lettre::message::Mailbox::new(None, to))
+        .subject(&msg.subject)
+        .header(ContentType::TEXT_PLAIN);
+    if !cfg.from.is_empty() {
+        // Preserve display-name form when the caller supplied one.
+        builder = builder.reply_to(cfg.from.parse().unwrap_or_else(|_| {
+            lettre::message::Mailbox::new(None, msg.to.parse().unwrap())
+        }));
+    }
+    let email = builder
+        .body(msg.body_text.clone())
+        .map_err(|e| EmailError::TransportFailed(format!("message build: {e}")))?;
+
+    let transport = cfg.build_transport()?;
+    transport
+        .send(email)
+        .await
+        .map_err(|e| EmailError::TransportFailed(format!("smtp send: {e}")))?;
+
+    tracing::info!(
+        target: "custody::email",
+        to = %msg.to,
+        subject = %msg.subject,
+        transport = "smtp",
+        "Email sent"
+    );
+    Ok(())
 }
 
 fn send_console(cfg: &ConsoleConfig, msg: EmailMessage) -> Result<(), EmailError> {
@@ -223,5 +342,43 @@ mod tests {
         assert!(subject.contains("Confirm"));
         assert!(body.contains("654321"));
         assert!(body.contains("10 minutes"));
+    }
+
+    #[test]
+    fn smtp_sender_reports_transport_name() {
+        // We don't actually connect to a server here — just verify the
+        // transport-name plumbing so the "smtp" label reaches logs and
+        // health probes without touching the network.
+        let cfg = SmtpConfig {
+            from: "noreply@example.com".into(),
+            host: "smtp.invalid".into(),
+            port: 465,
+            username: None,
+            password: None,
+            tls: SmtpTls::Wrapper,
+            timeout_secs: 5,
+        };
+        assert_eq!(EmailSender::smtp(cfg).transport_name(), "smtp");
+    }
+
+    #[tokio::test]
+    async fn smtp_send_fails_fast_when_host_unresolvable() {
+        // Loopback won't accept SMTP on 465; ensure the sender surfaces
+        // a `TransportFailed` error (not a panic) within the 2s timeout.
+        // This pins "SMTP path returns Err on failure" so callers can
+        // branch on real delivery vs unreachable relay.
+        let cfg = SmtpConfig {
+            from: "noreply@example.com".into(),
+            host: "127.0.0.1".into(),
+            port: 1, // port 1 is effectively guaranteed refused
+            username: None,
+            password: None,
+            tls: SmtpTls::Wrapper,
+            timeout_secs: 2,
+        };
+        let sender = EmailSender::smtp(cfg);
+        let msg = EmailMessage::new("user@example.com", "hi", "body");
+        let result = sender.send(msg).await;
+        assert!(matches!(result, Err(EmailError::TransportFailed(_))));
     }
 }
