@@ -27,8 +27,9 @@ use custody_policy::{DestinationType, PolicyAction, PolicyEngine};
 use custody_policy::rbac::Role;
 use custody_signing::SigningBackend;
 use custody_signing::ethereum::{
-    Erc20TransferParams, EthTransferParams, finalize_eth_signed_tx, prepare_erc20_transfer,
-    prepare_eth_transfer, sign_erc20_transfer, sign_eth_transfer,
+    Erc20TransferParams, EthContractCallParams, EthTransferParams, finalize_eth_signed_tx,
+    prepare_erc20_transfer, prepare_eth_contract_call, prepare_eth_transfer,
+    sign_erc20_transfer, sign_eth_contract_call, sign_eth_transfer,
 };
 use rust_decimal::Decimal;
 
@@ -403,8 +404,38 @@ impl WithdrawalPipeline {
         let is_native = token_registry.is_native(asset_str, w.chain);
         let decimals = token_registry.decimals(asset_str, w.chain).unwrap_or(18);
 
+        // Check for embedded contract calldata. The staking flow
+        // stashes the Lido `submit(address)` calldata in the
+        // withdrawal's `memo` field as a hex string so the pipeline
+        // can route native-asset contract calls (payable) without a
+        // separate "tx_type" column. Any withdrawal whose memo parses
+        // to ≥4 bytes of hex takes the contract-call path.
+        let embedded_calldata: Option<Vec<u8>> = w.memo.as_deref().and_then(parse_hex_calldata);
+
         // Build the signing params once; branch on backend availability.
-        let signed_tx = if is_native {
+        let signed_tx = if let Some(calldata) = embedded_calldata {
+            let params = EthContractCallParams {
+                to,
+                value_wei: custody_scanner::decimal_to_uint256(w.amount, 18),
+                input: alloy::primitives::Bytes::from(calldata),
+                nonce,
+                chain_id: self.eth_chain_id,
+                max_fee_per_gas: max_fee,
+                max_priority_fee_per_gas: priority_fee,
+                // Contract calls need more headroom than 21k. 150k
+                // comfortably fits Lido's `submit` (~80k) plus slack.
+                gas_limit: 150_000,
+            };
+            match &self.signing_backend {
+                Some(backend) => {
+                    let (tx, prehash) = prepare_eth_contract_call(&params);
+                    let sig = backend.sign(Chain::Ethereum, &prehash)
+                        .map_err(|e| anyhow::anyhow!("HSM sign(contract call) failed: {e}"))?;
+                    finalize_eth_signed_tx(tx, &sig)?
+                }
+                None => sign_eth_contract_call(seed, 0, &params)?,
+            }
+        } else if is_native {
             let params = EthTransferParams {
                 to, value_wei: custody_scanner::decimal_to_uint256(w.amount, decimals),
                 nonce, chain_id: self.eth_chain_id,
@@ -889,12 +920,46 @@ impl WithdrawalPipeline {
     }
 }
 
+/// Parse `memo` as hex-encoded EVM calldata. Returns `Some(bytes)`
+/// only when the memo starts with `0x`, decodes as valid hex, and
+/// has at least 4 bytes (a function selector). Anything else — a
+/// Cosmos memo, a Solana note, plain user text — is treated as a
+/// pure memo by the caller and the tx takes the vanilla transfer
+/// path.
+fn parse_hex_calldata(memo: &str) -> Option<Vec<u8>> {
+    let hex_part = memo.strip_prefix("0x")?;
+    let bytes = hex::decode(hex_part).ok()?;
+    if bytes.len() < 4 {
+        return None;
+    }
+    Some(bytes)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
     use rust_decimal_macros::dec;
 
     #[test]
     fn pipeline_builder() {
         let _limits = (dec!(500000), dec!(10000000), dec!(50000000));
+    }
+
+    #[test]
+    fn parse_hex_calldata_accepts_lido_submit() {
+        // Selector 0xa1903eab + 32-byte padded zero address
+        let memo = "0xa1903eab0000000000000000000000000000000000000000000000000000000000000000";
+        let decoded = parse_hex_calldata(memo).unwrap();
+        assert_eq!(decoded.len(), 36);
+        assert_eq!(&decoded[..4], &[0xa1, 0x90, 0x3e, 0xab]);
+    }
+
+    #[test]
+    fn parse_hex_calldata_rejects_plain_text() {
+        assert!(parse_hex_calldata("order #12").is_none());
+        assert!(parse_hex_calldata("cosmos-memo").is_none());
+        assert!(parse_hex_calldata("0xZZZ").is_none());
+        // Too short to be a selector.
+        assert!(parse_hex_calldata("0xdead").is_none());
     }
 }

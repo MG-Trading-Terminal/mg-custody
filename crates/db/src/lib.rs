@@ -16,6 +16,7 @@ pub mod nfts;
 pub mod push_tokens;
 pub mod swap_executions;
 pub mod consolidation_jobs;
+pub mod staking_positions;
 pub mod scheduled_withdrawals;
 pub mod api_keys;
 pub mod assets;

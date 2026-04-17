@@ -40,6 +40,35 @@ impl Default for EthTransferParams {
     }
 }
 
+/// Parameters for a generic payable contract call (Lido submit,
+/// ERC-20 approve, etc.) — anything where the tx has arbitrary
+/// `input` calldata AND may carry non-zero `value`.
+#[derive(Debug, Clone)]
+pub struct EthContractCallParams {
+    pub to: Address,
+    pub value_wei: U256,
+    pub input: Bytes,
+    pub nonce: u64,
+    pub chain_id: u64,
+    pub max_fee_per_gas: u128,
+    pub max_priority_fee_per_gas: u128,
+    pub gas_limit: u64,
+}
+
+impl EthContractCallParams {
+    /// Builder: native-value call to `to` with raw calldata. Fills
+    /// the remaining knobs with conservative defaults that must be
+    /// overwritten before signing (nonce + fees).
+    pub fn new(to: Address, value_wei: U256, input: Bytes, chain_id: u64) -> Self {
+        Self {
+            to, value_wei, input,
+            nonce: 0, chain_id,
+            max_fee_per_gas: 0, max_priority_fee_per_gas: 0,
+            gas_limit: 100_000,
+        }
+    }
+}
+
 /// Parameters for an ERC-20 token transfer.
 #[derive(Debug, Clone)]
 pub struct Erc20TransferParams {
@@ -169,6 +198,54 @@ pub fn prepare_eth_transfer(params: &EthTransferParams) -> (TxEip1559, [u8; 32])
     let tx = build_eth_transfer_tx(params);
     let hash = tx.signature_hash().0;
     (tx, hash)
+}
+
+/// Same, for a generic payable contract call (Lido stake,
+/// WalletConnect-driven approve, etc.).
+pub fn prepare_eth_contract_call(params: &EthContractCallParams) -> (TxEip1559, [u8; 32]) {
+    let tx = TxEip1559 {
+        chain_id: params.chain_id,
+        nonce: params.nonce,
+        gas_limit: params.gas_limit,
+        max_fee_per_gas: params.max_fee_per_gas,
+        max_priority_fee_per_gas: params.max_priority_fee_per_gas,
+        to: TxKind::Call(params.to),
+        value: params.value_wei,
+        input: params.input.clone(),
+        access_list: Default::default(),
+    };
+    let hash = tx.signature_hash().0;
+    (tx, hash)
+}
+
+/// Seed-signed variant for callers still on the local-key path
+/// (unit tests, pre-HSM deployments). HSM / MPC callers should use
+/// `prepare_eth_contract_call` + the backend.
+pub fn sign_eth_contract_call(
+    seed: &[u8; 64],
+    index: u32,
+    params: &EthContractCallParams,
+) -> Result<Vec<u8>> {
+    let signer = derive_eth_signer(seed, index)?;
+    let mut tx = TxEip1559 {
+        chain_id: params.chain_id,
+        nonce: params.nonce,
+        gas_limit: params.gas_limit,
+        max_fee_per_gas: params.max_fee_per_gas,
+        max_priority_fee_per_gas: params.max_priority_fee_per_gas,
+        to: TxKind::Call(params.to),
+        value: params.value_wei,
+        input: params.input.clone(),
+        access_list: Default::default(),
+    };
+    let sig = signer
+        .sign_transaction_sync(&mut tx)
+        .context("Failed to sign ETH contract call")?;
+    let signed = tx.into_signed(sig);
+    let envelope = alloy::consensus::transaction::TxEnvelope::from(signed);
+    let mut buf = Vec::new();
+    Encodable2718::encode_2718(&envelope, &mut buf);
+    Ok(buf)
 }
 
 /// Same, for ERC-20 transfers.

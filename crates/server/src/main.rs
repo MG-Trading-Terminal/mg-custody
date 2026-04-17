@@ -117,6 +117,7 @@ async fn main() -> anyhow::Result<()> {
                 ("031_safe_wallet_members", include_str!("../../db/migrations/031_safe_wallet_members.sql")),
                 ("032_swap_executions", include_str!("../../db/migrations/032_swap_executions.sql")),
                 ("033_consolidation_jobs", include_str!("../../db/migrations/033_consolidation_jobs.sql")),
+                ("034_staking_positions", include_str!("../../db/migrations/034_staking_positions.sql")),
             ];
             for (name, sql) in migrations {
                 if let Err(e) = sqlx::raw_sql(sql).execute(&pool).await {
