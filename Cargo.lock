@@ -2219,6 +2219,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "axum",
+ "bitcoin",
  "bs58",
  "chrono",
  "custody-address-factory",

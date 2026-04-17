@@ -67,6 +67,23 @@ Security work done this session is real but the following remain open.
 Labeled by bite size so future-me knows where to start.
 
 ### Fixed since last published snapshot
+- **UTXO consolidation pipeline now real.** Migration 033 adds a
+  `consolidation_jobs` table with full Received → Signed → Broadcast
+  → Confirmed | Failed state machine. The scheduler loop in
+  `server/main.rs` persists a job when a plan is identified (exact
+  UTXO set stored as JSONB so restart replays the same inputs).
+  A sibling worker pass in the same tokio task:
+    1. Signs Received jobs via `custody_signing::bitcoin::sign_bitcoin_tx`
+       — derives each input's key by looking up the address in the
+       `addresses` table and parsing its `derivation_path`.
+    2. Broadcasts Signed jobs via the real `BitcoinBroadcaster` +
+       records `tx_hash`.
+    3. Re-polls Broadcast jobs for confirmations and promotes to
+       Confirmed at ≥ 3 blocks.
+  Any input whose address is not managed by this instance causes a
+  clean `Failed` transition with a diagnostic — we refuse to sign
+  anything we can't verify ownership of. Gated behind
+  `CUSTODY_HOT_WALLET__BTC_ADDRESS` + a configured Bitcoin RPC URL.
 - **AML screening fails closed.** Chainalysis and Elliptic providers
   used to swallow any non-2xx or network error and return
   `Ok(ScreeningResult { risk_level: Low, … })` — so when a vendor

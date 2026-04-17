@@ -32,6 +32,7 @@ custody-policy = { path = "../policy" }
 custody-compliance = { path = "../compliance" }
 custody-mpc = { path = "../mpc" }
 custody-utxo = { path = "../utxo" }
+bitcoin = { workspace = true }
 tokio = { workspace = true }
 uuid = { workspace = true }
 axum = { workspace = true }

@@ -116,6 +116,7 @@ async fn main() -> anyhow::Result<()> {
                 ("030_email_verification", include_str!("../../db/migrations/030_email_verification.sql")),
                 ("031_safe_wallet_members", include_str!("../../db/migrations/031_safe_wallet_members.sql")),
                 ("032_swap_executions", include_str!("../../db/migrations/032_swap_executions.sql")),
+                ("033_consolidation_jobs", include_str!("../../db/migrations/033_consolidation_jobs.sql")),
             ];
             for (name, sql) in migrations {
                 if let Err(e) = sqlx::raw_sql(sql).execute(&pool).await {
@@ -515,7 +516,7 @@ async fn main() -> anyhow::Result<()> {
     let app_state = AppState {
         db: db.clone(),
         address_allocator,
-        seed,
+        seed: seed.clone(),
         withdrawal_pipeline: withdrawal_pipeline.clone(),
         event_broadcaster: event_broadcaster.clone(),
         user_rate_limiter: std::sync::Arc::new(
@@ -961,74 +962,65 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // UTXO consolidation scheduler — gated behind a real configured
-    // hot-wallet address.
+    // UTXO consolidation scheduler + worker.
     //
-    // The previous implementation:
-    //   (a) used `"bc1q_hot_wallet_placeholder"` as the consolidation
-    //       destination — a string that is not a valid Bitcoin address
-    //       and could never sign/broadcast even if the pipeline call
-    //       below had been implemented.
-    //   (b) logged "UTXO consolidation planned — submitting to
-    //       pipeline" while the actual "submit" was a TODO comment.
-    //       Every operator log line claimed the job was doing work
-    //       it wasn't.
-    //
-    // Until `CUSTODY_HOT_WALLET__BTC_ADDRESS` is set AND the pipeline
-    // integration lands, skip the loop entirely and log-once. This
-    // way the operator sees a single honest "consolidation disabled"
-    // message instead of an hourly lie.
+    // Two loops run under one tokio::spawn so they share the same
+    // seed + broadcaster and serialise BTC operations. The scheduler
+    // identifies candidate UTXO batches; the worker signs and
+    // broadcasts the persisted jobs. Both paths are gated behind
+    // `CUSTODY_HOT_WALLET__BTC_ADDRESS` and the presence of a
+    // `bitcoin.rpc_url` in config — without either, the loop skips
+    // with one honest "disabled" message instead of hourly lies.
     {
         let consolidation_db = db.clone();
-        let configured_hot_address = std::env::var("CUSTODY_HOT_WALLET__BTC_ADDRESS").ok();
+        let consolidation_seed = seed.clone();
+        let hot_address_opt = std::env::var("CUSTODY_HOT_WALLET__BTC_ADDRESS").ok();
+        let btc_rpc_url = config
+            .chains
+            .bitcoin
+            .as_ref()
+            .map(|b| b.rpc_url.clone())
+            .unwrap_or_default();
+        let btc_rpc_user = std::env::var("CUSTODY_BITCOIN__RPC_USER").ok();
+        let btc_rpc_password = std::env::var("CUSTODY_BITCOIN__RPC_PASSWORD").ok();
         tokio::spawn(async move {
-            let Some(hot_address) = configured_hot_address else {
+            let Some(hot_address) = hot_address_opt else {
                 tracing::warn!(
                     "UTXO consolidation scheduler disabled — set CUSTODY_HOT_WALLET__BTC_ADDRESS \
-                     to enable (previous placeholder path was inactive + misleading)"
+                     to enable"
                 );
                 return;
             };
-            tracing::info!(hot_address = %hot_address, "Starting UTXO consolidation scheduler");
+            if btc_rpc_url.is_empty() {
+                tracing::warn!(
+                    "UTXO consolidation scheduler disabled — bitcoin.rpc_url not configured"
+                );
+                return;
+            }
+            let broadcaster = custody_broadcaster::bitcoin::BitcoinBroadcaster::new(
+                &btc_rpc_url,
+                btc_rpc_user,
+                btc_rpc_password,
+            );
+            tracing::info!(hot_address = %hot_address, "Starting UTXO consolidation scheduler + worker");
             let policy = custody_utxo::consolidation::ConsolidationPolicy::default();
             loop {
                 tokio::time::sleep(Duration::from_secs(3600)).await;
 
-                let db_utxos = match consolidation_db.get_unspent_utxos().await {
-                    Ok(u) => u,
-                    Err(e) => {
-                        tracing::warn!(error = %e, "Failed to load UTXOs for consolidation check");
-                        continue;
-                    }
-                };
-                let utxos: Vec<custody_utxo::Utxo> = db_utxos.into_iter().map(|r| {
-                    custody_utxo::Utxo {
-                        id: r.id,
-                        txid: r.txid,
-                        vout: r.vout as u32,
-                        amount_sats: r.amount_sats as u64,
-                        address: r.address,
-                        confirmations: r.confirmations as u64,
-                        locked: r.locked,
-                    }
-                }).collect();
-
-                let fee_rate = 5u64;
-                let now = chrono::Utc::now();
-
-                if !custody_utxo::consolidation::should_consolidate(utxos.len(), fee_rate, &policy, now) {
-                    continue;
+                // --- Scheduler pass: persist new candidate jobs ---
+                if let Err(e) = plan_and_enqueue_consolidation(
+                    &consolidation_db, &hot_address, &policy,
+                ).await {
+                    tracing::warn!(error = %e, "Consolidation planning failed");
                 }
 
-                if let Some(plan) = custody_utxo::consolidation::plan_consolidation(&utxos, fee_rate, &hot_address, &policy) {
-                    tracing::warn!(
-                        inputs = plan.inputs.len(),
-                        total_sats = plan.total_input_sats,
-                        fee_sats = plan.estimated_fee_sats,
-                        output_sats = plan.output_sats,
-                        hot_address = %hot_address,
-                        "UTXO consolidation candidate identified — NOT submitted. Pipeline integration for tx_type=\"consolidation\" is not yet wired; operator must consolidate manually."
-                    );
+                // --- Worker pass: sign + broadcast + track pending jobs ---
+                if let Err(e) = process_consolidation_jobs(
+                    &consolidation_db,
+                    &consolidation_seed,
+                    &broadcaster,
+                ).await {
+                    tracing::warn!(error = %e, "Consolidation worker pass failed");
                 }
             }
         });
@@ -1424,4 +1416,252 @@ async fn bootstrap_first_admin(db: &custody_db::CustodyDb) {
             tracing::error!(error = %e, "Failed to create admin user");
         }
     }
+}
+
+// ─── UTXO consolidation: scheduler + worker helpers ───────────────────────
+//
+// Split into two pure-async fns so each is independently testable and the
+// tokio::spawn loop above stays a thin driver.
+//
+// Scheduler: load unspent UTXOs from the DB, run the policy check, and
+// persist a new `consolidation_jobs` row in state `Received` when a plan
+// is identified. The job carries the exact selected UTXOs, so a restart
+// before the worker signs replays the same inputs instead of racing with
+// the scanner.
+//
+// Worker: advance every job one stage per tick —
+//   Received  → sign via `sign_bitcoin_tx` and store `signed_tx_bytes`
+//   Signed    → broadcast via the BitcoinBroadcaster, record tx_hash
+//   Broadcast → refresh confirmations; promote to Confirmed at 3+
+//
+// Jobs whose inputs reference unknown (non-managed) addresses or whose
+// derivation paths don't match our format are moved to Failed with a
+// diagnostic — we refuse to sign anything we can't verify ownership of.
+
+async fn plan_and_enqueue_consolidation(
+    db: &CustodyDb,
+    hot_address: &str,
+    policy: &custody_utxo::consolidation::ConsolidationPolicy,
+) -> anyhow::Result<()> {
+    let db_utxos = db.get_unspent_utxos().await?;
+    let utxos: Vec<custody_utxo::Utxo> = db_utxos
+        .into_iter()
+        .map(|r| custody_utxo::Utxo {
+            id: r.id,
+            txid: r.txid,
+            vout: r.vout as u32,
+            amount_sats: r.amount_sats as u64,
+            address: r.address,
+            confirmations: r.confirmations as u64,
+            locked: r.locked,
+        })
+        .collect();
+
+    // Conservative planning-time fee rate; actual broadcast may be
+    // adjusted by the operator before signing if mempool pressure
+    // changes. 5 sat/vB stays under policy.max_fee_rate_sat_per_vb (10).
+    let fee_rate: u64 = 5;
+    let now = chrono::Utc::now();
+    if !custody_utxo::consolidation::should_consolidate(utxos.len(), fee_rate, policy, now) {
+        return Ok(());
+    }
+    let Some(plan) =
+        custody_utxo::consolidation::plan_consolidation(&utxos, fee_rate, hot_address, policy)
+    else {
+        return Ok(());
+    };
+
+    let job = custody_db::consolidation_jobs::ConsolidationJob {
+        id: uuid::Uuid::new_v4(),
+        status: custody_db::consolidation_jobs::ConsolidationStatus::Received,
+        destination_address: plan.destination_address.clone(),
+        inputs: plan
+            .inputs
+            .iter()
+            .map(|u| custody_db::consolidation_jobs::ConsolidationInput {
+                txid: u.txid.clone(),
+                vout: u.vout,
+                amount_sats: u.amount_sats,
+                address: u.address.clone(),
+            })
+            .collect(),
+        total_input_sats: plan.total_input_sats,
+        output_sats: plan.output_sats,
+        fee_sats: plan.estimated_fee_sats,
+        fee_rate_sat_per_vb: fee_rate,
+        signed_tx_bytes: None,
+        tx_hash: None,
+        block_height: None,
+        confirmations: 0,
+        error_message: None,
+        created_at: now,
+        signed_at: None,
+        broadcast_at: None,
+        confirmed_at: None,
+    };
+    let job_id = job.id;
+    db.insert_consolidation_job(&job).await?;
+    tracing::info!(
+        job_id = %job_id,
+        inputs = plan.inputs.len(),
+        total_sats = plan.total_input_sats,
+        fee_sats = plan.estimated_fee_sats,
+        output_sats = plan.output_sats,
+        hot_address = %hot_address,
+        "UTXO consolidation job queued",
+    );
+    Ok(())
+}
+
+async fn process_consolidation_jobs(
+    db: &CustodyDb,
+    seed: &SeedBytes,
+    broadcaster: &custody_broadcaster::bitcoin::BitcoinBroadcaster,
+) -> anyhow::Result<()> {
+    use custody_broadcaster::Broadcaster as _;
+    use custody_db::consolidation_jobs::ConsolidationStatus;
+
+    // --- Stage 1: Received → Signed -------------------------------------
+    let pending = db
+        .list_consolidation_jobs_by_status(ConsolidationStatus::Received, 10)
+        .await?;
+    for job in pending {
+        match sign_consolidation_job(db, seed, &job).await {
+            Ok(signed_bytes) => {
+                if let Err(e) = db.mark_consolidation_signed(job.id, &signed_bytes).await {
+                    tracing::warn!(job_id = %job.id, error = %e, "Failed to record signed tx");
+                }
+            }
+            Err(e) => {
+                tracing::error!(job_id = %job.id, error = %e, "Consolidation signing failed");
+                let _ = db
+                    .mark_consolidation_failed(job.id, &format!("sign failed: {e}"))
+                    .await;
+            }
+        }
+    }
+
+    // --- Stage 2: Signed → Broadcast ------------------------------------
+    let signed = db
+        .list_consolidation_jobs_by_status(ConsolidationStatus::Signed, 10)
+        .await?;
+    for job in signed {
+        let Some(bytes) = job.signed_tx_bytes.as_ref() else {
+            tracing::warn!(job_id = %job.id, "Job in Signed state but signed_tx_bytes is NULL — marking failed");
+            let _ = db
+                .mark_consolidation_failed(job.id, "missing signed_tx_bytes")
+                .await;
+            continue;
+        };
+        match broadcaster.broadcast(bytes).await {
+            Ok(tx_hash) => {
+                if let Err(e) = db.mark_consolidation_broadcast(job.id, &tx_hash).await {
+                    tracing::warn!(job_id = %job.id, error = %e, "Failed to record broadcast tx_hash");
+                } else {
+                    tracing::info!(job_id = %job.id, tx_hash = %tx_hash, "Consolidation tx broadcast");
+                }
+            }
+            Err(e) => {
+                tracing::error!(job_id = %job.id, error = %e, "Broadcast failed");
+                // Don't fail permanently — next tick will retry.
+            }
+        }
+    }
+
+    // --- Stage 3: Broadcast → Confirmed ---------------------------------
+    let broadcast_jobs = db
+        .list_consolidation_jobs_by_status(ConsolidationStatus::Broadcast, 20)
+        .await?;
+    for job in broadcast_jobs {
+        let Some(tx_hash) = job.tx_hash.as_deref() else {
+            continue;
+        };
+        match broadcaster.tx_status(tx_hash).await {
+            Ok(Some(status)) if status.success => {
+                let _ = db
+                    .update_consolidation_confirmations(
+                        job.id,
+                        status.block_number,
+                        status.confirmations,
+                        3,
+                    )
+                    .await;
+            }
+            Ok(Some(_)) => {
+                tracing::warn!(job_id = %job.id, tx_hash = %tx_hash, "Consolidation tx failed on-chain");
+                let _ = db
+                    .mark_consolidation_failed(job.id, "tx reverted or failed on-chain")
+                    .await;
+            }
+            Ok(None) => {
+                tracing::debug!(job_id = %job.id, tx_hash = %tx_hash, "Consolidation tx not yet visible");
+            }
+            Err(e) => {
+                tracing::warn!(job_id = %job.id, error = %e, "tx_status query failed");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Build + sign the consolidation transaction for `job`.
+///
+/// Rejects the job if any input's address is not managed by us —
+/// signing an unknown address would require a key we don't have, and
+/// the safer failure is a clear `Err` so the operator sees the
+/// mismatch instead of a cryptic BIP-32 derivation failure.
+async fn sign_consolidation_job(
+    db: &CustodyDb,
+    seed: &SeedBytes,
+    job: &custody_db::consolidation_jobs::ConsolidationJob,
+) -> anyhow::Result<Vec<u8>> {
+    use ::bitcoin::address::Address;
+    use custody_address_factory::chain_and_index_from_path;
+    use custody_signing::bitcoin as btc_signing;
+    use std::str::FromStr;
+
+    // Resolve each input's derivation index by looking up its address
+    // in the `addresses` table.
+    let mut inputs = Vec::with_capacity(job.inputs.len());
+    for input in &job.inputs {
+        let path = db
+            .find_derivation_path_for_btc_address(&input.address)
+            .await?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "address {} is not managed by this custody instance — refusing to sign",
+                    input.address
+                )
+            })?;
+        let (_chain, index) = chain_and_index_from_path(&path).ok_or_else(|| {
+            anyhow::anyhow!("unrecognised derivation path `{path}` for {}", input.address)
+        })?;
+        inputs.push(btc_signing::BtcTxInput {
+            txid: input.txid.clone(),
+            vout: input.vout,
+            amount_sats: input.amount_sats,
+            derivation_index: index,
+        });
+    }
+
+    // Destination script: parse the configured hot address and produce
+    // its scriptPubKey verbatim — no coin selection, no change output;
+    // a consolidation is always a single-output P2WPKH tx.
+    let addr = Address::from_str(&job.destination_address)
+        .map_err(|e| anyhow::anyhow!("hot address parse: {e}"))?
+        .assume_checked();
+    let script_pubkey = addr.script_pubkey();
+
+    let outputs = vec![btc_signing::BtcTxOutput {
+        script_pubkey,
+        amount_sats: job.output_sats,
+    }];
+
+    let params = btc_signing::BtcTxParams {
+        inputs,
+        outputs,
+        rbf: true,
+    };
+
+    btc_signing::sign_bitcoin_tx(&seed.0, &params)
 }

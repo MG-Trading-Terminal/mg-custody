@@ -50,6 +50,25 @@ impl CustodyDb {
         Ok(())
     }
 
+    /// Look up a Bitcoin address in the `addresses` table and return
+    /// the stored derivation-path string. The consolidation worker
+    /// uses this to resolve each UTXO's signing key; `None` means the
+    /// address is unknown to us (e.g., a Bitcoin Core wallet imported
+    /// it manually) and we must refuse to sign.
+    pub async fn find_derivation_path_for_btc_address(
+        &self,
+        address: &str,
+    ) -> anyhow::Result<Option<String>> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT derivation_path FROM addresses
+             WHERE address = $1 AND chain = 'bitcoin'",
+        )
+        .bind(address)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(p,)| p))
+    }
+
     /// Find the user's deposit address for the native asset of `chain`.
     ///
     /// Used by the NFT transfer builder: ERC-721/1155 balances live at
