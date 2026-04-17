@@ -103,8 +103,12 @@ async fn list_safes(
 // POST /v1/safe-wallets/{address}/transactions
 // ---------------------------------------------------------------------------
 
+/// Proposing a Safe transaction is an org-level operation: the Safe is a
+/// shared resource (M-of-N onchain multisig) and we cannot map a caller's
+/// DB user_id to the onchain `owners` list. Gate at Admin level; dedicated
+/// Safe-owner membership (onchain-address ↔ user_id) is a separate migration.
 async fn propose_transaction(
-    _auth: RequireEditor,
+    _auth: RequireAdmin,
     State(state): State<AppState>,
     Path(address): Path<String>,
     Json(req): Json<ProposeSafeTxRequest>,

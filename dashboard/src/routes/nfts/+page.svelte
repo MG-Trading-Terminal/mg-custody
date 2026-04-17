@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
+	import { t, locale } from '$lib/i18n';
 
 	interface CustodiedNft {
 		id: string;
@@ -144,7 +145,7 @@
 </script>
 
 <div class="page-header">
-	<h1>NFT Custody</h1>
+	<h1>{$locale, t('nfts.title')}</h1>
 	<button class="btn-primary" onclick={() => (showRegister = true)}>+ Register NFT</button>
 </div>
 

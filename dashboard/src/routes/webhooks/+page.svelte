@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
+	import { t, locale } from '$lib/i18n';
 
 	interface WebhookEndpoint {
 		id: string;
@@ -227,24 +228,24 @@
 	onMount(loadAll);
 </script>
 
-<h1>Webhook Management</h1>
+<h1>{$locale, t('webhooks.title')}</h1>
 
 {#if metrics}
 <div class="metrics-bar">
 	<div class="metric">
-		<span class="label">Total Deliveries</span>
+		<span class="label">{$locale, t('webhooks.stat_total')}</span>
 		<span class="val">{metrics.total_deliveries.toLocaleString()}</span>
 	</div>
 	<div class="metric">
-		<span class="label">Success Rate</span>
+		<span class="label">{$locale, t('webhooks.stat_success_rate')}</span>
 		<span class="val {successBadge(metrics.overall_success_rate_pct)}">{metrics.overall_success_rate_pct.toFixed(1)}%</span>
 	</div>
 	<div class="metric">
-		<span class="label">Success</span>
+		<span class="label">{$locale, t('webhooks.stat_success')}</span>
 		<span class="val green">{metrics.total_success.toLocaleString()}</span>
 	</div>
 	<div class="metric">
-		<span class="label">Failed</span>
+		<span class="label">{$locale, t('webhooks.stat_failed')}</span>
 		<span class="val {metrics.total_failure > 0 ? 'red' : 'muted'}">{metrics.total_failure.toLocaleString()}</span>
 	</div>
 </div>
@@ -252,24 +253,24 @@
 
 <section>
 	<div class="section-header">
-		<h2>Endpoints</h2>
-		<button class="btn-primary" onclick={openCreate}>+ Add Endpoint</button>
+		<h2>{$locale, t('webhooks.endpoints')}</h2>
+		<button class="btn-primary" onclick={openCreate}>+ {$locale, t('webhooks.add')}</button>
 	</div>
 	<div class="card">
 		{#if loading}
 			<p class="muted">Loading…</p>
 		{:else if endpoints.length === 0}
-			<p class="muted">No webhook endpoints configured.</p>
+			<p class="muted">{$locale, t('webhooks.no_endpoints')}</p>
 		{:else}
 			<div class="table-wrap"><table>
 				<thead>
 					<tr>
-						<th>URL</th>
-						<th>Status</th>
-						<th>Success Rate</th>
-						<th>Avg Latency</th>
-						<th>Last Delivery</th>
-						<th>Actions</th>
+						<th>{$locale, t('webhooks.col_url')}</th>
+						<th>{$locale, t('webhooks.col_status')}</th>
+						<th>{$locale, t('webhooks.col_rate')}</th>
+						<th>{$locale, t('webhooks.col_latency')}</th>
+						<th>{$locale, t('webhooks.col_last')}</th>
+						<th>{$locale, t('webhooks.col_actions')}</th>
 					</tr>
 				</thead>
 				<tbody>
@@ -281,7 +282,7 @@
 							</td>
 							<td>
 								<span class="badge {ep.enabled ? 'green' : 'red'}">
-									{ep.enabled ? 'active' : 'paused'}
+									{ep.enabled ? ($locale, t('webhooks.state_active')) : ($locale, t('webhooks.state_paused'))}
 								</span>
 							</td>
 							<td>
@@ -292,16 +293,16 @@
 							<td class="muted">{ep.avg_latency_ms != null ? `${Math.round(ep.avg_latency_ms)}ms` : '—'}</td>
 							<td class="muted">{fmt(ep.last_delivery_at)}</td>
 							<td class="actions">
-								<button class="btn-sm" onclick={() => loadDeliveries(ep.id)}>Deliveries</button>
+								<button class="btn-sm" onclick={() => loadDeliveries(ep.id)}>{$locale, t('webhooks.deliveries')}</button>
 								<button
 									class="btn-sm"
 									onclick={() => testWebhook(ep.id)}
 									disabled={testingId === ep.id}
 								>
-									{testingId === ep.id ? 'Testing…' : 'Test'}
+									{testingId === ep.id ? ($locale, t('webhooks.testing')) : ($locale, t('webhooks.test'))}
 								</button>
-								<button class="btn-sm" onclick={() => openEdit(ep)}>Edit</button>
-								<button class="btn-sm btn-danger" onclick={() => deleteEndpoint(ep.id)}>Delete</button>
+								<button class="btn-sm" onclick={() => openEdit(ep)}>{$locale, t('webhooks.edit')}</button>
+								<button class="btn-sm btn-danger" onclick={() => deleteEndpoint(ep.id)}>{$locale, t('webhooks.delete')}</button>
 							</td>
 						</tr>
 						{#if testResult && testingId === null && selectedId === null && ep.id === endpoints[endpoints.length - 1]?.id}
@@ -329,13 +330,13 @@
 {#if selectedId && deliveries.length > 0}
 <section>
 	<div class="section-header">
-		<h2>Delivery Log</h2>
+		<h2>{$locale, t('webhooks.delivery_log')}</h2>
 		<button class="btn-sm" onclick={() => { selectedId = null; deliveries = []; }}>Close</button>
 	</div>
 	<div class="card">
 		<div class="table-wrap"><table>
 			<thead>
-				<tr><th>Event</th><th>Status</th><th>Attempts</th><th>Created</th><th>Delivered</th><th>Error</th></tr>
+				<tr><th>Event</th><th>{$locale, t('webhooks.col_status')}</th><th>Attempts</th><th>Created</th><th>Delivered</th><th>Error</th></tr>
 			</thead>
 			<tbody>
 				{#each deliveries as d}
@@ -361,7 +362,7 @@
 <!-- Retry Queue section -->
 <section class="retry-section">
 	<div class="section-header">
-		<h2>Retry Queue</h2>
+		<h2>{$locale, t('webhooks.retry_queue')}</h2>
 		<button class="btn-sm" onclick={loadRetryQueue} disabled={retryQueueLoading}>
 			{retryQueueLoading ? 'Refreshing…' : 'Refresh'}
 		</button>
@@ -370,7 +371,7 @@
 	{#if retryQueueLoading}
 		<div class="card"><p class="muted">Loading retry queue…</p></div>
 	{:else if retryQueue.length === 0}
-		<div class="card"><p class="muted">No pending or failed deliveries. All webhooks are healthy.</p></div>
+		<div class="card"><p class="muted">{$locale, t('webhooks.no_retry')}</p></div>
 	{:else}
 		{#each retryQueue as entry}
 			<div class="card retry-card">
@@ -389,7 +390,7 @@
 						onclick={() => retryNow(entry.endpoint_id)}
 						disabled={retryingId === entry.endpoint_id}
 					>
-						{retryingId === entry.endpoint_id ? 'Retrying…' : 'Retry Now'}
+						{retryingId === entry.endpoint_id ? ($locale, t('webhooks.retrying')) : ($locale, t('webhooks.retry_now'))}
 					</button>
 				</div>
 
@@ -445,7 +446,7 @@
 			<input type="text" bind:value={formDesc} placeholder="Optional description" />
 		</label>
 		<label>
-			Event Filter <span class="muted">(comma-separated; empty = all)</span>
+			{$locale, t('webhooks.event_filter')} <span class="muted">{$locale, t('webhooks.filter_hint')}</span>
 			<input type="text" bind:value={formEventFilter}
 				placeholder="deposit_confirmed, withdrawal_broadcast" />
 		</label>

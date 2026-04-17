@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { api } from '$lib/api';
+	import { t, locale } from '$lib/i18n';
 
 	let step = $state<'intro' | 'show' | 'verify' | 'done'>('intro');
 	let mnemonic = $state('');
@@ -66,7 +67,7 @@
 
 <svelte:head><title>Backup — MG Custody</title></svelte:head>
 
-<h1>Wallet Backup</h1>
+<h1>{$locale, t('backup.title')}</h1>
 
 {#if error}
 	<div class="card err">{error}</div>
@@ -81,29 +82,29 @@
 				<path d="M20 25l-4-4 2-2 2 2 6-6 2 2-8 8z" fill="var(--accent)"/>
 			</svg>
 		</div>
-		<h2>Protect Your Funds</h2>
-		<p>Your wallet is secured by a <strong>24-word recovery phrase</strong>. If you lose access to this server, these words are the ONLY way to recover your funds.</p>
+		<h2>{$locale, t('backup.welcome')}</h2>
+		<p>{$locale, t('backup.welcome_sub')}</p>
 
 		<div class="methods">
 			<div class="method">
 				<span class="method-icon">1</span>
 				<div>
-					<strong>24-Word Phrase</strong>
-					<p>Write down and store in a safe (fireproof). Never photograph or store digitally.</p>
+					<strong>{$locale, t('backup.methods.m1')}</strong>
+					<p>{$locale, t('backup.methods.m1_sub')}</p>
 				</div>
 			</div>
 			<div class="method">
 				<span class="method-icon">2</span>
 				<div>
-					<strong>Shamir Shares (3-of-5)</strong>
+					<strong>{$locale, t('backup.methods.m2')}</strong>
 					<p>Split backup across 5 trusted people. Any 3 can restore. Use CLI: <code>custody-seed backup</code></p>
 				</div>
 			</div>
 			<div class="method">
 				<span class="method-icon">3</span>
 				<div>
-					<strong>Encrypted File</strong>
-					<p>Already active — seed.enc on server. Protected by AES-256-GCM + PBKDF2.</p>
+					<strong>{$locale, t('backup.methods.m3')}</strong>
+					<p>{$locale, t('backup.methods.m3_sub')}</p>
 				</div>
 			</div>
 		</div>
@@ -120,15 +121,15 @@
 		{/if}
 
 		<button class="btn-primary" onclick={showMnemonic} disabled={loading}>
-			{loading ? 'Loading...' : 'Show Recovery Phrase'}
+			{loading ? ($locale, t('backup.loading')) : ($locale, t('backup.show_phrase'))}
 		</button>
 		<p class="warn-text">Only view in a private, secure environment. Never share your screen.</p>
 	</div>
 
 {:else if step === 'show'}
 	<div class="card mnemonic-card">
-		<h2>Your 24-Word Recovery Phrase</h2>
-		<p class="warn-box">Write these words down on paper. Do NOT screenshot or copy digitally.</p>
+		<h2>{$locale, t('backup.phrase_title')}</h2>
+		<p class="warn-box">{$locale, t('backup.phrase_warn')}</p>
 
 		<div class="word-grid">
 			{#each words as word, i}
@@ -140,35 +141,35 @@
 		</div>
 
 		<div class="verify-addr">
-			<span>Verification address (ETH):</span>
+			<span>{$locale, t('backup.verification')}</span>
 			<code>{verifyAddress}</code>
 		</div>
 
 		<div class="actions">
-			<button class="btn-primary" onclick={goToVerify}>I've Written It Down</button>
+			<button class="btn-primary" onclick={goToVerify}>{$locale, t('backup.written_down')}</button>
 		</div>
 	</div>
 
 {:else if step === 'verify'}
 	<div class="card">
-		<h2>Verify Your Backup</h2>
-		<p>Enter your 24 words to confirm you've saved them correctly:</p>
+		<h2>{$locale, t('backup.verify_title')}</h2>
+		<p>{$locale, t('backup.verify_sub')}</p>
 
 		<textarea
 			class="verify-textarea"
 			bind:value={verifyInput}
-			placeholder="Enter all 24 words separated by spaces..."
+			placeholder={($locale, t('backup.verify_placeholder'))}
 			rows="4"
 		></textarea>
 
 		{#if verifyResult === false}
-			<p class="err-text">Phrase does not match. Please try again.</p>
+			<p class="err-text">{$locale, t('backup.mismatch')}</p>
 		{/if}
 
 		<div class="actions">
-			<button class="btn-secondary" onclick={() => { step = 'show'; verifyResult = null; }}>Show Again</button>
+			<button class="btn-secondary" onclick={() => { step = 'show'; verifyResult = null; }}>{$locale, t('backup.show_again')}</button>
 			<button class="btn-primary" onclick={verifyPhrase} disabled={loading || !verifyInput.trim()}>
-				{loading ? 'Verifying...' : 'Verify'}
+				{loading ? ($locale, t('backup.verifying')) : ($locale, t('backup.verify_btn'))}
 			</button>
 		</div>
 	</div>
@@ -182,15 +183,15 @@
 				<path d="M26 34l-6-6 3-3 3 3 11-11 3 3-14 14z" fill="var(--green)"/>
 			</svg>
 		</div>
-		<h2>Backup Verified!</h2>
-		<p>Your recovery phrase has been verified. Your funds are protected.</p>
+		<h2>{$locale, t('backup.done_title')}</h2>
+		<p>{$locale, t('backup.done_sub')}</p>
 		<div class="checklist">
-			<div class="check-item"><span class="check">&#10003;</span> 24-word phrase written down</div>
-			<div class="check-item"><span class="check">&#10003;</span> Phrase verified successfully</div>
-			<div class="check-item"><span class="check">&#10003;</span> Encrypted seed file active</div>
+			<div class="check-item"><span class="check">&#10003;</span> {$locale, t('backup.done_phrase')}</div>
+			<div class="check-item"><span class="check">&#10003;</span> {$locale, t('backup.done_verify')}</div>
+			<div class="check-item"><span class="check">&#10003;</span> {$locale, t('backup.done_encrypted')}</div>
 		</div>
 		<p class="next-step">Next: Run <code>custody-seed backup</code> to create Shamir shares for organizational backup.</p>
-		<a href="/" class="btn-primary">Back to Dashboard</a>
+		<a href="/" class="btn-primary">{$locale, t('backup.back_home')}</a>
 	</div>
 {/if}
 
