@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import { icon } from '$lib/icons/ui';
+	import { t, locale } from '$lib/i18n';
 
 	interface ProfileResp {
 		user_id: string;
@@ -87,7 +88,7 @@
 		totpLoading = true;
 		try {
 			await api.post('/v1/auth/totp/verify', { code: totpCode });
-			totpOk = 'Two-factor authentication enabled.';
+			totpOk = t('totp.enabled_msg');
 			totpStage = 'enabled';
 			totpEnabled = true;
 			totpCode = '';
@@ -114,7 +115,7 @@
 			totpStage = 'idle';
 			totpSetup = null;
 			disableCode = '';
-			totpOk = 'Two-factor authentication disabled.';
+			totpOk = t('totp.disabled_msg');
 		} catch (e) {
 			totpError = e instanceof Error ? e.message : 'Unable to disable — code rejected';
 			disableCode = '';
@@ -175,7 +176,7 @@
 				current_password: pwCurrent,
 				new_password: pwNew,
 			});
-			pwOk = 'Password updated. Existing sessions have been revoked.';
+			pwOk = t('profile.password_updated');
 			pwCurrent = '';
 			pwNew = '';
 			pwConfirm = '';
@@ -234,8 +235,8 @@
 
 <div class="page-header">
 	<div>
-		<h1>Profile</h1>
-		<p class="page-subtitle">Your account, security keys, and active sessions.</p>
+		<h1>{$locale, t('profile.title')}</h1>
+		<p class="page-subtitle">{$locale, t('profile.subtitle')}</p>
 	</div>
 </div>
 
@@ -257,11 +258,11 @@
 				<span class="role-line">
 					<span class="role-chip">{profile.role}</span>
 					<span class="muted">·</span>
-					<span class="muted">Member since {fmtDate(profile.created_at)}</span>
+					<span class="muted">{$locale, t('profile.member_since')} {fmtDate(profile.created_at)}</span>
 				</span>
 			</div>
 			<div class="account-last">
-				<span class="kpi-label">Last login</span>
+				<span class="kpi-label">{$locale, t('profile.last_login')}</span>
 				<span class="mono">{fmtRelative(profile.last_login)}</span>
 			</div>
 		</div>
@@ -270,21 +271,21 @@
 			<div class="stat">
 				<span class="stat-icon">{@html icon('key', 16)}</span>
 				<div>
-					<span class="stat-label">Security keys</span>
+					<span class="stat-label">{$locale, t('profile.stat_keys')}</span>
 					<span class="stat-value mono">{profile.fido2_credentials}</span>
 				</div>
 			</div>
 			<div class="stat">
 				<span class="stat-icon">{@html icon('shield-check', 16)}</span>
 				<div>
-					<span class="stat-label">2FA</span>
+					<span class="stat-label">{$locale, t('profile.stat_2fa')}</span>
 					<span class="stat-value">
 						{#if totpEnabled}
-							TOTP enabled
+							{$locale, t('profile.totp_enabled')}
 						{:else if profile.fido2_credentials > 0}
-							FIDO2 enabled
+							{$locale, t('profile.fido2_enabled')}
 						{:else}
-							Password only
+							{$locale, t('profile.mfa_disabled')}
 						{/if}
 					</span>
 				</div>
@@ -292,7 +293,7 @@
 			<div class="stat">
 				<span class="stat-icon">{@html icon('activity', 16)}</span>
 				<div>
-					<span class="stat-label">Active sessions</span>
+					<span class="stat-label">{$locale, t('profile.stat_sessions')}</span>
 					<span class="stat-value mono">{sessionsLoading ? '…' : sessions.length}</span>
 				</div>
 			</div>
@@ -303,8 +304,8 @@
 	<section class="card">
 		<header class="card-header">
 			<div>
-				<h2>Two-factor authentication (TOTP)</h2>
-				<p class="card-sub">Required for Tier 2+ withdrawal approvals. Compatible with Google Authenticator, Authy, 1Password, or any RFC 6238 app.</p>
+				<h2>{$locale, t('totp.title')}</h2>
+				<p class="card-sub">{$locale, t('totp.subtitle')}</p>
 			</div>
 			<span class="card-icon">{@html icon('shield', 16)}</span>
 		</header>
@@ -328,16 +329,16 @@
 					<div class="totp-state">
 						<span class="state-dot dim"></span>
 						<div>
-							<span class="state-title">Not enabled</span>
-							<span class="muted tiny">Your account is protected by password only.</span>
+							<span class="state-title">{$locale, t('totp.not_enabled')}</span>
+							<span class="muted tiny">{$locale, t('totp.not_enabled_sub')}</span>
 						</div>
 					</div>
 					<button class="btn btn-primary" onclick={startTotpSetup} disabled={totpLoading}>
 						{#if totpLoading}
-							<span class="spinner"></span><span>Starting…</span>
+							<span class="spinner"></span><span>{$locale, t('totp.starting')}</span>
 						{:else}
 							<span>{@html icon('shield-check', 14)}</span>
-							<span>Enable TOTP</span>
+							<span>{$locale, t('totp.enable')}</span>
 						{/if}
 					</button>
 				</div>
@@ -347,12 +348,12 @@
 				<div class="totp-step">
 					<span class="step-num">1</span>
 					<div class="step-body">
-						<h3>Add to your authenticator app</h3>
-						<p class="muted">Open your authenticator and add a new account. Use the URI below or enter the secret manually.</p>
+						<h3>{$locale, t('totp.step1')}</h3>
+						<p class="muted">{$locale, t('totp.step1_sub')}</p>
 
 						<div class="secret-row">
 							<div class="field">
-								<label>Setup key (Base32)</label>
+								<label>{$locale, t('totp.setup_key')}</label>
 								<div class="copy-field">
 									<code class="mono">{totpSetup.secret_base32}</code>
 									<button class="icon-btn" onclick={() => copyText(totpSetup!.secret_base32)} title="Copy">
@@ -361,7 +362,7 @@
 								</div>
 							</div>
 							<div class="field">
-								<label>Provisioning URI</label>
+								<label>{$locale, t('totp.provisioning_uri')}</label>
 								<div class="copy-field">
 									<code class="mono uri-val">{totpSetup.provisioning_uri}</code>
 									<button class="icon-btn" onclick={() => copyText(totpSetup!.provisioning_uri)} title="Copy">
@@ -376,7 +377,7 @@
 				<div class="totp-step">
 					<span class="step-num">2</span>
 					<div class="step-body">
-						<h3>Save your backup codes</h3>
+						<h3>{$locale, t('totp.step2')}</h3>
 						<p class="muted">Each code works once if you lose access to your authenticator. Store them somewhere safe — they are shown <strong>only now</strong>.</p>
 
 						<div class="backup-grid">
@@ -391,11 +392,11 @@
 						<div class="backup-actions">
 							<button class="btn btn-ghost" onclick={() => copyText(totpSetup!.backup_codes.join('\n'))}>
 								<span>{@html icon('copy', 14)}</span>
-								<span>Copy all</span>
+								<span>{$locale, t('totp.copy_all')}</span>
 							</button>
 							<label class="ack-row">
 								<input type="checkbox" bind:checked={totpBackupAck} />
-								<span>I have stored these codes in a safe place.</span>
+								<span>{$locale, t('totp.ack_stored')}</span>
 							</label>
 						</div>
 					</div>
@@ -404,7 +405,7 @@
 				<div class="totp-actions">
 					<button class="btn btn-ghost" onclick={cancelSetup}>Cancel</button>
 					<button class="btn btn-primary" onclick={acknowledgeBackup} disabled={!totpBackupAck}>
-						<span>Continue to verification</span>
+						<span>{$locale, t('totp.continue_verify')}</span>
 						<span>{@html icon('chevron-right', 14)}</span>
 					</button>
 				</div>
@@ -414,8 +415,8 @@
 				<div class="totp-step">
 					<span class="step-num">3</span>
 					<div class="step-body">
-						<h3>Confirm with a code</h3>
-						<p class="muted">Enter the current 6-digit code from your authenticator to activate TOTP.</p>
+						<h3>{$locale, t('totp.step3')}</h3>
+						<p class="muted">{$locale, t('totp.step3_sub')}</p>
 
 						<div class="code-input-wrap">
 							<input
@@ -436,10 +437,10 @@
 					<button class="btn btn-ghost" onclick={cancelSetup}>Cancel</button>
 					<button class="btn btn-primary" onclick={verifyTotpSetup} disabled={totpLoading || totpCode.length !== 6}>
 						{#if totpLoading}
-							<span class="spinner"></span><span>Activating…</span>
+							<span class="spinner"></span><span>{$locale, t('totp.activating')}</span>
 						{:else}
 							<span>{@html icon('shield-check', 14)}</span>
-							<span>Activate TOTP</span>
+							<span>{$locale, t('totp.activate')}</span>
 						{/if}
 					</button>
 				</div>
@@ -450,28 +451,28 @@
 					<div class="totp-state">
 						<span class="state-dot ok"></span>
 						<div>
-							<span class="state-title">Active</span>
-							<span class="muted tiny">Sign-in requires a code from your authenticator app.</span>
+							<span class="state-title">{$locale, t('totp.active')}</span>
+							<span class="muted tiny">{$locale, t('totp.active_sub')}</span>
 						</div>
 					</div>
 
 					<details class="disable-wrap">
-						<summary>Disable TOTP</summary>
+						<summary>{$locale, t('totp.disable')}</summary>
 						<div class="disable-body">
-							<p class="muted tiny">Enter a current 6-digit code or one of your 8+ character backup codes to confirm.</p>
+							<p class="muted tiny">{$locale, t('totp.disable_sub')}</p>
 							<div class="disable-row">
 								<input
 									class="code-input mono sm"
 									type="text"
 									bind:value={disableCode}
-									placeholder="TOTP or backup code"
+									placeholder={($locale, t('totp.disable_placeholder'))}
 									maxlength="16"
 								/>
 								<button class="btn btn-danger-ghost" onclick={disableTotp} disabled={totpLoading || !disableCode}>
 									{#if totpLoading}
 										<span class="spinner small"></span><span>Working…</span>
 									{:else}
-										<span>Disable</span>
+										<span>{$locale, t('totp.disable_btn')}</span>
 									{/if}
 								</button>
 							</div>
@@ -487,8 +488,8 @@
 		<section class="card">
 			<header class="card-header">
 				<div>
-					<h2>Change password</h2>
-					<p class="card-sub">Must be at least 12 characters. Sessions are revoked on change.</p>
+					<h2>{$locale, t('profile.change_password')}</h2>
+					<p class="card-sub">{$locale, t('profile.change_password_sub')}</p>
 				</div>
 				<span class="card-icon">{@html icon('lock', 16)}</span>
 			</header>
@@ -508,7 +509,7 @@
 				{/if}
 
 				<div class="field">
-					<label for="pw-current">Current password</label>
+					<label for="pw-current">{$locale, t('profile.current_password')}</label>
 					<div class="input-wrap">
 						<span class="input-icon">{@html icon('lock', 14)}</span>
 						<input id="pw-current" type="password" bind:value={pwCurrent} autocomplete="current-password" />
@@ -516,7 +517,7 @@
 				</div>
 
 				<div class="field">
-					<label for="pw-new">New password</label>
+					<label for="pw-new">{$locale, t('profile.new_password')}</label>
 					<div class="input-wrap">
 						<span class="input-icon">{@html icon('key', 14)}</span>
 						<input
@@ -538,7 +539,7 @@
 				</div>
 
 				<div class="field">
-					<label for="pw-confirm">Confirm new password</label>
+					<label for="pw-confirm">{$locale, t('profile.confirm_new')}</label>
 					<div class="input-wrap">
 						<span class="input-icon">{@html icon('key', 14)}</span>
 						<input id="pw-confirm" type="password" bind:value={pwConfirm} autocomplete="new-password" />
@@ -548,9 +549,9 @@
 				<button type="submit" class="btn btn-primary" disabled={pwLoading}>
 					{#if pwLoading}
 						<span class="spinner"></span>
-						<span>Updating…</span>
+						<span>{$locale, t('profile.updating')}</span>
 					{:else}
-						<span>Update password</span>
+						<span>{$locale, t('profile.update_password')}</span>
 					{/if}
 				</button>
 			</form>
@@ -560,8 +561,8 @@
 		<section class="card">
 			<header class="card-header">
 				<div>
-					<h2>Security keys</h2>
-					<p class="card-sub">Hardware authenticators registered to this account.</p>
+					<h2>{$locale, t('profile.security_keys')}</h2>
+					<p class="card-sub">{$locale, t('profile.security_keys_sub')}</p>
 				</div>
 				<span class="card-icon">{@html icon('shield-check', 16)}</span>
 			</header>
@@ -570,10 +571,10 @@
 				{#if profile.fido2_credentials === 0}
 					<div class="empty-inline">
 						<span class="empty-icon">{@html icon('key', 24)}</span>
-						<p class="empty-title">No security keys registered</p>
-						<p class="empty-sub">Add a hardware key to enable FIDO2 two-factor authentication.</p>
+						<p class="empty-title">{$locale, t('profile.no_keys')}</p>
+						<p class="empty-sub">{$locale, t('profile.no_keys_sub')}</p>
 						<a href="/settings" class="btn btn-secondary">
-							<span>Register a key</span>
+							<span>{$locale, t('profile.register_key')}</span>
 							<span>{@html icon('chevron-right', 14)}</span>
 						</a>
 					</div>
@@ -583,7 +584,7 @@
 							<span class="mono key-count-num">{profile.fido2_credentials}</span>
 							<span class="key-count-label">{profile.fido2_credentials === 1 ? 'key' : 'keys'} registered</span>
 						</div>
-						<a href="/settings" class="btn btn-ghost">Manage keys {@html icon('chevron-right', 14)}</a>
+						<a href="/settings" class="btn btn-ghost">{$locale, t('profile.manage_keys')} {@html icon('chevron-right', 14)}</a>
 					</div>
 				{/if}
 			</div>
@@ -594,8 +595,8 @@
 	<section class="card">
 		<header class="card-header">
 			<div>
-				<h2>Active sessions</h2>
-				<p class="card-sub">Devices currently signed in to your account.</p>
+				<h2>{$locale, t('profile.sessions')}</h2>
+				<p class="card-sub">{$locale, t('profile.sessions_sub')}</p>
 			</div>
 			<span class="badge-count">{sessions.length}</span>
 		</header>
@@ -617,18 +618,18 @@
 						<span class="session-mark">{@html icon('activity', 14)}</span>
 						<div class="session-main">
 							<span class="session-ip mono">{s.ip_address ?? s.ip ?? 'unknown'}</span>
-							<span class="session-ua">{s.user_agent ?? 'Unknown device'}</span>
+							<span class="session-ua">{s.user_agent ?? ($locale, t('profile.unknown_device'))}</span>
 						</div>
 						<div class="session-meta">
-							<span class="session-time">Started {fmtRelative(s.created_at)}</span>
-							<span class="session-time muted">Active {fmtRelative(s.last_seen_at)}</span>
+							<span class="session-time">{$locale, t('profile.started')} {fmtRelative(s.created_at)}</span>
+							<span class="session-time muted">{$locale, t('profile.active_for')} {fmtRelative(s.last_seen_at)}</span>
 						</div>
 						<button
 							class="btn btn-danger-ghost"
 							onclick={() => revokeSession(sessionKey(s))}
 							disabled={revoking === sessionKey(s)}
 						>
-							{revoking === sessionKey(s) ? 'Revoking…' : 'Revoke'}
+							{revoking === sessionKey(s) ? ($locale, t('profile.revoking')) : ($locale, t('profile.revoke'))}
 						</button>
 					</li>
 				{/each}

@@ -3,6 +3,7 @@
 	import { api } from '$lib/api';
 	import { tokenIcon, chainIcon } from '$lib/icons/tokens';
 	import { icon } from '$lib/icons/ui';
+	import { t, locale } from '$lib/i18n';
 
 	interface Tx {
 		id: string;
@@ -169,8 +170,8 @@
 <!-- ═════════════════ Header ═════════════════ -->
 <div class="page-head">
 	<div>
-		<h1>Transactions</h1>
-		<p class="page-sub">Complete ledger of on-chain and internal movements across all networks.</p>
+		<h1>{$locale, t('tx.title')}</h1>
+		<p class="page-sub">{$locale, t('tx.subtitle')}</p>
 	</div>
 	<div class="head-actions">
 		<button class="btn btn-ghost" onclick={load} title="Refresh">
@@ -191,7 +192,7 @@
 		<input
 			type="text"
 			bind:value={filterSearch}
-			placeholder="Search by tx hash, address, or reference…"
+			placeholder={($locale, t('tx.search_hint'))}
 			onkeydown={(e) => { if (e.key === 'Enter') load(); }}
 		/>
 	</div>
@@ -242,7 +243,7 @@
 <section class="panel">
 	<header class="panel-head">
 		<div>
-			<h2>Ledger</h2>
+			<h2>{$locale, t('tx.ledger')}</h2>
 			<p class="panel-sub">{loading ? 'Loading…' : `${txs.length} transaction${txs.length === 1 ? '' : 's'}`}</p>
 		</div>
 		<div class="head-stats">
@@ -262,8 +263,8 @@
 		<div class="panel-empty">
 			<span class="empty-mark">{@html icon('transactions', 22)}</span>
 			<div>
-				<p class="empty-title">No transactions match these filters</p>
-				<p class="muted">Adjust filters above or clear them to see all movements.</p>
+				<p class="empty-title">{$locale, t('tx.no_match')}</p>
+				<p class="muted">{$locale, t('tx.no_match_sub')}</p>
 			</div>
 			{#if activeFilters > 0}
 				<button class="btn btn-secondary" onclick={resetFilters}>Clear filters</button>
@@ -273,14 +274,14 @@
 		<table class="data-table">
 			<thead>
 				<tr>
-					<th>Type</th>
-					<th>Asset</th>
-					<th>Network</th>
-					<th class="num">Amount</th>
-					<th class="num">Value</th>
-					<th>Reference</th>
-					<th>Status</th>
-					<th class="num">Time</th>
+					<th>{$locale, t('tx.type')}</th>
+					<th>{$locale, t('tx.asset')}</th>
+					<th>{$locale, t('tx.network')}</th>
+					<th class="num">{$locale, t('tx.amount')}</th>
+					<th class="num">{$locale, t('tx.value')}</th>
+					<th>{$locale, t('tx.reference')}</th>
+					<th>{$locale, t('tx.status')}</th>
+					<th class="num">{$locale, t('tx.time')}</th>
 					<th></th>
 				</tr>
 			</thead>
@@ -325,7 +326,7 @@
 						<span class="spinner sm"></span>
 						<span>Loading…</span>
 					{:else}
-						<span>Load more</span>
+						<span>{$locale, t('tx.load_more')}</span>
 						<span>{@html icon('chevron-down', 14)}</span>
 					{/if}
 				</button>
@@ -365,22 +366,22 @@
 		<div class="drawer-body">
 			<dl class="detail-list">
 				<div>
-					<dt>Status</dt>
+					<dt>{$locale, t('tx.status')}</dt>
 					<dd><span class="status-pill {statusTone(selectedTx.status)}">{selectedTx.status}</span></dd>
 				</div>
 				<div>
-					<dt>Network</dt>
+					<dt>{$locale, t('tx.network')}</dt>
 					<dd class="capitalize">
 						<span class="token-cell">{@html chainIcon(selectedTx.chain, 16)} {selectedTx.chain}</span>
 					</dd>
 				</div>
 				<div>
-					<dt>Timestamp</dt>
+					<dt>{$locale, t('tx.timestamp')}</dt>
 					<dd>{fmtDateLong(selectedTx.created_at)}</dd>
 				</div>
 				{#if selectedTx.destination}
 					<div>
-						<dt>Destination</dt>
+						<dt>{$locale, t('tx.destination')}</dt>
 						<dd>
 							<div class="copyable">
 								<code class="mono">{selectedTx.destination}</code>
@@ -393,7 +394,7 @@
 				{/if}
 				{#if selectedTx.tx_hash}
 					<div>
-						<dt>Transaction hash</dt>
+						<dt>{$locale, t('tx.hash')}</dt>
 						<dd>
 							<div class="copyable">
 								<code class="mono">{selectedTx.tx_hash}</code>
@@ -405,7 +406,7 @@
 					</div>
 				{/if}
 				<div>
-					<dt>Custody reference</dt>
+					<dt>{$locale, t('tx.custody_ref')}</dt>
 					<dd>
 						<div class="copyable">
 							<code class="mono">{selectedTx.id}</code>
@@ -425,7 +426,7 @@
 					rel="noopener"
 				>
 					<span>{@html icon('external', 14)}</span>
-					<span>View on block explorer</span>
+					<span>{$locale, t('tx.explorer')}</span>
 				</a>
 			{/if}
 		</div>

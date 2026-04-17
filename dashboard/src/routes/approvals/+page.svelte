@@ -3,6 +3,7 @@
 	import { api } from '$lib/api';
 	import { tokenIcon, chainIcon } from '$lib/icons/tokens';
 	import { icon } from '$lib/icons/ui';
+	import { t, locale } from '$lib/i18n';
 
 	interface Vault { id: string; name: string; }
 
@@ -84,7 +85,7 @@
 
 	function timeLeft(iso: string): { label: string; tone: 'ok' | 'warn' | 'crit' | 'expired' } {
 		const diff = new Date(iso).getTime() - now;
-		if (diff <= 0) return { label: 'Expired', tone: 'expired' };
+		if (diff <= 0) return { label: t('approvals.expired'), tone: 'expired' };
 		const h = Math.floor(diff / 3_600_000);
 		const m = Math.floor((diff % 3_600_000) / 60_000);
 		const s = Math.floor((diff % 60_000) / 1000);
@@ -126,13 +127,13 @@
 <!-- ═══════════ Header ═══════════ -->
 <div class="page-head">
 	<div>
-		<h1>Approvals</h1>
-		<p class="page-sub">Review and sign off on pending withdrawals. Tier 2+ requires FIDO2 hardware key.</p>
+		<h1>{$locale, t('approvals.title')}</h1>
+		<p class="page-sub">{$locale, t('approvals.subtitle')}</p>
 	</div>
 	<div class="head-actions">
 		{#if vaults.length > 0}
 			<div class="vault-picker">
-				<span class="vault-label">Vault</span>
+				<span class="vault-label">{$locale, t('approvals.vault')}</span>
 				<select bind:value={vaultId} onchange={loadApprovals}>
 					{#each vaults as v}<option value={v.id}>{v.name}</option>{/each}
 				</select>
@@ -148,7 +149,7 @@
 <!-- ═══════════ Stat strip ═══════════ -->
 <section class="stat-strip">
 	<div class="stat-tile">
-		<span class="stat-label">Pending total</span>
+		<span class="stat-label">{$locale, t('approvals.total')}</span>
 		<span class="stat-value mono">{approvals.length}</span>
 	</div>
 	<div class="stat-tile">
@@ -160,11 +161,11 @@
 		<span class="stat-value mono tone-warn">{stats.tier3}</span>
 	</div>
 	<div class="stat-tile">
-		<span class="stat-label">Tier 4 · Cold</span>
+		<span class="stat-label">{$locale, t('approvals.tier_t4')}</span>
 		<span class="stat-value mono tone-crit">{stats.tier4}</span>
 	</div>
 	<div class="stat-tile">
-		<span class="stat-label">Expiring &lt; 30m</span>
+		<span class="stat-label">{$locale, t('approvals.expiring')}</span>
 		<span class="stat-value mono" class:tone-crit={stats.expiring > 0}>{stats.expiring}</span>
 	</div>
 </section>
@@ -180,8 +181,8 @@
 <section class="panel">
 	<header class="panel-head">
 		<div>
-			<h2>Approval queue</h2>
-			<p class="panel-sub">Withdrawals awaiting authorization</p>
+			<h2>{$locale, t('approvals.queue')}</h2>
+			<p class="panel-sub">{$locale, t('approvals.queue_sub')}</p>
 		</div>
 	</header>
 
@@ -195,16 +196,16 @@
 		<div class="panel-empty">
 			<span class="empty-mark">{@html icon('wallets', 22)}</span>
 			<div>
-				<p class="empty-title">No vaults configured</p>
-				<p class="muted">Create a vault first — approvals are scoped per vault.</p>
+				<p class="empty-title">{$locale, t('approvals.no_vaults')}</p>
+				<p class="muted">{$locale, t('approvals.no_vaults_sub')}</p>
 			</div>
 		</div>
 	{:else if approvals.length === 0}
 		<div class="panel-empty">
 			<span class="empty-mark ok">{@html icon('check', 22)}</span>
 			<div>
-				<p class="empty-title">Queue is clear</p>
-				<p class="muted">All withdrawals have been processed. Tier 2+ withdrawals will appear here.</p>
+				<p class="empty-title">{$locale, t('approvals.clear')}</p>
+				<p class="muted">{$locale, t('approvals.clear_sub')}</p>
 			</div>
 		</div>
 	{:else}
@@ -227,7 +228,7 @@
 
 							<!-- Destination + chain -->
 							<div class="card-dest">
-								<span class="dest-label">To</span>
+								<span class="dest-label">{$locale, t('approvals.to')}</span>
 								<span class="mono dest-addr">{trunc(a.destination, 12, 10)}</span>
 								<span class="chain-chip">
 									{@html chainIcon(a.chain, 12)}
@@ -248,7 +249,7 @@
 
 							<!-- Expires countdown -->
 							<div class="card-time">
-								<span class="tiny muted">Expires in</span>
+								<span class="tiny muted">{$locale, t('approvals.expires_in')}</span>
 								<span class="mono countdown tone-{tl.tone}">{tl.label}</span>
 							</div>
 						</div>
@@ -263,10 +264,10 @@
 						>
 							{#if acting[a.id] === 'reject'}
 								<span class="spinner sm"></span>
-								<span>Rejecting…</span>
+								<span>{$locale, t('approvals.rejecting')}</span>
 							{:else}
 								<span>{@html icon('x', 14)}</span>
-								<span>Reject</span>
+								<span>{$locale, t('approvals.reject')}</span>
 							{/if}
 						</button>
 						<button
@@ -276,14 +277,14 @@
 						>
 							{#if acting[a.id] === 'approve'}
 								<span class="spinner sm light"></span>
-								<span>Signing…</span>
+								<span>{$locale, t('approvals.signing')}</span>
 							{:else}
 								{#if a.tier >= 2}
 									<span>{@html icon('key', 14)}</span>
-									<span>Approve · FIDO2</span>
+									<span>{$locale, t('approvals.approve_fido2')}</span>
 								{:else}
 									<span>{@html icon('check', 14)}</span>
-									<span>Approve</span>
+									<span>{$locale, t('approvals.approve')}</span>
 								{/if}
 							{/if}
 						</button>
@@ -300,7 +301,7 @@
 	<aside class="drawer">
 		<header class="drawer-head">
 			<div>
-				<h3>Withdrawal approval</h3>
+				<h3>{$locale, t('approvals.withdrawal')}</h3>
 				<span class="mono muted">{trunc(selected.withdrawal_id, 14, 10)}</span>
 			</div>
 			<button class="icon-btn" onclick={() => selected = null}>{@html icon('x', 16)}</button>
@@ -320,7 +321,7 @@
 
 			<dl class="detail-list">
 				<div>
-					<dt>Destination</dt>
+					<dt>{$locale, t('approvals.to')}</dt>
 					<dd>
 						<div class="copyable">
 							<code class="mono">{selected.destination}</code>
@@ -329,21 +330,21 @@
 					</dd>
 				</div>
 				<div>
-					<dt>Network</dt>
+					<dt>{$locale, t('approvals.network')}</dt>
 					<dd class="capitalize">
 						<span class="token-cell">{@html chainIcon(selected.chain, 14)} {selected.chain}</span>
 					</dd>
 				</div>
 				<div>
-					<dt>Requester</dt>
+					<dt>{$locale, t('approvals.requester')}</dt>
 					<dd>{selected.requester}</dd>
 				</div>
 				<div>
-					<dt>Signatures collected</dt>
+					<dt>{$locale, t('approvals.sigs')}</dt>
 					<dd class="mono">{selected.approvals_given} / {selected.approvals_required}</dd>
 				</div>
 				<div>
-					<dt>Expires</dt>
+					<dt>{$locale, t('approvals.expires')}</dt>
 					<dd>{timeLeft(selected.expires_at).label}</dd>
 				</div>
 			</dl>
@@ -351,7 +352,7 @@
 			<div class="drawer-actions">
 				<button class="btn btn-reject full" disabled={!!acting[selected.id]} onclick={() => act(selected!.id, 'reject')}>
 					<span>{@html icon('x', 14)}</span>
-					<span>Reject withdrawal</span>
+					<span>{$locale, t('approvals.reject_btn')}</span>
 				</button>
 				<button class="btn btn-approve full" disabled={!!acting[selected.id]} onclick={() => act(selected!.id, 'approve')}>
 					<span>{@html icon('key', 14)}</span>
