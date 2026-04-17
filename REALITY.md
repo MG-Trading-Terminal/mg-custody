@@ -46,7 +46,7 @@ live integration, no real counterparty, no production-grade driver.
 |---|---|
 | MPC CGGMP21 signing | Primitives (CGGMP21 + HTTP transport + receiving server spawned from main) in place; orchestration for per-tx signing ceremonies across party hosts is NOT wired. The pipeline plugs MPC in at the `SigningBackend` trait (same seam HSM uses) — a future `MpcSigningBackend` impl will drive rounds over the existing transport. The old pipeline-local `with_mpc_shares` path was removed: it called `threshold_sign` in-process with every share held by the same service, which defeats the threshold property, and its JSON output was not a valid broadcastable tx. |
 | MPC FROST Ed25519 | Same situation — shares the transport + receiver; awaits an `MpcSigningBackend` impl to be reachable at tx-signing time. |
-| HSM (PKCS#11 via `cryptoki`) | Spec-complete `Pkcs11SigningBackend` routes every signature through `C_Sign` on HSM-resident keys (secp256k1 `CKM_ECDSA` + Ed25519 `CKM_EDDSA`). Live integration still needs the withdrawal pipeline refactored to drive signing through the `SigningBackend` trait instead of a local seed. |
+| HSM (PKCS#11 via `cryptoki`) | Wired end-to-end. `Pkcs11SigningBackend` connects from `main.rs` when `HSM_LIB_PATH` + `HSM_PIN` are set; the withdrawal pipeline routes ETH / ERC-20 / Tron / Solana signatures through it. BTC user-withdrawal signing keeps per-UTXO BIP-84 derivation (PKCS#11 has no BIP-32), so it stays on the seed path until per-user HSM keys or a BIP-32-capable HSM is provisioned. HSM init failure → server refuses to start (no silent seed fallback). |
 | Chainalysis / Elliptic AML | Real HTTP calls against both vendors with spec-compliant JSON bodies + bearer auth. `ScreeningService` is fail-closed: vendor unreachable → fallback decision (Block / AllowAndFlag), never silent Low. Needs vendor API keys to exercise live. |
 | Email delivery (SMTP) | Real `lettre`-backed SMTP variant wired (rustls, no OpenSSL). Tokio-async, pooled, implicit TLS or STARTTLS (no plaintext fallback). Configured via `CUSTODY_EMAIL__MODE=smtp` + `CUSTODY_EMAIL__SMTP_{HOST,PORT,USERNAME,PASSWORD,TLS,TIMEOUT}`. Falls back to Console with a loud warning if MODE=smtp but HOST is missing. Console + Noop remain for dev/tests. |
 | Staking (ETH / SOL) | Structs only — no beacon deposit or SOL delegate broadcast |
@@ -119,13 +119,10 @@ Labeled by bite size so future-me knows where to start.
   commissioning is a one-off step external to this code. `from_env()`
   reads `HSM_LIB_PATH` / `HSM_SLOT_ID` / `HSM_PIN` / `HSM_LABEL_PREFIX`
   — when set, operator can swap the software seed for a real HSM.
-  Works against SoftHSM2, Thales Luna, Utimaco, AWS CloudHSM.
-
-  Caveat: the withdrawal pipeline currently drives signing off a
-  local `seed: Arc<[u8; 64]>` rather than through the `SigningBackend`
-  trait, so the PKCS#11 path is not yet wired into outbound tx flow.
-  The backend is ready to drop in once the pipeline-layer refactor
-  lands.
+  Works against SoftHSM2, Thales Luna, Utimaco, AWS CloudHSM. Now
+  plumbed end-to-end — `main.rs` calls `connect` when `HSM_LIB_PATH`
+  is set, the pipeline routes signatures through it for
+  ETH / ERC-20 / Tron / Solana.
 - **Web Push now real.** New `WebPushClient` + `WebPushConfig`
   implement RFC 8291 `aes128gcm` encryption (HKDF-SHA256, ephemeral
   P-256 keypair, ECDH with the subscriber's `p256dh` key) plus RFC
