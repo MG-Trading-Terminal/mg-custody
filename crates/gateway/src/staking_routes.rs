@@ -1,15 +1,31 @@
-//! Staking API endpoints.
+//! Staking API endpoints — **feature gated off** in this build.
 //!
-//! Manage staking positions: stake, unstake, list positions, rewards.
+//! The previous implementation accepted stake/unstake requests and
+//! replied `{"status": "pending"}` while doing nothing: no signing
+//! backend, no broadcast, no persistence. A user wiring this up to
+//! real capital would watch their funds appear to enter a validator
+//! and never come out, because no on-chain transaction was ever
+//! constructed. That is a silent fund-loss path.
+//!
+//! Until a real staking pipeline lands (validator registry in DB,
+//! signing-backend call, withdrawal-pipeline integration for the
+//! beacon/delegate transaction, reward accounting), every endpoint
+//! here returns **501 Not Implemented** with a clear message. The
+//! input-validation helpers in `custody_signing::staking` still run
+//! on the write paths so malformed requests are rejected with 400
+//! before the 501 — we haven't regressed input validation, only
+//! stopped pretending we had an execution layer behind it.
 
 use axum::{
     Json,
     extract::State,
+    http::StatusCode,
     routing::{get, post},
     Router,
 };
 use rust_decimal::Decimal;
 use serde::Deserialize;
+use uuid::Uuid;
 
 use crate::errors::ApiError;
 use crate::rbac_middleware::{RequireSigner, RequireViewer};
@@ -30,8 +46,20 @@ pub fn staking_router(state: AppState) -> Router {
 struct StakeRequest {
     chain: String,
     validator_address: String,
-    amount: String, // string-encoded decimal
+    amount: String,
     asset: String,
+}
+
+/// Helper — build a uniform 501 response with a shared hint text.
+fn staking_unavailable(detail: &'static str) -> ApiError {
+    ApiError {
+        error: "not_implemented".into(),
+        message: format!(
+            "Staking is not wired to a signing/broadcast backend in this build. {detail}"
+        ),
+        request_id: Uuid::new_v4().to_string(),
+        status: StatusCode::NOT_IMPLEMENTED,
+    }
 }
 
 async fn stake(
@@ -42,7 +70,9 @@ async fn stake(
     let amount: Decimal = req.amount.parse()
         .map_err(|_| ApiError::bad_request("Invalid amount — must be string-encoded decimal"))?;
 
-    // Validate based on chain
+    // Run the input validators so a malformed amount still fails with
+    // 400 rather than leaking "accepted, will be processed" — useful
+    // for integrators testing the shape before the feature lands.
     match req.chain.as_str() {
         "ethereum" | "eth" => {
             custody_signing::staking::validate_eth_stake_amount(amount)
@@ -58,29 +88,22 @@ async fn stake(
         chain => return Err(ApiError::bad_request(&format!("Staking not supported for chain: {chain}"))),
     }
 
-    let position_id = uuid::Uuid::new_v4();
-
-    tracing::info!(
+    tracing::warn!(
         chain = %req.chain,
         validator = %req.validator_address,
         amount = %amount,
-        position_id = %position_id,
-        "Staking request submitted"
+        asset = %req.asset,
+        "Staking request rejected — no backend wired (returning 501)"
     );
 
-    Ok(Json(serde_json::json!({
-        "position_id": position_id,
-        "chain": req.chain,
-        "validator": req.validator_address,
-        "amount": amount.to_string(),
-        "asset": req.asset,
-        "status": "pending",
-    })))
+    Err(staking_unavailable(
+        "Stake requests cannot be broadcast. Subscribe to ROADMAP.md staking phase before retrying.",
+    ))
 }
 
 #[derive(Deserialize)]
 struct UnstakeRequest {
-    position_id: uuid::Uuid,
+    position_id: Uuid,
 }
 
 async fn unstake(
@@ -88,59 +111,44 @@ async fn unstake(
     State(_state): State<AppState>,
     Json(req): Json<UnstakeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    tracing::info!(position_id = %req.position_id, "Unstake request");
-
-    Ok(Json(serde_json::json!({
-        "position_id": req.position_id,
-        "status": "unstaking",
-        "message": "Unstaking initiated. Cooldown period applies.",
-    })))
+    tracing::warn!(position_id = %req.position_id, "Unstake rejected — no backend wired (501)");
+    Err(staking_unavailable(
+        "Unstake requests cannot be broadcast; no positions are tracked to begin with.",
+    ))
 }
 
 async fn list_positions(
     _auth: RequireViewer,
     State(_state): State<AppState>,
-) -> Json<serde_json::Value> {
-    // In production: query staking_positions table
-    Json(serde_json::json!({
-        "positions": [],
-        "count": 0,
-    }))
+) -> Result<Json<serde_json::Value>, ApiError> {
+    // Returning `{"positions": [], "count": 0}` here would suggest the
+    // caller simply has no positions; that's a lie when the feature is
+    // off. 501 is the correct signal to the dashboard — it can render
+    // "staking unavailable in this build" instead of an empty table.
+    Err(staking_unavailable(
+        "Position listing needs DB-backed staking_positions; not wired.",
+    ))
 }
 
 async fn list_rewards(
     _auth: RequireViewer,
     State(_state): State<AppState>,
-) -> Json<serde_json::Value> {
-    Json(serde_json::json!({
-        "rewards": [],
-        "total_earned": "0",
-    }))
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Err(staking_unavailable(
+        "Reward accounting needs on-chain balance deltas per validator; not wired.",
+    ))
 }
 
 async fn list_validators(
     _auth: RequireViewer,
     State(_state): State<AppState>,
-) -> Json<serde_json::Value> {
-    // Pre-configured safe validators
-    Json(serde_json::json!({
-        "validators": [
-            {
-                "chain": "ethereum",
-                "name": "Lido",
-                "address": "lido",
-                "apy_pct": "3.6",
-                "commission_pct": "10",
-                "safe": true,
-            },
-            {
-                "chain": "solana",
-                "name": "Marinade",
-                "address": "marinade",
-                "apy_pct": "7.0",
-                "commission_pct": "6",
-                "safe": true,
-            },
-        ],
-    }))
+) -> Result<Json<serde_json::Value>, ApiError> {
+    // The previous response returned hardcoded Lido / Marinade rows
+    // with APYs that were promotional, not measured — any UI rendering
+    // those numbers was lying to the user. Until we pull APY from a
+    // live feed and honour a per-workspace whitelist, this endpoint
+    // is off.
+    Err(staking_unavailable(
+        "Validator list was previously hardcoded with promotional APYs; no live feed wired.",
+    ))
 }

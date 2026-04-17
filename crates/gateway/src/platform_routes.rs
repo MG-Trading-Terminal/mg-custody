@@ -273,6 +273,23 @@ async fn generate_report(
 // Signing key info
 // ---------------------------------------------------------------------------
 
+/// Derive the public key (hex) for a stored account row. Returns
+/// `None` if the path format is one we don't recognise, so the
+/// handler can fall back to the empty string with an explicit reason
+/// rather than silently returning junk or panicking.
+fn derive_pubkey_for_account(
+    seed: &custody_address_factory::SeedBytes,
+    path: &str,
+    chain: Chain,
+) -> Option<String> {
+    let (parsed_chain, index) = custody_address_factory::chain_and_index_from_path(path)?;
+    if parsed_chain != chain {
+        // Row chain and path chain disagree — do not guess.
+        return None;
+    }
+    custody_address_factory::pubkey_hex_for_index(seed, chain, index).ok()
+}
+
 async fn get_vault_keys(
     _auth: RequireViewer,
     State(state): State<AppState>,
@@ -286,11 +303,17 @@ async fn get_vault_keys(
             Chain::Solana => "ed25519",
             _ => "secp256k1",
         };
+        // Derive real public-key bytes from the master seed instead
+        // of the previous `String::new()` placeholder. Unrecognised
+        // path format ⇒ empty string (callers can tell the
+        // difference from a real key).
+        let pubkey = derive_pubkey_for_account(&state.seed, &acc.derivation_path, acc.chain)
+            .unwrap_or_default();
         SigningKeyInfo {
             chain: acc.chain,
             algorithm: algorithm.into(),
             derivation_path: acc.derivation_path.clone(),
-            public_key: String::new(), // would need to derive from seed
+            public_key: pubkey,
             address: acc.address.clone(),
             key_type: KeyType::Software,
             created_at: acc.created_at,
@@ -318,12 +341,14 @@ async fn get_vault_key_for_chain(
         Chain::Solana => "ed25519",
         _ => "secp256k1",
     };
+    let pubkey = derive_pubkey_for_account(&state.seed, &account.derivation_path, chain_parsed)
+        .unwrap_or_default();
 
     Ok(Json(SigningKeyInfo {
         chain: chain_parsed,
         algorithm: algorithm.into(),
         derivation_path: account.derivation_path.clone(),
-        public_key: String::new(),
+        public_key: pubkey,
         address: account.address.clone(),
         key_type: KeyType::Software,
         created_at: account.created_at,
@@ -351,6 +376,14 @@ async fn submit_travel_rule(
         ("EUR".to_string(), dec!(1000))
     };
 
+    // IMPORTANT: `Submitted` previously implied the counterparty VASP
+    // had been notified via a provider like Notabene. No provider call
+    // happens here — `NotabeneProvider::send_originator_data` is not
+    // wired. Persisting the originator/beneficiary data locally is
+    // real work (it's what an auditor would review), but until a
+    // provider dispatch lands we must NOT claim the handshake was
+    // performed. The row is stored with `status: Required` so the
+    // dashboard can show "awaiting VASP dispatch" instead of "done".
     let tr_data = TravelRuleData {
         id: Uuid::new_v4(),
         withdrawal_id: req.withdrawal_id,
@@ -361,17 +394,17 @@ async fn submit_travel_rule(
         chain: withdrawal.chain,
         threshold_currency,
         threshold_amount,
-        status: TravelRuleStatus::Submitted,
+        status: TravelRuleStatus::Required,
         created_at: Utc::now(),
     };
 
     state.db.insert_travel_rule_data(&tr_data).await
         .map_err(|e| ApiError::internal(&e.to_string()))?;
 
-    tracing::info!(
+    tracing::warn!(
         withdrawal_id = %req.withdrawal_id,
         amount = %withdrawal.amount,
-        "Travel rule data submitted"
+        "Travel rule data persisted with status=Required — no VASP provider wired, counterparty NOT notified"
     );
 
     Ok((StatusCode::CREATED, Json(tr_data)))

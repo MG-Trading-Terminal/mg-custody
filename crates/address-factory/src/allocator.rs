@@ -97,6 +97,70 @@ impl AddressAllocator {
     }
 }
 
+/// Return the hex-encoded public key at the given BIP-44/SLIP-0010
+/// index for `chain`.
+///
+/// Format is hex (no `0x`), lowercased:
+///   - secp256k1 (BTC/ETH/Tron): 66 hex chars = 33-byte compressed
+///     public key. Callers that need the uncompressed form can
+///     re-derive with `hd::derive_secp256k1_pubkey`.
+///   - ed25519 (Solana): 64 hex chars = 32-byte raw public key,
+///     which is also what Solana addresses base58-encode.
+///
+/// The previous `GET /v1/vaults/{id}/keys` routes returned an empty
+/// string for `public_key` with a "would need to derive from seed"
+/// comment — this helper is what that call site needed.
+pub fn pubkey_hex_for_index(
+    seed: &SeedBytes,
+    chain: Chain,
+    index: u32,
+) -> Result<String> {
+    Ok(match chain {
+        Chain::Bitcoin | Chain::Ethereum | Chain::Tron => {
+            let path = hd::derivation_path(chain, index)?;
+            let pubkey = hd::derive_secp256k1_pubkey(seed, &path)?;
+            hex::encode(pubkey.compressed)
+        }
+        Chain::Solana => {
+            let slip_path = slip0010::solana_path(index);
+            let keypair = slip0010::derive_ed25519_keypair(seed, &slip_path)?;
+            hex::encode(keypair.public_key_bytes())
+        }
+    })
+}
+
+/// Parse a stored derivation path string back to its `(chain, index)`
+/// tuple so `pubkey_hex_for_index` can be called for an account row
+/// whose index wasn't persisted alongside the path.
+///
+/// Accepts the exact formats emitted by `derivation_path_string`:
+/// `m/84'/0'/0'/0/{i}` (BTC), `m/44'/60'/0'/0/{i}` (ETH),
+/// `m/44'/195'/0'/0/{i}` (Tron), `m/44'/501'/{i}'/0'` (Solana).
+/// Returns `None` for anything else — we refuse to guess and let
+/// the caller surface "unknown path format" to the operator.
+pub fn chain_and_index_from_path(path: &str) -> Option<(Chain, u32)> {
+    let rest = path.strip_prefix("m/").unwrap_or(path);
+    let mut parts = rest.split('/');
+    let p1 = parts.next()?;
+    let p2 = parts.next()?;
+    // Extract the numeric index at the right position based on the
+    // fixed shape we emit — nothing fancier (path introspection for
+    // exotic scripts is a separate story).
+    match (p1, p2) {
+        ("84'", "0'") => parts.nth(2).and_then(|s| s.parse().ok()).map(|i| (Chain::Bitcoin, i)),
+        ("44'", "60'") => parts.nth(2).and_then(|s| s.parse().ok()).map(|i| (Chain::Ethereum, i)),
+        ("44'", "195'") => parts.nth(2).and_then(|s| s.parse().ok()).map(|i| (Chain::Tron, i)),
+        ("44'", "501'") => {
+            // Solana path is `m/44'/501'/{i}'/0'` — the index is the
+            // next component minus its hardened suffix.
+            let third = parts.next()?;
+            let stripped = third.strip_suffix('\'').unwrap_or(third);
+            stripped.parse().ok().map(|i| (Chain::Solana, i))
+        }
+        _ => None,
+    }
+}
+
 /// Derive an address for the given chain and index.
 ///
 /// Returns (address_string, derivation_path_string).

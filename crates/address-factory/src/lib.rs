@@ -21,7 +21,10 @@ pub mod tron;
 pub mod solana;
 pub mod allocator;
 
-pub use allocator::{AddressAllocator, AddressFactoryConfig, derive_address};
+pub use allocator::{
+    AddressAllocator, AddressFactoryConfig, chain_and_index_from_path, derive_address,
+    pubkey_hex_for_index,
+};
 pub use bitcoin::BitcoinNetwork;
 pub use hd::SeedBytes;
 pub use slip0010::Ed25519KeyPair;

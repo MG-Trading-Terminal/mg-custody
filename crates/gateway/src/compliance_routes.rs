@@ -103,14 +103,23 @@ async fn list_reports(
     let _limit = params.limit.unwrap_or(50).min(200);
     let _offset = params.offset.unwrap_or(0);
 
-    // Return an empty list — production implementation would query the DB.
-    // The SAR/CTR types and generation functions are fully implemented;
-    // DB-backed storage is the next step (separate sprint).
-    tracing::info!(
+    // Returning `[]` here implies "you have filed no reports" — a
+    // claim a compliance officer might rely on. Since no DB-backed
+    // storage exists yet, any prior SAR/CTR the admin submitted via
+    // POST was stored nowhere. Surface that explicitly as 501 instead
+    // of pretending the list is simply empty.
+    tracing::warn!(
         report_type = ?params.report_type,
-        "list_reports called — DB-backed storage not yet wired"
+        "list_reports rejected — no DB-backed compliance report storage (501)"
     );
-    Ok(Json(vec![]))
+    Err(ApiError {
+        error: "not_implemented".into(),
+        message: "Compliance report listing is not wired to persistent storage in this build. \
+                  Reports created via POST are not retained; do not rely on this endpoint for audit evidence."
+            .into(),
+        request_id: Uuid::new_v4().to_string(),
+        status: StatusCode::NOT_IMPLEMENTED,
+    })
 }
 
 /// Create a SAR draft. POST /v1/admin/compliance/reports/sar
@@ -167,6 +176,14 @@ async fn create_sar(
 }
 
 /// Export a report as XML (SAR) or CSV (CTR). GET /v1/admin/compliance/reports/{id}/export
+///
+/// **Disabled** until DB-backed storage lands. The prior implementation
+/// fabricated a `SAR-DEMO-*` record for any requested `id`, with
+/// subject_address=0x0000…, user_id=nil, narrative "Demo SAR export."
+/// and then serialised it as a real-looking SAR XML. That was indistinguishable
+/// from a genuine filing — handing one to a regulator would be
+/// material misrepresentation. Returning 501 here means a missing
+/// report is a missing report, not a plausible-looking forgery.
 async fn export_report(
     _auth: RequireAdmin,
     State(_state): State<AppState>,
@@ -174,58 +191,27 @@ async fn export_report(
     Query(params): Query<ExportQuery>,
 ) -> Result<Response, ApiError> {
     let format = params.format.as_deref().unwrap_or("xml");
-
-    // In production this would load from DB. For now we return a demo export
-    // to validate the format generation is wired end-to-end.
-    match format {
-        "xml" => {
-            // Produce a demo SAR XML for the requested ID.
-            let demo_sar = SuspiciousActivityReport {
-                id,
-                reference_number: format!("SAR-DEMO-{}", &id.to_string()[..8]),
-                filing_type: SarFilingType::Initial,
-                subject: SarSubject {
-                    name: Some("Demo Subject".into()),
-                    address: "0x0000000000000000000000000000000000000000".into(),
-                    chain: "ethereum".into(),
-                    user_id: None,
-                },
-                transactions: vec![Uuid::nil()],
-                total_amount_usd: Decimal::ZERO,
-                narrative: "Demo SAR export.".into(),
-                risk_indicators: vec!["Demo indicator".into()],
-                status: SarStatus::Draft,
-                filed_at: None,
-                created_at: Utc::now(),
-            };
-            let xml = export_sar_xml(&demo_sar);
-            Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "application/xml; charset=utf-8")
-                .header(
-                    header::CONTENT_DISPOSITION,
-                    format!("attachment; filename=\"sar-{id}.xml\""),
-                )
-                .body(axum::body::Body::from(xml))
-                .unwrap())
-        }
-        "csv" => {
-            // Produce an empty CTR CSV (no in-memory store yet).
-            let csv = export_ctr_csv(&[]);
-            Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
-                .header(
-                    header::CONTENT_DISPOSITION,
-                    format!("attachment; filename=\"ctr-{id}.csv\""),
-                )
-                .body(axum::body::Body::from(csv))
-                .unwrap())
-        }
-        _ => Err(ApiError::bad_request(
+    if format != "xml" && format != "csv" {
+        return Err(ApiError::bad_request(
             "Unsupported export format. Use 'xml' or 'csv'.",
-        )),
+        ));
     }
+
+    tracing::warn!(
+        report_id = %id,
+        format = %format,
+        "Compliance report export rejected — storage not wired (501)"
+    );
+
+    Err(ApiError {
+        error: "not_implemented".into(),
+        message: "Compliance report export is not wired to persistent storage. The previous \
+                  behaviour synthesised a demo report for any requested id — returning 501 \
+                  to prevent fabricated exports from being mistaken for real filings."
+            .into(),
+        request_id: Uuid::new_v4().to_string(),
+        status: StatusCode::NOT_IMPLEMENTED,
+    })
 }
 
 #[cfg(test)]

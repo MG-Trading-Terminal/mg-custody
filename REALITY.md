@@ -67,6 +67,36 @@ Security work done this session is real but the following remain open.
 Labeled by bite size so future-me knows where to start.
 
 ### Fixed since last published snapshot
+- **Staking routes return 501 instead of fake "pending".** `POST
+  /v1/staking/stake` and `/unstake` accepted requests and returned
+  `{"status": "pending"}` with no signing backend, no broadcast, no
+  persistence — a silent funds-stuck path if wired to real capital.
+  `GET /positions` / `/rewards` / `/validators` also now 501; the
+  validators list was previously hardcoded Lido/Marinade with
+  promotional APYs presented as live data.
+- **Settlement routes return 501.** `submit_settlement` persisted
+  nothing and the corresponding `/net` built a fresh empty engine
+  every call, returning `"Netting executed on pending orders"`
+  against zero orders. Both now explicitly 501 until the
+  `settlement_orders` table + ledger journaling land.
+- **Compliance report export no longer forges SAR XML.** `GET
+  /v1/admin/compliance/reports/{id}/export` previously synthesised a
+  `SAR-DEMO-*` record for any id (subject_address=0x0000…, narrative
+  "Demo SAR export.") and serialised it as valid SAR XML. Handing
+  that to a regulator would be material misrepresentation. Now 501.
+  `list_reports` also 501 (was `[]` always, implying "you've filed
+  nothing"). Report creation still works; listing/export await DB.
+- **Travel rule submit persists as `Required`, not `Submitted`.**
+  The previous handler stamped `Submitted` without ever calling the
+  counterparty VASP provider (`NotabeneProvider::send_originator_data`
+  is not wired). Persisted data is now flagged so the dashboard can
+  show "awaiting VASP dispatch" instead of "compliance done".
+- **Vault keys expose real public keys.** `GET /v1/vaults/{id}/keys`
+  and `/keys/{chain}` returned `public_key: ""` with a "would need
+  to derive from seed" comment — now derive from the master seed via
+  new `custody_address_factory::pubkey_hex_for_index` helper. Hex
+  format: 33-byte compressed secp256k1 for BTC/ETH/Tron, 32-byte raw
+  ed25519 for Solana.
 - **Batch withdrawal USD total is real.** `/v1/withdrawals/batch`
   previously summed heterogeneous native-unit amounts (BTC + USDT +
   ETH) and labelled the result `total_amount_usd`. The field is now

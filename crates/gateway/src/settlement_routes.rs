@@ -1,17 +1,35 @@
-//! Settlement API endpoints.
+//! Settlement API endpoints — **feature gated off**.
 //!
-//! Internal off-chain settlement between custody clients.
-//! Instant transfers without on-chain transactions.
+//! Internal off-chain settlement between custody clients was scaffolded
+//! as a pair of routes but the execution path was a lie:
+//!
+//!   - `POST /v1/settlement/submit` took an order, built an in-memory
+//!     `SettlementOrder`, logged it, and returned `status: "pending"`.
+//!     The row was never persisted; `/v1/settlement/net` could not
+//!     find it because it queried a fresh `SettlementEngine::new()`
+//!     every call, not the DB.
+//!   - `POST /v1/settlement/net` built a fresh empty engine, ran
+//!     `net_orders()` on zero orders, and returned
+//!     `"Netting executed on pending orders"` — a phrase that is
+//!     *literally false* when no orders exist and no DB table is
+//!     even queried.
+//!
+//! A future real implementation needs (a) a `settlement_orders`
+//! table, (b) a per-party balance view, (c) an atomic netting pass
+//! that debits/credits the double-entry ledger — none of which is
+//! wired. Until that lands both routes return 501 so callers can't
+//! build workflows on fake success.
 
 use axum::{
     Json,
     extract::State,
+    http::StatusCode,
     routing::post,
     Router,
 };
-use custody_common::settlement_ops::{SettlementEngine, SettlementOrder, SettlementOrderStatus};
 use rust_decimal::Decimal;
 use serde::Deserialize;
+use uuid::Uuid;
 
 use crate::errors::ApiError;
 use crate::rbac_middleware::{RequireAdmin, RequireEditor};
@@ -33,55 +51,55 @@ struct SubmitSettlementRequest {
     amount: String,
 }
 
+fn settlement_unavailable(detail: &'static str) -> ApiError {
+    ApiError {
+        error: "not_implemented".into(),
+        message: format!(
+            "Off-chain settlement is not wired to a persistence layer in this build. {detail}"
+        ),
+        request_id: Uuid::new_v4().to_string(),
+        status: StatusCode::NOT_IMPLEMENTED,
+    }
+}
+
 async fn submit_settlement(
     _auth: RequireEditor,
     State(_state): State<AppState>,
     Json(req): Json<SubmitSettlementRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // Parse + validate up front so the shape feedback is still useful
+    // for integrators testing the API surface before the feature lands.
     let amount: Decimal = req.amount.parse()
-        .map_err(|_| ApiError::bad_request("Invalid amount"))?;
+        .map_err(|_| ApiError::bad_request("Invalid amount — must be string-encoded decimal"))?;
+    if amount <= Decimal::ZERO {
+        return Err(ApiError::bad_request("Amount must be positive"));
+    }
+    if req.from_party.is_empty() || req.to_party.is_empty() {
+        return Err(ApiError::bad_request("from_party and to_party are required"));
+    }
+    if req.from_party == req.to_party {
+        return Err(ApiError::bad_request("from_party and to_party must differ"));
+    }
 
-    let order = SettlementOrder {
-        id: uuid::Uuid::new_v4(),
-        from_party: req.from_party.clone(),
-        to_party: req.to_party.clone(),
-        asset: req.asset.clone(),
-        amount,
-        status: SettlementOrderStatus::Pending,
-        netting_group: None,
-        created_at: chrono::Utc::now(),
-        settled_at: None,
-    };
-
-    tracing::info!(
-        id = %order.id,
+    tracing::warn!(
         from = %req.from_party,
         to = %req.to_party,
         asset = %req.asset,
         amount = %amount,
-        "Settlement order submitted"
+        "Settlement submit rejected — no persistence wired (501)"
     );
 
-    Ok(Json(serde_json::json!({
-        "order_id": order.id,
-        "status": "pending",
-        "from_party": req.from_party,
-        "to_party": req.to_party,
-        "asset": req.asset,
-        "amount": amount.to_string(),
-    })))
+    Err(settlement_unavailable(
+        "Orders are not persisted; netting has no inputs. Wire the settlement_orders migration before enabling.",
+    ))
 }
 
 async fn net_settlements(
     _auth: RequireAdmin,
     State(_state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    // In production: load pending orders from DB and net them
-    let mut engine = SettlementEngine::new();
-    let results = engine.net_orders();
-
-    Ok(Json(serde_json::json!({
-        "netting_results": results.len(),
-        "message": "Netting executed on pending orders",
-    })))
+    tracing::warn!("Netting rejected — no persistence wired (501)");
+    Err(settlement_unavailable(
+        "Netting requires loading persisted orders and journaling results against the ledger; neither is wired.",
+    ))
 }
