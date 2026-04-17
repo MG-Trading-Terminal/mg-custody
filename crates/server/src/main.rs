@@ -982,20 +982,52 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // AML screening
+    // AML screening. When a key is configured, probe the vendor's
+    // base URL. A key alone doesn't mean the vendor is reachable —
+    // DNS outages, firewall rules, and expired vendor contracts all
+    // show up as a send-time error, which is too late when the policy
+    // is to fail closed and block every withdrawal.
     {
         let chainalysis = std::env::var("CUSTODY_CHAINALYSIS_API_KEY").ok().filter(|s| !s.is_empty());
         let elliptic = std::env::var("CUSTODY_ELLIPTIC_API_KEY").ok().filter(|s| !s.is_empty());
-        if chainalysis.is_some() || elliptic.is_some() {
-            readiness.push(FeatureStatus::ready(
-                "screening.aml",
-                "AML screening (Chainalysis / Elliptic) on every withdrawal",
-            ));
-        } else {
-            readiness.push(FeatureStatus::disabled(
+        match (chainalysis.as_ref(), elliptic.as_ref()) {
+            (None, None) => readiness.push(FeatureStatus::disabled(
                 "screening.aml",
                 "AML screening. Set CUSTODY_CHAINALYSIS_API_KEY or CUSTODY_ELLIPTIC_API_KEY to enable.",
-            ));
+            )),
+            _ => {
+                let mut problems: Vec<String> = Vec::new();
+                if chainalysis.is_some() {
+                    if let Err(e) = custody_common::readiness::probe_http_reachable(
+                        "https://api.chainalysis.com/api/kyt/v2/users",
+                    )
+                    .await
+                    {
+                        problems.push(format!("chainalysis: {e}"));
+                    }
+                }
+                if elliptic.is_some() {
+                    if let Err(e) = custody_common::readiness::probe_http_reachable(
+                        "https://api.elliptic.co/v2",
+                    )
+                    .await
+                    {
+                        problems.push(format!("elliptic: {e}"));
+                    }
+                }
+                if problems.is_empty() {
+                    readiness.push(FeatureStatus::ready(
+                        "screening.aml",
+                        "AML screening (Chainalysis / Elliptic) on every withdrawal",
+                    ));
+                } else {
+                    readiness.push(FeatureStatus::degraded(
+                        "screening.aml",
+                        "AML screening (Chainalysis / Elliptic)",
+                        problems.join("; "),
+                    ));
+                }
+            }
         }
     }
 
@@ -1090,15 +1122,56 @@ async fn main() -> anyhow::Result<()> {
         )
     });
 
-    // MPC multi-host receiver
-    readiness.push(if std::env::var("CUSTODY_MPC__ENABLED").ok().as_deref() == Some("true") {
-        FeatureStatus::ready("mpc.multi_host", "MPC receiver serving /mpc/message")
+    // MPC multi-host receiver. When enabled, the receiver having
+    // started isn't enough — every declared peer URL must be reachable
+    // or the first ceremony round hangs on `send()`. Probe each peer
+    // in CUSTODY_MPC__PEERS. An unreachable peer surfaces as Degraded
+    // with the list of unreachable endpoints so the operator can see
+    // exactly which node to fix.
+    if std::env::var("CUSTODY_MPC__ENABLED").ok().as_deref() == Some("true") {
+        let peers_raw = std::env::var("CUSTODY_MPC__PEERS").unwrap_or_default();
+        let peers: Vec<&str> = peers_raw
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        if peers.is_empty() {
+            readiness.push(FeatureStatus::misconfigured(
+                "mpc.multi_host",
+                "MPC receiver serving /mpc/message",
+                vec!["CUSTODY_MPC__PEERS".into()],
+            ));
+        } else {
+            let mut unreachable: Vec<String> = Vec::new();
+            for peer in &peers {
+                if let Err(e) = custody_common::readiness::probe_http_reachable(peer).await {
+                    unreachable.push(format!("{peer} ({e})"));
+                }
+            }
+            if unreachable.is_empty() {
+                readiness.push(FeatureStatus::ready(
+                    "mpc.multi_host",
+                    "MPC receiver serving /mpc/message",
+                ));
+            } else {
+                readiness.push(FeatureStatus::degraded(
+                    "mpc.multi_host",
+                    "MPC receiver serving /mpc/message",
+                    format!(
+                        "{}/{} peers unreachable: {}",
+                        unreachable.len(),
+                        peers.len(),
+                        unreachable.join(", "),
+                    ),
+                ));
+            }
+        }
     } else {
-        FeatureStatus::disabled(
+        readiness.push(FeatureStatus::disabled(
             "mpc.multi_host",
             "MPC multi-host. Set CUSTODY_MPC__ENABLED=true + HMAC_SECRET + PEERS.",
-        )
-    });
+        ));
+    }
 
     // Bitcoin consolidation scheduler
     readiness.push(if std::env::var("CUSTODY_HOT_WALLET__BTC_ADDRESS").is_ok() {

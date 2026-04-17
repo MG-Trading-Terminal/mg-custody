@@ -102,6 +102,7 @@
 	];
 
 	const systemItemDefs: NavItem[] = [
+		{ href: '/readiness',  key: 'nav.readiness',  icon: 'activity' },
 		{ href: '/audit',      key: 'nav.audit',      icon: 'audit' },
 		{ href: '/webhooks',   key: 'nav.webhooks',   icon: 'webhooks' },
 		{ href: '/derivation', key: 'nav.derivation', icon: 'derivation' },
@@ -127,6 +128,7 @@
 		[/^\/tokens/,     'admin'],
 		[/^\/nfts/,       'admin'],
 		[/^\/users/,      'admin'],
+		[/^\/readiness/,  'admin'],
 		[/^\/audit/,      'admin'],
 		[/^\/webhooks/,   'admin'],
 		[/^\/derivation/, 'admin'],
@@ -255,7 +257,7 @@
 					</span>
 				</div>
 			</div>
-		</header>
+		</aside>
 
 		<main class="content">
 			{#if accessDenied}
@@ -276,7 +278,6 @@
 			{/if}
 		</main>
 	</div>
-</div>
 {/if}
 
 <style>
