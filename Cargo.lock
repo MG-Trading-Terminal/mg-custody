@@ -2287,6 +2287,7 @@ dependencies = [
  "bitcoin",
  "bs58",
  "chrono",
+ "cryptoki",
  "custody-common",
  "ed25519-dalek",
  "hex",

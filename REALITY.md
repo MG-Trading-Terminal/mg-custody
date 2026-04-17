@@ -46,7 +46,7 @@ live integration, no real counterparty, no production-grade driver.
 |---|---|
 | MPC CGGMP21 signing | Crypto + HTTP transport implemented; no multi-host ceremony wired |
 | MPC FROST Ed25519 | Same as above |
-| HSM (PKCS#11 via `cryptoki`) | File-backed `HsmSigningBackend` works; real HSM integration is stubbed |
+| HSM (PKCS#11 via `cryptoki`) | Spec-complete `Pkcs11SigningBackend` routes every signature through `C_Sign` on HSM-resident keys (secp256k1 `CKM_ECDSA` + Ed25519 `CKM_EDDSA`). Live integration still needs the withdrawal pipeline refactored to drive signing through the `SigningBackend` trait instead of a local seed. |
 | Chainalysis / Elliptic AML | `ScreeningProvider` trait + cache layer; actual HTTP to vendors needs API keys |
 | Email delivery (SMTP) | Real `lettre`-backed SMTP variant wired (rustls, no OpenSSL). Tokio-async, pooled, implicit TLS or STARTTLS (no plaintext fallback). Configured via `CUSTODY_EMAIL__MODE=smtp` + `CUSTODY_EMAIL__SMTP_{HOST,PORT,USERNAME,PASSWORD,TLS,TIMEOUT}`. Falls back to Console with a loud warning if MODE=smtp but HOST is missing. Console + Noop remain for dev/tests. |
 | Staking (ETH / SOL) | Structs only — no beacon deposit or SOL delegate broadcast |
@@ -67,6 +67,26 @@ Security work done this session is real but the following remain open.
 Labeled by bite size so future-me knows where to start.
 
 ### Fixed since last published snapshot
+- **PKCS#11 signing backend spec-complete.** New
+  `custody_signing::pkcs11::Pkcs11SigningBackend` opens a real
+  session via `cryptoki`, logs in as `CKU_USER`, and routes every
+  signature through `C_Sign` on an HSM-resident key:
+    - `CKM_ECDSA` with the 32-byte prehash for Bitcoin / Ethereum /
+      Tron. Output is normalised (low-s per BIP-62 / EIP-2) and the
+      recovery id is recovered by trying `v=0` then `v=1` and
+      matching against the HSM's own `CKA_EC_POINT`.
+    - `CKM_EDDSA` on the full message for Solana; output is 64 bytes.
+  Key objects are addressed by label (`{prefix}/{chain}/0`) so
+  commissioning is a one-off step external to this code. `from_env()`
+  reads `HSM_LIB_PATH` / `HSM_SLOT_ID` / `HSM_PIN` / `HSM_LABEL_PREFIX`
+  — when set, operator can swap the software seed for a real HSM.
+  Works against SoftHSM2, Thales Luna, Utimaco, AWS CloudHSM.
+
+  Caveat: the withdrawal pipeline currently drives signing off a
+  local `seed: Arc<[u8; 64]>` rather than through the `SigningBackend`
+  trait, so the PKCS#11 path is not yet wired into outbound tx flow.
+  The backend is ready to drop in once the pipeline-layer refactor
+  lands.
 - **Web Push now real.** New `WebPushClient` + `WebPushConfig`
   implement RFC 8291 `aes128gcm` encryption (HKDF-SHA256, ephemeral
   P-256 keypair, ECDH with the subscriber's `p256dh` key) plus RFC

@@ -18,6 +18,7 @@ pub mod bitcoin;
 pub mod encrypted_store;
 pub mod ethereum;
 pub mod mnemonic;
+pub mod pkcs11;
 pub mod raw;
 pub mod shamir;
 pub mod software;
@@ -40,5 +41,6 @@ pub trait SigningBackend: Send + Sync {
 }
 
 pub use encrypted_store::{encrypt_seed, decrypt_seed, Password};
+pub use pkcs11::{Pkcs11SigningBackend, Pkcs11SigningConfig};
 pub use shamir::{split_3_of_5, reconstruct_3_of_5, Share};
 pub use software::{SoftwareSigningBackend, HsmSigningBackend};
