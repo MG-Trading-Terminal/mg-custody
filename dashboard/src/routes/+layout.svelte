@@ -188,11 +188,11 @@
 
 	// Environment — live from config later; hardcoded for now
 	let env = $state<'production' | 'testnet' | 'sandbox'>('production');
-	const envLabels = {
-		production: { label: 'Production',  tone: 'green'  },
-		testnet:    { label: 'Testnet',     tone: 'yellow' },
-		sandbox:    { label: 'Sandbox',     tone: 'blue'   },
-	};
+	let envLabels = $derived<Record<'production' | 'testnet' | 'sandbox', { label: string; tone: string }>>(({
+		production: { label: ($locale, t('layout.env.production')), tone: 'green'  },
+		testnet:    { label: ($locale, t('layout.env.testnet')),    tone: 'yellow' },
+		sandbox:    { label: ($locale, t('layout.env.sandbox')),    tone: 'blue'   },
+	}));
 
 	// Notification mock
 	let notificationCount = $state(0);
@@ -252,7 +252,7 @@
 
 			{#if envMenuOpen}
 				<div class="env-menu popover">
-					<div class="menu-section-label">Environment</div>
+					<div class="menu-section-label">{$locale, t('layout.env.select')}</div>
 					{#each Object.entries(envLabels) as [k, v]}
 						<button
 							class="menu-item"
@@ -271,16 +271,16 @@
 		</div>
 
 		<!-- Command bar trigger (visual only for now) -->
-		<button class="cmdbar" aria-label="Search (coming soon)">
+		<button class="cmdbar" aria-label={($locale, t('common.search'))}>
 			<span class="cmdbar-icon">{@html icon('search', 14)}</span>
-			<span class="cmdbar-label">Search & jump…</span>
+			<span class="cmdbar-label">{$locale, t('layout.search.hint')}</span>
 			<kbd class="kbd">⌘K</kbd>
 		</button>
 
 		<!-- Nav -->
 		<nav class="nav" aria-label="Main navigation">
 			<div class="nav-section">
-				<span class="nav-section-title">Personal</span>
+				<span class="nav-section-title">{$locale, t('layout.personal')}</span>
 			</div>
 			<ul class="nav-list">
 				{#each userItemDefs as item}
@@ -307,10 +307,10 @@
 			{#if hasRole('admin')}
 				<div class="nav-divider"></div>
 				<div class="nav-section with-badge">
-					<span class="nav-section-title admin-title">Organization</span>
+					<span class="nav-section-title admin-title">{$locale, t('layout.organization')}</span>
 					<span class="admin-chip">
 						<span class="admin-dot"></span>
-						Admin
+						{$locale, t('layout.admin_badge')}
 					</span>
 				</div>
 				<ul class="nav-list">
@@ -330,7 +330,7 @@
 				</ul>
 
 				<div class="nav-section">
-					<span class="nav-section-title">System</span>
+					<span class="nav-section-title">{$locale, t('layout.system')}</span>
 				</div>
 				<ul class="nav-list">
 					{#each systemItemDefs as item}
@@ -379,14 +379,14 @@
 
 				<div class="top-sep"></div>
 
-				<button class="top-btn" aria-label="Notifications" title="Notifications">
+				<button class="top-btn" aria-label={($locale, t('layout.notifications'))} title={($locale, t('layout.notifications'))}>
 					{@html icon('bell', 16)}
 					{#if notificationCount > 0}
 						<span class="top-badge">{notificationCount}</span>
 					{/if}
 				</button>
 
-				<button class="top-btn" aria-label="Help" title="Help">
+				<button class="top-btn" aria-label={($locale, t('layout.help'))} title={($locale, t('layout.help'))}>
 					{@html icon('circle', 16)}
 				</button>
 
@@ -421,16 +421,16 @@
 
 								<a href="/profile" class="menu-item" onclick={() => userMenuOpen = false}>
 									<span class="menu-icon">{@html icon('profile', 14)}</span>
-									<span>Profile</span>
+									<span>{$locale, t('nav.profile')}</span>
 								</a>
 								<a href="/settings" class="menu-item" onclick={() => userMenuOpen = false}>
 									<span class="menu-icon">{@html icon('settings', 14)}</span>
-									<span>Settings</span>
+									<span>{$locale, t('nav.settings')}</span>
 								</a>
 
 								<button class="menu-item" onclick={toggleTheme}>
 									<span class="menu-icon">{@html icon(theme === 'dark' ? 'sun' : 'moon', 14)}</span>
-									<span>{theme === 'dark' ? 'Light theme' : 'Dark theme'}</span>
+									<span>{$locale, t(theme === 'dark' ? 'layout.theme.light' : 'layout.theme.dark')}</span>
 								</button>
 
 								<div class="menu-lang">
@@ -446,7 +446,7 @@
 
 								<button class="menu-item danger" onclick={logout}>
 									<span class="menu-icon">{@html icon('logout', 14)}</span>
-									<span>Sign out</span>
+									<span>{$locale, t('auth.sign_out')}</span>
 								</button>
 							</div>
 						{/if}
@@ -460,12 +460,12 @@
 				<div class="denied-wrap">
 					<div class="denied-card">
 						<span class="denied-icon">{@html icon('lock', 28)}</span>
-						<h2>Access restricted</h2>
-						<p>This page is reserved for <strong class="role-chip">{accessDenied.required}</strong> users and above.</p>
-						<p class="muted">Your current role is <strong>{userRole}</strong>. Ask your workspace owner to escalate your access if you need it.</p>
+						<h2>{$locale, t('denied.title')}</h2>
+						<p>{$locale, t('denied.text', { role: accessDenied.required })}</p>
+						<p class="muted">{$locale, t('denied.current', { role: userRole })}</p>
 						<button class="btn-home" onclick={goHome}>
 							<span>{@html icon('portfolio', 14)}</span>
-							<span>Back to Portfolio</span>
+							<span>{$locale, t('denied.back')}</span>
 						</button>
 					</div>
 				</div>

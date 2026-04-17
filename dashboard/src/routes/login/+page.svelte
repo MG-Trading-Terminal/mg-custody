@@ -2,6 +2,7 @@
 	import { api } from '$lib/api';
 	import { chainIcon } from '$lib/icons/tokens';
 	import { icon } from '$lib/icons/ui';
+	import { t, locale } from '$lib/i18n';
 
 	let email = $state('');
 	let password = $state('');
@@ -170,22 +171,22 @@
 			{#if showForgot}
 				<!-- ── Forgot password ── -->
 				<div class="form-header">
-					<h2>Reset password</h2>
-					<p>Enter your email — we'll send a reset link.</p>
+					<h2>{$locale, t('auth.reset_title')}</h2>
+					<p>{$locale, t('auth.reset_sub')}</p>
 				</div>
 
 				{#if forgotSent}
 					<div class="banner banner-success">
 						<span class="banner-icon">{@html icon('check', 16)}</span>
-						<span>If an account exists, a reset link has been sent.</span>
+						<span>{$locale, t('auth.reset_sent')}</span>
 					</div>
 					<button class="btn btn-ghost full" onclick={() => { showForgot = false; forgotSent = false; }}>
-						Back to sign in
+						{$locale, t('auth.back_to_signin')}
 					</button>
 				{:else}
 					<form onsubmit={(e) => { e.preventDefault(); sendReset(); }}>
 						<div class="field">
-							<label for="reset-email">Email</label>
+							<label for="reset-email">{$locale, t('auth.email')}</label>
 							<div class="input-wrap">
 								<span class="input-icon">{@html icon('profile', 15)}</span>
 								<input
@@ -197,9 +198,9 @@
 								/>
 							</div>
 						</div>
-						<button type="submit" class="btn btn-primary full">Send reset link</button>
+						<button type="submit" class="btn btn-primary full">{$locale, t('auth.reset_send')}</button>
 						<button type="button" class="btn btn-ghost full" onclick={() => { showForgot = false; }}>
-							Back to sign in
+							{$locale, t('auth.back_to_signin')}
 						</button>
 					</form>
 				{/if}
@@ -207,8 +208,8 @@
 			{:else if !needs2fa}
 				<!-- ── Sign in ── -->
 				<div class="form-header">
-					<h2>Sign in</h2>
-					<p>Access your custody console.</p>
+					<h2>{$locale, t('auth.sign_in_title')}</h2>
+					<p>{$locale, t('auth.sign_in_sub')}</p>
 				</div>
 
 				<form onsubmit={submit}>
@@ -220,7 +221,7 @@
 					{/if}
 
 					<div class="field">
-						<label for="email">Email</label>
+						<label for="email">{$locale, t('auth.email')}</label>
 						<div class="input-wrap">
 							<span class="input-icon">{@html icon('profile', 15)}</span>
 							<input
@@ -236,9 +237,9 @@
 
 					<div class="field">
 						<div class="field-label-row">
-							<label for="password">Password</label>
+							<label for="password">{$locale, t('auth.password')}</label>
 							<button type="button" class="link" onclick={() => { showForgot = true; error = ''; }}>
-								Forgot password?
+								{$locale, t('auth.forgot')}
 							</button>
 						</div>
 						<div class="input-wrap">
@@ -264,23 +265,23 @@
 
 					<label class="checkbox-row">
 						<input type="checkbox" />
-						<span>Keep me signed in on this device</span>
+						<span>{$locale, t('auth.remember')}</span>
 					</label>
 
 					<button type="submit" class="btn btn-primary full" disabled={submitting}>
 						{#if submitting}
 							<span class="spinner"></span>
-							<span>Signing in…</span>
+							<span>{$locale, t('auth.sign_in')}…</span>
 						{:else}
-							<span>Sign in</span>
+							<span>{$locale, t('auth.sign_in')}</span>
 							<span class="btn-chev">{@html icon('chevron-right', 14)}</span>
 						{/if}
 					</button>
 				</form>
 
-				<div class="divider"><span>New here?</span></div>
+				<div class="divider"><span>{$locale, t('auth.new_here')}</span></div>
 				<a href="/register" class="btn btn-secondary full">
-					<span>Create an account</span>
+					<span>{$locale, t('auth.sign_up')}</span>
 					<span>{@html icon('chevron-right', 14)}</span>
 				</a>
 
@@ -288,8 +289,8 @@
 				<!-- ── 2FA ── -->
 				<div class="form-header">
 					<span class="header-icon">{@html icon('shield-check', 20)}</span>
-					<h2>Two-factor authentication</h2>
-					<p>Enter the 6-digit code from your authenticator app.</p>
+					<h2>{$locale, t('auth.totp_title')}</h2>
+					<p>{$locale, t('auth.totp_sub')}</p>
 				</div>
 
 				<form onsubmit={verify2fa}>
@@ -301,7 +302,7 @@
 					{/if}
 
 					<div class="field">
-						<label for="totp">Authentication code</label>
+						<label for="totp">{$locale, t('auth.totp_code')}</label>
 						<input
 							id="totp"
 							type="text"
@@ -326,7 +327,7 @@
 					</button>
 
 					<button type="button" class="btn btn-ghost full" onclick={() => { needs2fa = false; error = ''; totpCode = ''; }}>
-						Use a different account
+						{$locale, t('auth.use_different')}
 					</button>
 				</form>
 			{/if}

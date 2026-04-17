@@ -2,6 +2,7 @@
 	import { api } from '$lib/api';
 	import { chainIcon } from '$lib/icons/tokens';
 	import { icon } from '$lib/icons/ui';
+	import { t, locale } from '$lib/i18n';
 
 	let email = $state('');
 	let password = $state('');
@@ -33,8 +34,8 @@
 		success = '';
 
 		if (!email || !password) { error = 'Email and password are required'; return; }
-		if (password.length < 12) { error = 'Password must be at least 12 characters'; return; }
-		if (password !== confirm) { error = 'Passwords do not match'; return; }
+		if (password.length < 12) { error = t('auth.password_min'); return; }
+		if (password !== confirm) { error = t('auth.passwords_mismatch'); return; }
 		if (!acceptedTerms)       { error = 'Please accept the terms to continue'; return; }
 
 		submitting = true;
@@ -164,8 +165,8 @@
 			</div>
 
 			<div class="form-header">
-				<h2>Create your account</h2>
-				<p>Free. Takes under 30 seconds.</p>
+				<h2>{$locale, t('auth.sign_up_title')}</h2>
+				<p>{$locale, t('auth.sign_up_sub')}</p>
 			</div>
 
 			<form onsubmit={submit}>
@@ -184,7 +185,7 @@
 				{/if}
 
 				<div class="field">
-					<label for="email">Email</label>
+					<label for="email">{$locale, t('auth.email')}</label>
 					<div class="input-wrap">
 						<span class="input-icon">{@html icon('profile', 15)}</span>
 						<input
@@ -199,7 +200,7 @@
 				</div>
 
 				<div class="field">
-					<label for="password">Password</label>
+					<label for="password">{$locale, t('auth.password')}</label>
 					<div class="input-wrap">
 						<span class="input-icon">{@html icon('lock', 15)}</span>
 						<input
@@ -240,7 +241,7 @@
 				</div>
 
 				<div class="field">
-					<label for="confirm">Confirm password</label>
+					<label for="confirm">{$locale, t('auth.confirm_password')}</label>
 					<div class="input-wrap">
 						<span class="input-icon">{@html icon('lock', 15)}</span>
 						<input
@@ -276,18 +277,18 @@
 				<button type="submit" class="btn btn-primary full" disabled={submitting}>
 					{#if submitting}
 						<span class="spinner"></span>
-						<span>Creating account…</span>
+						<span>{$locale, t('auth.sign_up')}…</span>
 					{:else}
-						<span>Create account</span>
+						<span>{$locale, t('auth.sign_up')}</span>
 						<span class="btn-chev">{@html icon('chevron-right', 14)}</span>
 					{/if}
 				</button>
 			</form>
 
-			<div class="divider"><span>Already have an account?</span></div>
+			<div class="divider"><span>{$locale, t('auth.already_have')}</span></div>
 
 			<a href="/login" class="btn btn-ghost full">
-				<span>Sign in instead</span>
+				<span>{$locale, t('auth.sign_in')}</span>
 			</a>
 
 			<footer class="form-footer">
