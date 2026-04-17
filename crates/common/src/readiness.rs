@@ -247,6 +247,35 @@ impl ReadinessReport {
         }
         (ready, disabled, misc, degraded)
     }
+
+    /// Refresh the `custody_readiness_feature_state` gauge and the
+    /// `custody_readiness_last_refresh_seconds` timestamp. Called by
+    /// the background refresh task after every successful rebuild so
+    /// Prometheus scrapes see live state.
+    ///
+    /// Value mapping matches the gauge docs in `prometheus_metrics`:
+    /// disabled=0, ready=1, misconfigured=2, degraded=3.
+    pub fn export_prometheus_gauges(&self) {
+        use crate::prometheus_metrics::{
+            READINESS_FEATURE_STATE, READINESS_LAST_REFRESH_SECONDS,
+        };
+        for f in &self.features {
+            let value: f64 = match f.state {
+                FeatureState::Disabled => 0.0,
+                FeatureState::Ready => 1.0,
+                FeatureState::Misconfigured { .. } => 2.0,
+                FeatureState::Degraded { .. } => 3.0,
+            };
+            READINESS_FEATURE_STATE
+                .with_label_values(&[&f.name])
+                .set(value);
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        READINESS_LAST_REFRESH_SECONDS.set(now);
+    }
 }
 
 /// Print a human-readable readiness table to `tracing::info!` at

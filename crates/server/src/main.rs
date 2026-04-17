@@ -920,14 +920,18 @@ async fn main() -> anyhow::Result<()> {
     let travel_rule_configured = travel_rule_provider.is_some();
     let initial = readiness_build::build(&config, &email_sender, travel_rule_configured).await;
     custody_common::readiness::startup_log_report(&initial);
+    initial.export_prometheus_gauges();
     let readiness = custody_common::readiness::ReadinessHandle::new(initial);
 
     // Periodic refresh. A vendor going down between boot and the
     // first request would otherwise leave the report stuck on
     // `Ready`; rebuilding every 60s means handler gates flip to 503
     // within one minute of any real outage without requiring a
-    // restart. The task holds an owned clone of the handle and the
-    // minimal probe inputs (config + email sender).
+    // restart. On every rebuild we also:
+    //   - export Prometheus gauges (snapshot current state)
+    //   - diff against the previous report and fire alerts on
+    //     Ready→Degraded / Ready→Misconfigured transitions, plus
+    //     a recovery log when a feature comes back
     {
         let handle = readiness.clone();
         let cfg = config.clone();
@@ -946,7 +950,11 @@ async fn main() -> anyhow::Result<()> {
                         );
                     }
                 }
+                let previous = handle.snapshot();
                 let report = readiness_build::build(&cfg, &email, tr).await;
+                let transitions = readiness_build::diff_transitions(&previous, &report);
+                readiness_build::fire_alerts(&transitions).await;
+                report.export_prometheus_gauges();
                 handle.replace(report);
             }
         });

@@ -17,7 +17,7 @@
 
 use custody_common::config::CustodyConfig;
 use custody_common::email::EmailSender;
-use custody_common::readiness::{FeatureStatus, ReadinessReport};
+use custody_common::readiness::{FeatureState, FeatureStatus, ReadinessReport};
 
 /// Build a fresh `ReadinessReport` by re-running every probe.
 ///
@@ -420,4 +420,262 @@ pub async fn build(
     }
 
     readiness
+}
+
+/// State transition emitted by [`diff_and_alert`]. `Degradation` and
+/// `Misconfiguration` are the "fire an alert" cases — a feature that
+/// was serving traffic five minutes ago now isn't. `Recovery` goes
+/// the other way (Degraded → Ready) and logs at info so an operator
+/// watching log tails sees when the outage cleared.
+#[derive(Debug, Clone)]
+pub enum Transition<'a> {
+    Degradation {
+        feature: &'a str,
+        reason: String,
+    },
+    Misconfiguration {
+        feature: &'a str,
+        missing: Vec<String>,
+    },
+    Recovery {
+        feature: &'a str,
+        summary: &'a str,
+    },
+}
+
+/// Compare consecutive reports and return every notable transition.
+/// "Notable" means a change from Ready to anything worse, or from
+/// Degraded/Misconfigured back to Ready. Disabled→Ready (operator
+/// just turned a feature on) and Ready→Disabled (operator turned it
+/// off) are intentionally NOT emitted — those are deploy-time changes,
+/// not incidents.
+pub fn diff_transitions<'a>(
+    old: &'a ReadinessReport,
+    new: &'a ReadinessReport,
+) -> Vec<Transition<'a>> {
+    let mut out = Vec::new();
+    for new_feat in &new.features {
+        let Some(old_feat) = old.features.iter().find(|f| f.name == new_feat.name) else {
+            // Feature appeared for the first time in this refresh —
+            // treat as deploy-time change, not an incident.
+            continue;
+        };
+        match (&old_feat.state, &new_feat.state) {
+            (FeatureState::Ready, FeatureState::Degraded { reason }) => {
+                out.push(Transition::Degradation {
+                    feature: &new_feat.name,
+                    reason: reason.clone(),
+                });
+            }
+            (FeatureState::Ready, FeatureState::Misconfigured { missing }) => {
+                out.push(Transition::Misconfiguration {
+                    feature: &new_feat.name,
+                    missing: missing.clone(),
+                });
+            }
+            (
+                FeatureState::Degraded { .. } | FeatureState::Misconfigured { .. },
+                FeatureState::Ready,
+            ) => {
+                out.push(Transition::Recovery {
+                    feature: &new_feat.name,
+                    summary: &new_feat.summary,
+                });
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Fire each transition to:
+///   1. `tracing::error!` (degradation/misconfiguration) or
+///      `tracing::info!` (recovery) on the `custody::readiness::alert`
+///      target. Log aggregators can alert on this target alone.
+///   2. A webhook POST if `CUSTODY_READINESS__ALERT_WEBHOOK` is set.
+///      The body is a JSON `{feature, kind, reason, timestamp}` so
+///      Slack/PagerDuty/Opsgenie incoming webhooks can parse it with
+///      their standard templates.
+///
+/// Failures posting to the webhook are logged but not retried — a
+/// subsequent transition will try again; queueing alerts just means
+/// a paged oncall sees the incident twice instead of timed out.
+pub async fn fire_alerts(transitions: &[Transition<'_>]) {
+    if transitions.is_empty() {
+        return;
+    }
+    let webhook = std::env::var("CUSTODY_READINESS__ALERT_WEBHOOK")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let now = chrono::Utc::now().to_rfc3339();
+    let client = webhook
+        .as_ref()
+        .map(|_| reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .ok())
+        .flatten();
+
+    for t in transitions {
+        match t {
+            Transition::Degradation { feature, reason } => {
+                tracing::error!(
+                    target: "custody::readiness::alert",
+                    feature = %feature,
+                    reason = %reason,
+                    "Feature DEGRADED — handlers for this subsystem will 503 until recovery"
+                );
+                post_webhook(&client, &webhook, &now, "degradation", feature, Some(reason.as_str()), None).await;
+            }
+            Transition::Misconfiguration { feature, missing } => {
+                tracing::error!(
+                    target: "custody::readiness::alert",
+                    feature = %feature,
+                    missing = ?missing,
+                    "Feature MISCONFIGURED — handlers for this subsystem will 503"
+                );
+                let missing_str = missing.join(", ");
+                post_webhook(&client, &webhook, &now, "misconfiguration", feature, None, Some(&missing_str)).await;
+            }
+            Transition::Recovery { feature, summary } => {
+                tracing::info!(
+                    target: "custody::readiness::alert",
+                    feature = %feature,
+                    summary = %summary,
+                    "Feature RECOVERED — handlers serving this subsystem are live again"
+                );
+                post_webhook(&client, &webhook, &now, "recovery", feature, Some(summary), None).await;
+            }
+        }
+    }
+}
+
+async fn post_webhook(
+    client: &Option<reqwest::Client>,
+    url: &Option<String>,
+    timestamp: &str,
+    kind: &str,
+    feature: &str,
+    reason: Option<&str>,
+    missing: Option<&str>,
+) {
+    let (Some(client), Some(url)) = (client.as_ref(), url.as_ref()) else {
+        return;
+    };
+    let body = serde_json::json!({
+        "service": "mg-custody",
+        "kind": kind,
+        "feature": feature,
+        "reason": reason,
+        "missing": missing,
+        "timestamp": timestamp,
+    });
+    if let Err(e) = client.post(url).json(&body).send().await {
+        tracing::warn!(
+            target: "custody::readiness::alert",
+            error = %e,
+            "Readiness alert webhook delivery failed"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn report_with(features: Vec<FeatureStatus>) -> ReadinessReport {
+        let mut r = ReadinessReport::new();
+        for f in features {
+            r.push(f);
+        }
+        r
+    }
+
+    #[test]
+    fn transition_ready_to_degraded_fires_degradation() {
+        let old = report_with(vec![FeatureStatus::ready("scanner.ethereum", "ETH")]);
+        let new = report_with(vec![FeatureStatus::degraded(
+            "scanner.ethereum",
+            "ETH",
+            "eth_chainId timeout",
+        )]);
+        let t = diff_transitions(&old, &new);
+        assert_eq!(t.len(), 1);
+        matches!(t[0], Transition::Degradation { .. });
+    }
+
+    #[test]
+    fn transition_ready_to_misconfigured_fires_misconfiguration() {
+        let old = report_with(vec![FeatureStatus::ready("push.apns", "APNs")]);
+        let new = report_with(vec![FeatureStatus::misconfigured(
+            "push.apns",
+            "APNs",
+            vec!["CUSTODY_APNS__KEY_P8".into()],
+        )]);
+        let t = diff_transitions(&old, &new);
+        assert_eq!(t.len(), 1);
+        matches!(t[0], Transition::Misconfiguration { .. });
+    }
+
+    #[test]
+    fn transition_degraded_to_ready_fires_recovery() {
+        let old = report_with(vec![FeatureStatus::degraded(
+            "scanner.solana",
+            "SOL",
+            "getHealth failed",
+        )]);
+        let new = report_with(vec![FeatureStatus::ready("scanner.solana", "SOL")]);
+        let t = diff_transitions(&old, &new);
+        assert_eq!(t.len(), 1);
+        matches!(t[0], Transition::Recovery { .. });
+    }
+
+    #[test]
+    fn transition_disabled_to_ready_is_deploy_not_incident() {
+        // Operator just turned the feature on — not an alertable event.
+        let old = report_with(vec![FeatureStatus::disabled("push.fcm", "FCM")]);
+        let new = report_with(vec![FeatureStatus::ready("push.fcm", "FCM")]);
+        let t = diff_transitions(&old, &new);
+        assert!(t.is_empty());
+    }
+
+    #[test]
+    fn transition_ready_to_disabled_is_deploy_not_incident() {
+        // Operator chose to turn it off — not an outage.
+        let old = report_with(vec![FeatureStatus::ready("push.fcm", "FCM")]);
+        let new = report_with(vec![FeatureStatus::disabled("push.fcm", "FCM")]);
+        let t = diff_transitions(&old, &new);
+        assert!(t.is_empty());
+    }
+
+    #[test]
+    fn new_feature_does_not_fire() {
+        // Feature appeared for the first time (e.g. operator restarted
+        // with a new chain configured). Nothing to compare against —
+        // no alert.
+        let old = report_with(vec![]);
+        let new = report_with(vec![FeatureStatus::degraded(
+            "scanner.bitcoin",
+            "BTC",
+            "unreachable",
+        )]);
+        let t = diff_transitions(&old, &new);
+        assert!(t.is_empty());
+    }
+
+    #[test]
+    fn multiple_features_diff_independently() {
+        let old = report_with(vec![
+            FeatureStatus::ready("a", "a"),
+            FeatureStatus::ready("b", "b"),
+            FeatureStatus::degraded("c", "c", "bad"),
+        ]);
+        let new = report_with(vec![
+            FeatureStatus::degraded("a", "a", "went down"),
+            FeatureStatus::ready("b", "b"),
+            FeatureStatus::ready("c", "c"),
+        ]);
+        let t = diff_transitions(&old, &new);
+        assert_eq!(t.len(), 2); // a degraded, c recovered
+    }
 }

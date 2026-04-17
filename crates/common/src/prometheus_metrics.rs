@@ -178,6 +178,37 @@ pub static DB_POOL_SIZE: Lazy<prometheus::Gauge> = Lazy::new(|| {
     ).unwrap()
 });
 
+// ── Feature readiness ─────────────────────────────────────────────
+
+/// State of each custody feature as reported by the readiness probe.
+/// Labelled by feature name (`scanner.ethereum`, `push.apns`, etc.).
+///
+/// Value mapping, chosen so Grafana's `max(...)` highlights the worst
+/// state in a group:
+///   0 = disabled       (operator chose not to enable)
+///   1 = ready          (wired + probe succeeded)
+///   2 = misconfigured  (partial config)
+///   3 = degraded       (fully configured but probe failed)
+///
+/// Alerting query: `custody_readiness_feature_state >= 2`.
+pub static READINESS_FEATURE_STATE: Lazy<GaugeVec> = Lazy::new(|| {
+    register_gauge_vec!(
+        "custody_readiness_feature_state",
+        "Readiness state per feature (0=disabled, 1=ready, 2=misconfigured, 3=degraded)",
+        &["feature"]
+    ).unwrap()
+});
+
+/// Unix seconds of the last successful probe rebuild. Lets Grafana
+/// surface "readiness stale" (`time() - custody_readiness_last_refresh_seconds > 180`)
+/// if the refresh task has stopped ticking.
+pub static READINESS_LAST_REFRESH_SECONDS: Lazy<prometheus::Gauge> = Lazy::new(|| {
+    register_gauge!(
+        "custody_readiness_last_refresh_seconds",
+        "Unix-time seconds of the most recent successful readiness probe"
+    ).unwrap()
+});
+
 // ── API request metrics ───────────────────────────────────────────
 
 /// Histogram of HTTP API request durations, labelled by method and path.
