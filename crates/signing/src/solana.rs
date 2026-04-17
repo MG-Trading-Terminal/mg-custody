@@ -64,6 +64,44 @@ pub fn sign_sol_transfer(
     Ok(tx)
 }
 
+/// Prepare a Solana SystemProgram::Transfer message for external
+/// signing (HSM / MPC / signer-service). Returns:
+///   - `message`: the bytes to pass verbatim to `backend.sign(Solana,&msg)`.
+///   - `from_pubkey`: the 32-byte public key baked into the message,
+///     so the pipeline can write it into the final transaction. Caller
+///     supplies this (it must match the HSM's Solana public key —
+///     retrieved via `SigningBackend::public_key(Chain::Solana)`).
+pub fn prepare_sol_transfer(
+    from_pubkey: [u8; 32],
+    params: &SolTransferParams,
+) -> Vec<u8> {
+    let mut instruction_data = Vec::with_capacity(12);
+    instruction_data.extend_from_slice(&2u32.to_le_bytes());
+    instruction_data.extend_from_slice(&params.lamports.to_le_bytes());
+    build_transfer_message(
+        &from_pubkey,
+        &params.to_pubkey,
+        &SYSTEM_PROGRAM_ID,
+        &instruction_data,
+        &params.recent_blockhash,
+    )
+}
+
+/// Wrap a 64-byte Ed25519 signature + the original `message` into the
+/// Solana wire-format transaction. Counterpart to `prepare_sol_transfer`
+/// on the finalisation side.
+pub fn finalize_sol_signed_tx(message: &[u8], signature_64: &[u8]) -> Result<Vec<u8>> {
+    if signature_64.len() != 64 {
+        anyhow::bail!(
+            "Solana signature must be 64 bytes, got {}",
+            signature_64.len()
+        );
+    }
+    let mut sig = [0u8; 64];
+    sig.copy_from_slice(signature_64);
+    Ok(build_signed_transaction(&[sig], message))
+}
+
 /// Derive an Ed25519 signing key from seed at SLIP-0010 path.
 fn derive_ed25519_signing_key(seed: &[u8; 64], index: u32) -> Result<SigningKey> {
     // Manual SLIP-0010 derivation to get the raw 32-byte secret

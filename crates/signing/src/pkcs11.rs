@@ -383,6 +383,75 @@ impl Pkcs11SigningBackend {
     }
 }
 
+impl Pkcs11SigningBackend {
+    /// Read the raw Ed25519 public key for Solana. CKA_EC_POINT on
+    /// an Ed25519 public-key object is the DER OCTET STRING wrapping
+    /// the 32-byte little-endian compressed point; we strip the
+    /// wrapper and return just those 32 bytes. Used by the pipeline
+    /// to build Solana messages without a matching seed.
+    fn ed25519_public_key(&self) -> CustodyResult<[u8; 32]> {
+        let hsm = self
+            .session
+            .lock()
+            .map_err(|e| CustodyError::SigningError(format!("PKCS#11 mutex poisoned: {e}")))?;
+        let private_key = self.find_private_key(&hsm, Chain::Solana)?;
+
+        let attrs = hsm
+            .session
+            .get_attributes(private_key, &[AttributeType::Id])
+            .map_err(|e| CustodyError::SigningError(format!("PKCS#11 CKA_ID: {e}")))?;
+        let id = attrs
+            .into_iter()
+            .find_map(|a| match a {
+                Attribute::Id(v) => Some(v),
+                _ => None,
+            })
+            .ok_or_else(|| {
+                CustodyError::SigningError(
+                    "PKCS#11 Ed25519: private key has no CKA_ID".into(),
+                )
+            })?;
+
+        let pub_template = vec![
+            Attribute::Class(ObjectClass::PUBLIC_KEY),
+            Attribute::KeyType(KeyType::EC_EDWARDS),
+            Attribute::Id(id),
+        ];
+        let pubs = hsm
+            .session
+            .find_objects(&pub_template)
+            .map_err(|e| CustodyError::SigningError(format!("PKCS#11 find_pub: {e}")))?;
+        let pub_h = pubs.into_iter().next().ok_or_else(|| {
+            CustodyError::SigningError("PKCS#11 Ed25519: paired public key not found".into())
+        })?;
+        let ec_point_attrs = hsm
+            .session
+            .get_attributes(pub_h, &[AttributeType::EcPoint])
+            .map_err(|e| CustodyError::SigningError(format!("PKCS#11 CKA_EC_POINT: {e}")))?;
+        let ec_point = ec_point_attrs
+            .into_iter()
+            .find_map(|a| match a {
+                Attribute::EcPoint(v) => Some(v),
+                _ => None,
+            })
+            .ok_or_else(|| {
+                CustodyError::SigningError(
+                    "PKCS#11 Ed25519: public key missing CKA_EC_POINT".into(),
+                )
+            })?;
+        let raw = strip_der_octet_string(&ec_point).unwrap_or(&ec_point);
+        if raw.len() != 32 {
+            return Err(CustodyError::SigningError(format!(
+                "PKCS#11 Ed25519: expected 32-byte public key, got {} bytes",
+                raw.len()
+            )));
+        }
+        let mut out = [0u8; 32];
+        out.copy_from_slice(raw);
+        Ok(out)
+    }
+}
+
 impl SigningBackend for Pkcs11SigningBackend {
     fn sign(&self, chain: Chain, unsigned_tx: &[u8]) -> CustodyResult<Vec<u8>> {
         match chain {
@@ -398,6 +467,27 @@ impl SigningBackend for Pkcs11SigningBackend {
                 self.sign_secp256k1(chain, &prehash)
             }
             Chain::Solana => self.sign_ed25519(unsigned_tx),
+        }
+    }
+
+    fn public_key(&self, chain: Chain) -> Option<Vec<u8>> {
+        let hsm = self.session.lock().ok()?;
+        let private_key = self.find_private_key(&hsm, chain).ok()?;
+        match chain {
+            Chain::Bitcoin | Chain::Ethereum | Chain::Tron => {
+                self.ec_public_key(&hsm, private_key)
+                    .ok()
+                    // 65-byte uncompressed → 33-byte compressed (what
+                    // the signing modules expect for address derivation).
+                    .and_then(|uncompressed| {
+                        let vk = k256::ecdsa::VerifyingKey::from_sec1_bytes(&uncompressed).ok()?;
+                        Some(vk.to_encoded_point(true).as_bytes().to_vec())
+                    })
+            }
+            Chain::Solana => {
+                drop(hsm);
+                self.ed25519_public_key().ok().map(|pk| pk.to_vec())
+            }
         }
     }
 }

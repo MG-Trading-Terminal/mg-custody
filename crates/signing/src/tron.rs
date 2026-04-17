@@ -153,6 +153,25 @@ fn encode_varint(buf: &mut Vec<u8>, mut value: u64) {
     }
 }
 
+/// Produce the raw-tx bytes + the 32-byte SHA-256 prehash an external
+/// signer (HSM / MPC / signer-service) must sign for a TRX transfer.
+///
+/// Tron uses SHA-256 of the raw protobuf (NOT Keccak like Ethereum).
+/// Caller hands the prehash to `backend.sign(Chain::Tron, &prehash)`,
+/// receives a 65-byte `r||s||v`, and combines it with `raw_data` the
+/// same way `sign_trx_transfer` does its final assembly. Tron's
+/// on-chain signature format is `r(32) || s(32) || v(1 byte, 0 or 1)`
+/// — the older `v + 27` convention was a Bitcoin legacy and the
+/// current Tron node code accepts either, so we stick with the raw
+/// recovery id the HSM returns.
+pub fn prepare_trx_transfer(params: &TrxTransferParams) -> (Vec<u8>, [u8; 32]) {
+    let raw_data = build_trx_transfer_raw(params);
+    let hash = Sha256::digest(&raw_data);
+    let mut prehash = [0u8; 32];
+    prehash.copy_from_slice(&hash);
+    (raw_data, prehash)
+}
+
 /// Sign a TRX native transfer.
 ///
 /// Returns the signature (65 bytes: r[32] + s[32] + recovery_id[1]).

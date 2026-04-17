@@ -680,7 +680,26 @@ impl WithdrawalPipeline {
             ref_block_hash,
         };
 
-        let (signature, raw_data) = custody_signing::tron::sign_trx_transfer(seed, 0, &params)?;
+        // HSM-aware signing: when a backend is plugged in, we compute
+        // the SHA-256 prehash of the raw protobuf, hand it to the
+        // backend as Chain::Tron, and splice the returned r||s||v
+        // into the Tron wire format. Otherwise the seed path does
+        // the full derive + sign_prehash in-process.
+        let (signature, raw_data) = if let Some(backend) = &self.signing_backend {
+            let (raw_data, prehash) = custody_signing::tron::prepare_trx_transfer(&params);
+            let sig65 = backend
+                .sign(Chain::Tron, &prehash)
+                .map_err(|e| anyhow::anyhow!("HSM sign(Tron) failed: {e}"))?;
+            if sig65.len() != 65 {
+                anyhow::bail!(
+                    "HSM returned {} bytes for Tron signature, expected 65",
+                    sig65.len()
+                );
+            }
+            (sig65, raw_data)
+        } else {
+            custody_signing::tron::sign_trx_transfer(seed, 0, &params)?
+        };
 
         // Store as JSON for Tron broadcaster (expects JSON)
         let signed_tx = serde_json::to_vec(&serde_json::json!({
@@ -747,7 +766,33 @@ impl WithdrawalPipeline {
             recent_blockhash,
         };
 
-        let signed_tx = custody_signing::solana::sign_sol_transfer(seed, 0, &params)?;
+        // HSM-aware signing. For Solana we need the sender's public
+        // key to build the message — the HSM exposes it via
+        // `public_key(Chain::Solana)`, which reads `CKA_EC_POINT` off
+        // the paired public-key object. Fall back to seed derivation
+        // if the backend has no Solana key configured.
+        let signed_tx = if let Some(backend) = &self.signing_backend {
+            let from_pubkey_bytes = backend.public_key(Chain::Solana)
+                .ok_or_else(|| anyhow::anyhow!(
+                    "HSM is configured but has no Solana (Ed25519) public key — \
+                     provision `custody/solana/0` in the HSM or unset HSM_LIB_PATH for seed signing"
+                ))?;
+            if from_pubkey_bytes.len() != 32 {
+                anyhow::bail!(
+                    "HSM Solana public_key returned {} bytes, expected 32",
+                    from_pubkey_bytes.len()
+                );
+            }
+            let mut from_pubkey = [0u8; 32];
+            from_pubkey.copy_from_slice(&from_pubkey_bytes);
+            let message = custody_signing::solana::prepare_sol_transfer(from_pubkey, &params);
+            let signature = backend
+                .sign(Chain::Solana, &message)
+                .map_err(|e| anyhow::anyhow!("HSM sign(Solana) failed: {e}"))?;
+            custody_signing::solana::finalize_sol_signed_tx(&message, &signature)?
+        } else {
+            custody_signing::solana::sign_sol_transfer(seed, 0, &params)?
+        };
 
         self.db.set_signed_tx(w.id, &signed_tx, 0, Decimal::ZERO).await?;
         self.db.update_withdrawal_status(w.id, WithdrawalStatus::Signed).await?;

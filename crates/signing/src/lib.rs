@@ -38,6 +38,21 @@ use custody_common::CustodyResult;
 pub trait SigningBackend: Send + Sync {
     /// Sign raw transaction bytes for a given chain.
     fn sign(&self, chain: custody_common::Chain, unsigned_tx: &[u8]) -> CustodyResult<Vec<u8>>;
+
+    /// Return the public key this backend will sign with for `chain`.
+    ///
+    /// Shape:
+    ///   - secp256k1 (BTC / ETH / Tron): 33-byte compressed SEC1.
+    ///   - ed25519   (Solana):           32-byte raw public key.
+    ///
+    /// Default impl returns `None` — software backends that derive
+    /// per-user keys have no single "backend public key" to expose.
+    /// HSM backends override this so Solana signing + Bitcoin
+    /// consolidation paths can build their messages without
+    /// guessing which on-chain address the HSM controls.
+    fn public_key(&self, _chain: custody_common::Chain) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 pub use encrypted_store::{encrypt_seed, decrypt_seed, Password};
