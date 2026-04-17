@@ -230,17 +230,52 @@ async fn batch_withdraw(
     let batch_id = req.batch_id.unwrap_or_else(|| Uuid::new_v4().to_string());
 
     // ── Phase 1: validate ALL items — collect errors before touching the DB ──
+    //
+    // We enforce four invariants here, batched so the caller sees every
+    // problem at once rather than fixing them one round-trip at a time:
+    //   1. amount > 0
+    //   2. destination address is a syntactically valid address on the
+    //      target chain (EIP-55 for EVM, Bech32/P2PKH for BTC, etc.)
+    //   3. vault_id, if supplied, belongs to item.user_id (unless admin)
+    //   4. memo/tag omitted — out of scope for batch path
     let mut validation_errors: Vec<String> = Vec::new();
     for (i, item) in req.withdrawals.iter().enumerate() {
         if item.amount <= Decimal::ZERO {
             validation_errors.push(format!(
-                "Item {i} (withdrawal_id={}): amount must be positive", item.withdrawal_id
+                "Item {i} (withdrawal_id={}): amount must be positive",
+                item.withdrawal_id,
             ));
         }
         if item.address.is_empty() {
             validation_errors.push(format!(
-                "Item {i} (withdrawal_id={}): address cannot be empty", item.withdrawal_id
+                "Item {i} (withdrawal_id={}): address cannot be empty",
+                item.withdrawal_id,
             ));
+        } else if let Err(e) = custody_common::validation::validate_address(item.chain, &item.address) {
+            validation_errors.push(format!(
+                "Item {i} (withdrawal_id={}): invalid {} address — {e}",
+                item.withdrawal_id, item.chain,
+            ));
+        }
+        if let Some(vault_id) = item.vault_id {
+            match state.db.find_vault(vault_id).await {
+                Ok(Some(v)) => {
+                    if v.owner_id != item.user_id && !is_admin {
+                        validation_errors.push(format!(
+                            "Item {i} (withdrawal_id={}): vault {} is not owned by user {}",
+                            item.withdrawal_id, vault_id, item.user_id,
+                        ));
+                    }
+                }
+                Ok(None) => validation_errors.push(format!(
+                    "Item {i} (withdrawal_id={}): vault {} not found",
+                    item.withdrawal_id, vault_id,
+                )),
+                Err(e) => validation_errors.push(format!(
+                    "Item {i} (withdrawal_id={}): vault lookup failed — {e}",
+                    item.withdrawal_id,
+                )),
+            }
         }
     }
     if !validation_errors.is_empty() {
