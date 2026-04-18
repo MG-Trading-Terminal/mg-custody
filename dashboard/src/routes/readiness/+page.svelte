@@ -5,12 +5,20 @@
 
 	type FeatureState = 'ready' | 'disabled' | 'misconfigured' | 'degraded';
 
+	interface Ack {
+		feature: string;
+		acknowledged_by: string;
+		acknowledged_at: string;
+		message: string;
+	}
+
 	interface Feature {
 		name: string;
 		summary: string;
 		state: FeatureState;
 		missing?: string[];
 		reason?: string;
+		ack?: Ack;
 	}
 
 	interface Report {
@@ -156,6 +164,32 @@
 			setTimeout(load, 3_000);
 		} catch (e) {
 			alert(e instanceof Error ? e.message : 'Failed to inject chaos');
+		}
+	}
+
+	async function ackIncident(feature: string) {
+		const message = prompt(
+			`Acknowledge incident on "${feature}". Message (short, e.g. "looking into it"):`,
+			'looking into it'
+		);
+		if (!message || !message.trim()) return;
+		try {
+			await api.post(`/v1/health/features/${encodeURIComponent(feature)}/ack`, {
+				message: message.trim(),
+			});
+			await load();
+		} catch (e) {
+			alert(e instanceof Error ? e.message : 'Failed to acknowledge');
+		}
+	}
+
+	async function clearAck(feature: string) {
+		if (!confirm(`Clear ack on "${feature}"?`)) return;
+		try {
+			await api.del(`/v1/health/features/${encodeURIComponent(feature)}/ack`);
+			await load();
+		} catch (e) {
+			alert(e instanceof Error ? e.message : 'Failed to clear ack');
 		}
 	}
 
@@ -477,6 +511,11 @@
 						<div class="feature-info">
 							<div class="feature-name">
 								<a href={`/readiness/${encodeURIComponent(f.name)}`} class="feature-link">{f.name}</a>
+								{#if f.ack}
+									<span class="ack-badge" title={`${f.ack.message} — ${f.ack.acknowledged_by}`}>
+										ACK by {f.ack.acknowledged_by}
+									</span>
+								{/if}
 								{#if sil}
 									<span class="silenced-badge" title={`Matched by silence "${sil.feature}" — ${sil.reason}`}>
 										SILENCED{sil.feature !== f.name ? ` by ${sil.feature}` : ''}
@@ -508,6 +547,11 @@
 							<div class="feature-reason" title={reasonFor(f)}>{reasonFor(f)}</div>
 						</div>
 						<div class="feature-actions">
+							{#if (f.state === 'degraded' || f.state === 'misconfigured') && !f.ack}
+								<button class="btn-tiny btn-ack" onclick={() => ackIncident(f.name)} title="Mark this incident acknowledged">Ack</button>
+							{:else if f.ack}
+								<button class="btn-tiny" onclick={() => clearAck(f.name)} title="Clear acknowledgment">Un-ack</button>
+							{/if}
 							{#if chaosActive[f.name]}
 								<button class="btn-tiny btn-chaos" onclick={() => clearChaos(f.name)} title="Clear chaos override">Clear chaos</button>
 							{:else if sil && sil.feature === f.name}
@@ -813,6 +857,23 @@
 		letter-spacing: 0.08em;
 		vertical-align: middle;
 	}
+
+	.ack-badge {
+		display: inline-block;
+		margin-left: 6px;
+		padding: 1px 6px;
+		background: var(--blue-soft);
+		color: var(--blue);
+		border-radius: var(--r-full);
+		font-size: 0.6rem; font-weight: 700;
+		letter-spacing: 0.06em;
+		vertical-align: middle;
+	}
+	.btn-ack {
+		border-color: color-mix(in srgb, var(--blue) 40%, transparent);
+		color: var(--blue);
+	}
+	.btn-ack:hover { background: var(--blue-soft); color: var(--blue); }
 
 	@media (max-width: 720px) {
 		.feature { grid-template-columns: 1fr; gap: 6px; }

@@ -919,6 +919,7 @@ async fn main() -> anyhow::Result<()> {
     // operators see the truth before any other log noise.
     let travel_rule_configured = travel_rule_provider.is_some();
     let chaos_overrides = custody_common::readiness_chaos::ChaosOverrides::new();
+    let incident_acks = custody_common::readiness_ack::IncidentAcks::new();
     let initial = readiness_build::build(&config, &email_sender, travel_rule_configured).await;
     custody_common::readiness::startup_log_report(&initial);
     initial.export_prometheus_gauges();
@@ -972,6 +973,7 @@ async fn main() -> anyhow::Result<()> {
         let tr = travel_rule_configured;
         let history_db = db.clone();
         let chaos_map = chaos_overrides.clone();
+        let acks = incident_acks.clone();
         tokio::spawn(async move {
             let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
             tick.tick().await; // skip the immediate first tick — boot already built one
@@ -1041,6 +1043,23 @@ async fn main() -> anyhow::Result<()> {
                 }
                 readiness_build::fire_alerts(&mut alerts, &silence_patterns, &transitions).await;
                 report.export_prometheus_gauges();
+                // Prune acks for features that have since recovered.
+                // Set of features currently in a non-Ready state —
+                // we keep acks only for those; everything else is
+                // stale by definition.
+                let live_incidents: std::collections::HashSet<String> = report
+                    .features
+                    .iter()
+                    .filter(|f| {
+                        !matches!(
+                            f.state,
+                            custody_common::readiness::FeatureState::Ready
+                                | custody_common::readiness::FeatureState::Disabled
+                        )
+                    })
+                    .map(|f| f.name.clone())
+                    .collect();
+                acks.prune_recovered(&live_incidents);
                 handle.replace(report);
                 // Heartbeat fires last, AFTER the report is
                 // published and gauges are exported — so the
@@ -1067,6 +1086,7 @@ async fn main() -> anyhow::Result<()> {
         travel_rule_provider: travel_rule_provider.clone(),
         readiness: readiness.clone(),
         chaos_overrides: chaos_overrides.clone(),
+        incident_acks: incident_acks.clone(),
     };
 
     // Use middleware if HMAC secret is configured

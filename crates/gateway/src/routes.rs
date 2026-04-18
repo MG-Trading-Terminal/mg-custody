@@ -79,6 +79,10 @@ pub fn router(state: AppState) -> Router {
             "/v1/admin/chaos/overrides/{feature}",
             axum::routing::delete(clear_chaos_override),
         )
+        .route(
+            "/v1/health/features/{feature}/ack",
+            post(ack_incident).delete(clear_incident_ack),
+        )
         .route("/v1/addresses", post(create_address))
         .route("/v1/withdrawals", post(submit_withdrawal))
         .route("/v1/withdrawals/{id}", get(get_withdrawal_status))
@@ -171,6 +175,10 @@ pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
         .route(
             "/v1/admin/chaos/overrides/{feature}",
             axum::routing::delete(clear_chaos_override),
+        )
+        .route(
+            "/v1/health/features/{feature}/ack",
+            post(ack_incident).delete(clear_incident_ack),
         )
         .route("/metrics", get(prometheus_metrics))
         .route("/v1/addresses", post(create_address))
@@ -735,11 +743,83 @@ fn compute_down_seconds(
     down_total.max(0.0)
 }
 
+#[derive(serde::Deserialize)]
+struct AckRequest {
+    /// Short message — "looking into it", "rolling back deploy",
+    /// "vendor ticket opened". Surfaces on the dashboard next to
+    /// the ACK badge so the rest of the team knows what's happening.
+    message: String,
+}
+
+/// `POST /v1/health/features/:feature/ack` — operator signals
+/// "I'm on this incident". Any admin can ack; the ack carries the
+/// actor's user id and message. Idempotent: re-acking the same
+/// feature replaces the prior ack with the new one (useful when
+/// shift changes hand off an incident). Returns 200 on success
+/// regardless of the feature's current state — the ack sticks
+/// either way and gets pruned when the refresh task sees recovery.
+async fn ack_incident(
+    auth: crate::rbac_middleware::RequireAdmin,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(feature): Path<String>,
+    Json(req): Json<AckRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if req.message.trim().is_empty() {
+        return Err(ApiError::bad_request("message must not be empty"));
+    }
+    let who = auth.0.user_id.to_string();
+    state.incident_acks.ack(&feature, &who, req.message.trim());
+    tracing::info!(
+        target: "custody::readiness::ack",
+        feature = %feature,
+        acknowledged_by = %who,
+        "Incident acknowledged"
+    );
+    Ok(Json(serde_json::json!({ "acknowledged": true })))
+}
+
+/// `DELETE /v1/health/features/:feature/ack` — clear manually.
+/// Usually not needed because the refresh task prunes acks when a
+/// feature returns to Ready, but useful when an operator wants to
+/// explicitly un-ack (handed off incorrectly, recorded wrong note).
+async fn clear_incident_ack(
+    auth: crate::rbac_middleware::RequireAdmin,
+    axum::extract::State(state): axum::extract::State<AppState>,
+    Path(feature): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let cleared = state.incident_acks.clear(&feature);
+    if !cleared {
+        return Err(ApiError::not_found("No active ack for that feature"));
+    }
+    tracing::info!(
+        target: "custody::readiness::ack",
+        feature = %feature,
+        cleared_by = %auth.0.user_id,
+        "Incident ack cleared"
+    );
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn health_features(
     axum::extract::State(state): axum::extract::State<AppState>,
 ) -> Json<serde_json::Value> {
     let snap = state.readiness.snapshot();
     let (ready, disabled, misc, degraded) = snap.summary_counts();
+    let acks = state.incident_acks.snapshot();
+    // Fold the per-feature ack onto the serialised feature row so
+    // the dashboard gets `{name, state, reason?, ack?}` in one read
+    // instead of fetching ack state separately.
+    let features: Vec<serde_json::Value> = snap
+        .features
+        .iter()
+        .map(|f| {
+            let mut v = serde_json::to_value(f).unwrap_or(serde_json::json!({}));
+            if let Some(ack) = acks.get(&f.name) {
+                v["ack"] = serde_json::to_value(ack).unwrap_or_default();
+            }
+            v
+        })
+        .collect();
     Json(serde_json::json!({
         "summary": {
             "ready": ready,
@@ -748,7 +828,7 @@ async fn health_features(
             "degraded": degraded,
             "total": snap.features.len(),
         },
-        "features": snap.features,
+        "features": features,
     }))
 }
 

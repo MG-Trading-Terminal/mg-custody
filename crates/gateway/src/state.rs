@@ -10,6 +10,7 @@ use custody_common::email::EmailSender;
 use custody_common::emergency::FreezeFlag;
 use custody_common::events::EventBroadcaster;
 use custody_common::readiness::ReadinessHandle;
+use custody_common::readiness_ack::IncidentAcks;
 use custody_common::readiness_chaos::ChaosOverrides;
 use custody_compliance::travel_rule::NotabeneProvider;
 use custody_db::CustodyDb;
@@ -51,4 +52,8 @@ pub struct AppState {
     /// Cleared on service restart — no persistence, because a
     /// forgotten chaos override in production is itself an incident.
     pub chaos_overrides: ChaosOverrides,
+    /// In-memory "I'm on it" acknowledgments per degraded feature.
+    /// Cleared on service restart and pruned when the refresh task
+    /// sees the feature return to Ready.
+    pub incident_acks: IncidentAcks,
 }
