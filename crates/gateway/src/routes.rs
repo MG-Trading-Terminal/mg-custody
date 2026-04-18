@@ -401,13 +401,14 @@ async fn create_health_silence(
         req.duration_secs,
         &req.reason,
     );
-    if let Err(e) = state.db.insert_audit_entry(&audit).await {
-        tracing::warn!(
-            target: "custody::readiness::alert",
-            error = %e,
-            "Silence audit write failed"
-        );
-    }
+    let db = state.db.clone();
+    tokio::spawn(async move {
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            db.insert_audit_entry(&audit),
+        )
+        .await;
+    });
     tracing::warn!(
         target: "custody::readiness::alert",
         feature = %req.feature,
@@ -459,13 +460,14 @@ async fn end_health_silence(
         &auth.0.user_id.to_string(),
         &feature,
     );
-    if let Err(e) = state.db.insert_audit_entry(&audit).await {
-        tracing::warn!(
-            target: "custody::readiness::alert",
-            error = %e,
-            "Silence-end audit write failed"
-        );
-    }
+    let db = state.db.clone();
+    tokio::spawn(async move {
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            db.insert_audit_entry(&audit),
+        )
+        .await;
+    });
     tracing::info!(
         target: "custody::readiness::alert",
         feature = %feature,
@@ -539,19 +541,36 @@ async fn set_chaos_override(
         &req.reason,
         auth.0.user_id.to_string(),
     );
+    // Audit write is best-effort and bounded. A hung DB must not
+    // block the chaos endpoint — it's an operator drill tool; the
+    // in-memory override is the source of truth for the refresh
+    // task, audit is just the paper trail.
     let audit = custody_db::audit::AuditEntry::readiness_chaos_injected(
         &auth.0.user_id.to_string(),
         &req.feature,
         &req.state,
         &req.reason,
     );
-    if let Err(e) = state.db.insert_audit_entry(&audit).await {
-        tracing::warn!(
-            target: "custody::readiness::chaos",
-            error = %e,
-            "Chaos audit write failed"
-        );
-    }
+    let db = state.db.clone();
+    tokio::spawn(async move {
+        let res = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            db.insert_audit_entry(&audit),
+        )
+        .await;
+        match res {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => tracing::warn!(
+                target: "custody::readiness::chaos",
+                error = %e,
+                "Chaos audit write failed"
+            ),
+            Err(_) => tracing::warn!(
+                target: "custody::readiness::chaos",
+                "Chaos audit write timed out"
+            ),
+        }
+    });
     // Wake the refresh task so the operator doesn't wait up to 60s
     // to see the alert fire.
     state.readiness.request_refresh();
@@ -589,13 +608,14 @@ async fn clear_chaos_override(
         &auth.0.user_id.to_string(),
         &feature,
     );
-    if let Err(e) = state.db.insert_audit_entry(&audit).await {
-        tracing::warn!(
-            target: "custody::readiness::chaos",
-            error = %e,
-            "Chaos-clear audit write failed"
-        );
-    }
+    let db = state.db.clone();
+    tokio::spawn(async move {
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            db.insert_audit_entry(&audit),
+        )
+        .await;
+    });
     state.readiness.request_refresh();
     tracing::info!(
         target: "custody::readiness::chaos",

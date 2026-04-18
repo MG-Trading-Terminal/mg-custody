@@ -209,6 +209,200 @@ async fn health_features_uptime_rejects_unknown_window() {
 }
 
 #[tokio::test]
+async fn metrics_endpoint_exposes_readiness_gauges() {
+    // Populate the gauge registry by calling export_prometheus_gauges
+    // on a known report, then hit /metrics via oneshot and assert
+    // the Prometheus text format contains our gauges with the
+    // right label + value.
+    let report = seeded_handle().snapshot();
+    report.export_prometheus_gauges();
+    // Histograms register lazily on first observation. Force the
+    // build_duration histogram by recording a zero-width sample;
+    // otherwise /metrics won't include its HELP line at all because
+    // nothing in this test path ever calls readiness_build::build().
+    drop(custody_common::prometheus_metrics::READINESS_BUILD_DURATION.start_timer());
+
+    let app = build_router(seeded_handle());
+    let resp = app
+        .oneshot(Request::get("/metrics").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), 1_000_000).await.unwrap();
+    let body = String::from_utf8(bytes.to_vec()).unwrap();
+
+    // HELP + TYPE comments for our metrics must appear once each.
+    assert!(
+        body.contains("# HELP custody_readiness_feature_state"),
+        "gauge HELP missing; got:\n{body}"
+    );
+    assert!(
+        body.contains("# HELP custody_readiness_last_refresh_seconds"),
+        "last_refresh HELP missing"
+    );
+    assert!(
+        body.contains("# HELP custody_readiness_build_duration_seconds"),
+        "build_duration HELP missing"
+    );
+
+    // State values: 1=ready, 3=degraded, 2=misconfigured, 0=disabled.
+    assert!(
+        body.contains(r#"custody_readiness_feature_state{feature="scanner.ethereum"} 1"#),
+        "ready feature should be 1"
+    );
+    assert!(
+        body.contains(r#"custody_readiness_feature_state{feature="push.apns"} 3"#),
+        "degraded feature should be 3"
+    );
+    assert!(
+        body.contains(r#"custody_readiness_feature_state{feature="screening.aml"} 2"#),
+        "misconfigured feature should be 2"
+    );
+    assert!(
+        body.contains(r#"custody_readiness_feature_state{feature="mpc.multi_host"} 0"#),
+        "disabled feature should be 0"
+    );
+}
+
+#[tokio::test]
+async fn ack_endpoint_round_trip() {
+    let app = build_router(seeded_handle());
+    // Ack an incident.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/health/features/push.apns/ack")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"message":"investigating"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "ack POST should succeed");
+
+    // Verify it surfaces on the feature row in /v1/health/features.
+    let resp = app
+        .clone()
+        .oneshot(Request::get("/v1/health/features").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let body = json_body(resp).await;
+    let feats = body["features"].as_array().unwrap();
+    let apns = feats.iter().find(|f| f["name"] == "push.apns").unwrap();
+    assert_eq!(
+        apns["ack"]["message"], "investigating",
+        "ack must appear on feature row"
+    );
+
+    // Empty message is rejected.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/health/features/scanner.ethereum/ack")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"message":"   "}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    // DELETE clears.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::delete("/v1/health/features/push.apns/ack")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    // Second DELETE → 404 (idempotency without ambiguity).
+    let resp = app
+        .oneshot(
+            Request::delete("/v1/health/features/push.apns/ack")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn chaos_override_round_trip() {
+    let app = build_router(seeded_handle());
+    // Inject an override.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/admin/chaos/overrides")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"feature":"scanner.ethereum","state":"degraded","reason":"drill"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::ACCEPTED);
+
+    // Listing includes it.
+    let resp = app
+        .clone()
+        .oneshot(Request::get("/v1/admin/chaos/overrides").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let body = json_body(resp).await;
+    assert_eq!(body["count"], 1);
+    assert!(body["overrides"]["scanner.ethereum"].is_object());
+
+    // Bad state rejected.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/admin/chaos/overrides")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"feature":"x","state":"ready","reason":"bogus"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "ready as a chaos state doesn't test any alerting path"
+    );
+
+    // DELETE clears.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::delete("/v1/admin/chaos/overrides/scanner.ethereum")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    // Second DELETE → 404.
+    let resp = app
+        .oneshot(
+            Request::delete("/v1/admin/chaos/overrides/scanner.ethereum")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn health_features_refresh_requires_admin_body_is_202() {
     let app = build_router(seeded_handle());
     let resp = app
