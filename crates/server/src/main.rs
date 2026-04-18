@@ -1042,6 +1042,12 @@ async fn main() -> anyhow::Result<()> {
                 readiness_build::fire_alerts(&mut alerts, &silence_patterns, &transitions).await;
                 report.export_prometheus_gauges();
                 handle.replace(report);
+                // Heartbeat fires last, AFTER the report is
+                // published and gauges are exported — so the
+                // external monitor only gets a tick when the full
+                // probe → persist → publish chain worked. A hang
+                // anywhere above us stops the pings.
+                readiness_build::ping_heartbeat().await;
             }
         });
     }

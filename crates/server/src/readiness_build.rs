@@ -583,6 +583,40 @@ pub fn silence_pattern_matches(pattern: &str, feature: &str) -> bool {
 /// Failures posting to the webhook are logged but not retried — a
 /// subsequent transition will try again; queueing alerts just means
 /// a paged oncall sees the incident twice instead of timed out.
+/// Dead-man's-switch heartbeat. Fires after every successful probe
+/// sweep — if the refresh task hangs, the service crashes, or the
+/// whole box loses power, the pings stop and the external monitor
+/// (healthchecks.io, Dead Man's Snitch, or a self-hosted cron job
+/// watching a pingback) flips to alert. This is the one alert path
+/// that survives the service itself being down, which our own
+/// webhook/Slack/PD channels by definition cannot.
+///
+/// Set `CUSTODY_READINESS__HEARTBEAT_URL` to enable. The URL is hit
+/// with a plain GET (healthchecks.io convention); failures are
+/// logged but never retried — a dropped heartbeat on the next tick
+/// will arrive in ≤60s and catch up.
+pub async fn ping_heartbeat() {
+    let Some(url) = std::env::var("CUSTODY_READINESS__HEARTBEAT_URL")
+        .ok()
+        .filter(|s| !s.is_empty())
+    else {
+        return;
+    };
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+    else {
+        return;
+    };
+    if let Err(e) = client.get(&url).send().await {
+        tracing::debug!(
+            target: "custody::readiness::heartbeat",
+            error = %e,
+            "Heartbeat ping failed — next tick will catch up"
+        );
+    }
+}
+
 pub async fn fire_alerts(
     state: &mut AlertState,
     silence_patterns: &[String],
@@ -706,6 +740,90 @@ pub async fn fire_alerts(
     post_pagerduty(&client, transitions).await;
 }
 
+/// Send a request with exponential-backoff retry on transient
+/// errors. Retries only cover failure modes an immediate replay can
+/// legitimately recover from:
+///
+///   - connect errors / timeouts (network blip)
+///   - HTTP 5xx (server-side; 500, 502, 503, 504)
+///   - HTTP 429 (rate limited)
+///
+/// 4xx (other than 429) is a caller-side problem — webhook secret
+/// revoked, Slack channel deleted, PagerDuty routing key invalid.
+/// Retrying burns budget without fixing anything, so we log and
+/// move on.
+///
+/// Three attempts total with 500ms / 1s / 2s spacing. That's ~3.5s
+/// of wall time in the worst case, well under the refresh tick.
+async fn send_with_retry(
+    req_builder: impl Fn() -> reqwest::RequestBuilder,
+    target: &'static str,
+) -> Option<reqwest::Response> {
+    const DELAYS_MS: [u64; 3] = [500, 1_000, 2_000];
+    for (attempt, delay) in DELAYS_MS.iter().enumerate() {
+        let req = req_builder();
+        match req.send().await {
+            Ok(resp) => {
+                let status = resp.status();
+                // Happy path: 2xx + 3xx. Slack / PD / generic all
+                // answer 200 or 202 on acceptance.
+                if status.is_success() || status.is_redirection() {
+                    return Some(resp);
+                }
+                // Retry on 5xx + 429. Stay on 4xx (other than 429).
+                let retriable = status.is_server_error() || status.as_u16() == 429;
+                if !retriable {
+                    tracing::warn!(
+                        target: "custody::readiness::alert",
+                        sink = target,
+                        status = %status,
+                        "Alert sink returned non-retriable status"
+                    );
+                    return Some(resp);
+                }
+                if attempt + 1 == DELAYS_MS.len() {
+                    tracing::warn!(
+                        target: "custody::readiness::alert",
+                        sink = target,
+                        status = %status,
+                        attempts = attempt + 1,
+                        "Alert sink gave up after retries"
+                    );
+                    return Some(resp);
+                }
+                tracing::debug!(
+                    target: "custody::readiness::alert",
+                    sink = target,
+                    status = %status,
+                    attempt = attempt + 1,
+                    "Retrying alert sink after transient status"
+                );
+            }
+            Err(e) => {
+                if attempt + 1 == DELAYS_MS.len() {
+                    tracing::warn!(
+                        target: "custody::readiness::alert",
+                        sink = target,
+                        error = %e,
+                        attempts = attempt + 1,
+                        "Alert sink delivery failed after retries"
+                    );
+                    return None;
+                }
+                tracing::debug!(
+                    target: "custody::readiness::alert",
+                    sink = target,
+                    error = %e,
+                    attempt = attempt + 1,
+                    "Retrying alert sink after transport error"
+                );
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(*delay)).await;
+    }
+    None
+}
+
 /// Generic webhook POST with HMAC-signed body. Operators use this
 /// for custom receivers (internal Slack bots, incident-management
 /// systems, webhook-test inboxes during rollout).
@@ -734,26 +852,28 @@ async fn post_generic_webhook(
     };
 
     let unix_ts = chrono::Utc::now().timestamp();
-    let mut req = client
-        .post(&url)
-        .header(reqwest::header::CONTENT_TYPE, "application/json");
-
-    if let Some(secret) = std::env::var("CUSTODY_READINESS__ALERT_WEBHOOK_SECRET")
+    let secret = std::env::var("CUSTODY_READINESS__ALERT_WEBHOOK_SECRET")
         .ok()
-        .filter(|s| !s.is_empty())
-    {
-        let sig = sign_webhook(&secret, unix_ts, &body_bytes);
-        req = req.header("X-Custody-Signature", format!("t={unix_ts},v1={sig}"));
-    }
+        .filter(|s| !s.is_empty());
+    let signature =
+        secret.as_ref().map(|s| sign_webhook(s, unix_ts, &body_bytes));
 
-    if let Err(e) = req.body(body_bytes).send().await {
-        tracing::warn!(
-            target: "custody::readiness::alert",
-            error = %e,
-            count = transitions.len(),
-            "Generic alert webhook delivery failed"
-        );
-    }
+    // Retry builder re-creates the RequestBuilder each attempt;
+    // reqwest consumes it on `.send()`, so we can't share one.
+    send_with_retry(
+        || {
+            let mut r = client
+                .post(&url)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(body_bytes.clone());
+            if let Some(sig) = signature.as_ref() {
+                r = r.header("X-Custody-Signature", format!("t={unix_ts},v1={sig}"));
+            }
+            r
+        },
+        "generic_webhook",
+    )
+    .await;
 }
 
 /// Slack Incoming Webhook. Formats every transition as a separate
@@ -814,13 +934,7 @@ async fn post_slack_webhook(
         ),
         "attachments": attachments,
     });
-    if let Err(e) = client.post(&url).json(&body).send().await {
-        tracing::warn!(
-            target: "custody::readiness::alert",
-            error = %e,
-            "Slack alert webhook delivery failed"
-        );
-    }
+    send_with_retry(|| client.post(&url).json(&body), "slack").await;
 }
 
 /// PagerDuty Events API v2 — https://events.pagerduty.com/v2/enqueue.
@@ -880,15 +994,7 @@ async fn post_pagerduty(client: &reqwest::Client, transitions: &[Transition<'_>]
                 }
             }
         });
-        if let Err(e) = client.post(URL).json(&body).send().await {
-            tracing::warn!(
-                target: "custody::readiness::alert",
-                error = %e,
-                feature = %feature,
-                action = %action,
-                "PagerDuty Events v2 delivery failed"
-            );
-        }
+        send_with_retry(|| client.post(URL).json(&body), "pagerduty").await;
     }
 }
 
