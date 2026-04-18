@@ -688,26 +688,6 @@ pub async fn fire_alerts(
     if batch.is_empty() {
         return;
     }
-    post_alert_batch(&now, &batch).await;
-}
-
-/// Single POST per refresh cycle with every alertable transition
-/// bundled. The body carries `{service, timestamp, transitions: [...]}`
-/// so receivers can render one message even when 12 features went
-/// down together.
-///
-/// When `CUSTODY_READINESS__ALERT_WEBHOOK_SECRET` is set, the POST
-/// is signed with HMAC-SHA256 over `timestamp.body` and delivered
-/// as an `X-Custody-Signature: t=<unix>,v1=<hex>` header so the
-/// receiver can verify the payload came from us, not a spoofed
-/// attacker who found the webhook URL in a config leak.
-async fn post_alert_batch(timestamp: &str, transitions: &[serde_json::Value]) {
-    let Some(url) = std::env::var("CUSTODY_READINESS__ALERT_WEBHOOK")
-        .ok()
-        .filter(|s| !s.is_empty())
-    else {
-        return;
-    };
     let Ok(client) = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
@@ -716,6 +696,28 @@ async fn post_alert_batch(timestamp: &str, transitions: &[serde_json::Value]) {
             target: "custody::readiness::alert",
             "Could not build alert webhook HTTP client"
         );
+        return;
+    };
+    // Every configured channel gets the same batch. A single outage
+    // thus lands in Slack, PagerDuty, and the raw webhook at once;
+    // operators pick whichever they want and unset the others.
+    post_generic_webhook(&client, &now, &batch).await;
+    post_slack_webhook(&client, &now, &batch).await;
+    post_pagerduty(&client, transitions).await;
+}
+
+/// Generic webhook POST with HMAC-signed body. Operators use this
+/// for custom receivers (internal Slack bots, incident-management
+/// systems, webhook-test inboxes during rollout).
+async fn post_generic_webhook(
+    client: &reqwest::Client,
+    timestamp: &str,
+    transitions: &[serde_json::Value],
+) {
+    let Some(url) = std::env::var("CUSTODY_READINESS__ALERT_WEBHOOK")
+        .ok()
+        .filter(|s| !s.is_empty())
+    else {
         return;
     };
     let body = serde_json::json!({
@@ -749,8 +751,144 @@ async fn post_alert_batch(timestamp: &str, transitions: &[serde_json::Value]) {
             target: "custody::readiness::alert",
             error = %e,
             count = transitions.len(),
-            "Readiness alert webhook delivery failed"
+            "Generic alert webhook delivery failed"
         );
+    }
+}
+
+/// Slack Incoming Webhook. Formats every transition as a separate
+/// attachment so the Slack message is readable even when a whole
+/// region fails — each attachment gets a colour band
+/// (red for degradation, yellow for misconfiguration, green for
+/// recovery) that Slack renders as a left border.
+///
+/// Docs: https://api.slack.com/messaging/webhooks
+async fn post_slack_webhook(
+    client: &reqwest::Client,
+    timestamp: &str,
+    transitions: &[serde_json::Value],
+) {
+    let Some(url) = std::env::var("CUSTODY_READINESS__ALERT_SLACK_WEBHOOK")
+        .ok()
+        .filter(|s| !s.is_empty())
+    else {
+        return;
+    };
+    let attachments: Vec<serde_json::Value> = transitions
+        .iter()
+        .map(|t| {
+            let kind = t.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            let feature = t.get("feature").and_then(|v| v.as_str()).unwrap_or("?");
+            let (color, title_prefix) = match kind {
+                "degradation" => ("danger", "🚨 DEGRADED"),
+                "misconfiguration" => ("warning", "⚠️ MISCONFIGURED"),
+                "recovery" => ("good", "✅ RECOVERED"),
+                _ => ("#888", "ℹ️"),
+            };
+            let text = t
+                .get("reason")
+                .or_else(|| t.get("summary"))
+                .or_else(|| t.get("missing"))
+                .map(|v| match v {
+                    serde_json::Value::Array(a) => a
+                        .iter()
+                        .filter_map(|x| x.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    _ => v.as_str().unwrap_or("").to_string(),
+                })
+                .unwrap_or_default();
+            serde_json::json!({
+                "color": color,
+                "title": format!("{title_prefix} · {feature}"),
+                "text": text,
+                "footer": "mg-custody readiness",
+                "ts": chrono::Utc::now().timestamp(),
+            })
+        })
+        .collect();
+    let body = serde_json::json!({
+        "text": format!(
+            "MG Custody readiness — {} transition(s) at {timestamp}",
+            transitions.len(),
+        ),
+        "attachments": attachments,
+    });
+    if let Err(e) = client.post(&url).json(&body).send().await {
+        tracing::warn!(
+            target: "custody::readiness::alert",
+            error = %e,
+            "Slack alert webhook delivery failed"
+        );
+    }
+}
+
+/// PagerDuty Events API v2 — https://events.pagerduty.com/v2/enqueue.
+/// Each transition becomes a separate event because the PD API is
+/// per-event, not batched. dedup_key=<feature> so PD collapses
+/// repeat triggers on the same feature into one incident until a
+/// `resolve` event lands.
+///
+///   - degradation / misconfiguration → action=trigger
+///   - recovery → action=resolve (same dedup_key as the trigger)
+///
+/// Docs: https://developer.pagerduty.com/api-reference/YXBpOjI3NDgyNjU-pager-duty-v2-events-api
+async fn post_pagerduty(client: &reqwest::Client, transitions: &[Transition<'_>]) {
+    let Some(routing_key) = std::env::var("CUSTODY_READINESS__ALERT_PAGERDUTY_ROUTING_KEY")
+        .ok()
+        .filter(|s| !s.is_empty())
+    else {
+        return;
+    };
+    const URL: &str = "https://events.pagerduty.com/v2/enqueue";
+    for t in transitions {
+        let (action, feature, severity, summary, detail): (&str, &str, &str, String, String) =
+            match t {
+                Transition::Degradation { feature, reason } => (
+                    "trigger",
+                    feature,
+                    "error",
+                    format!("{feature} DEGRADED"),
+                    reason.clone(),
+                ),
+                Transition::Misconfiguration { feature, missing } => (
+                    "trigger",
+                    feature,
+                    "warning",
+                    format!("{feature} MISCONFIGURED"),
+                    missing.join(", "),
+                ),
+                Transition::Recovery { feature, summary } => (
+                    "resolve",
+                    feature,
+                    "info",
+                    format!("{feature} RECOVERED"),
+                    (*summary).to_string(),
+                ),
+            };
+        let body = serde_json::json!({
+            "routing_key": routing_key,
+            "event_action": action,
+            "dedup_key": feature,
+            "payload": {
+                "summary": summary,
+                "severity": severity,
+                "source": "mg-custody",
+                "component": feature,
+                "custom_details": {
+                    "detail": detail,
+                }
+            }
+        });
+        if let Err(e) = client.post(URL).json(&body).send().await {
+            tracing::warn!(
+                target: "custody::readiness::alert",
+                error = %e,
+                feature = %feature,
+                action = %action,
+                "PagerDuty Events v2 delivery failed"
+            );
+        }
     }
 }
 
