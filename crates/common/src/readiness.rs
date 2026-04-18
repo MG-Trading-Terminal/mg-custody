@@ -365,6 +365,24 @@ pub const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5)
 /// Numbers are deliberately checked in rather than DB-configurable:
 /// SLO changes are a deploy-time commitment, not an operator-knob.
 pub fn slo_target(feature: &str) -> f64 {
+    // Operator-specified override wins over compiled-in defaults so
+    // production can run tighter targets than staging without a
+    // rebuild. Env var shape: CUSTODY_SLO__<FEATURE> with dots
+    // replaced by underscores and the name uppercased.
+    //   scanner.ethereum → CUSTODY_SLO__SCANNER_ETHEREUM=99.95
+    //   push.fcm         → CUSTODY_SLO__PUSH_FCM=99.0
+    // Parse failures fall through to the default — a typo in one
+    // override shouldn't silently tighten an SLO everywhere.
+    let env_key = format!(
+        "CUSTODY_SLO__{}",
+        feature.replace('.', "_").to_ascii_uppercase()
+    );
+    if let Ok(raw) = std::env::var(&env_key)
+        && let Ok(parsed) = raw.parse::<f64>()
+        && (0.0..=100.0).contains(&parsed)
+    {
+        return parsed;
+    }
     match feature {
         "signing.hsm" | "screening.aml" => 99.99,
         "scanner.ethereum" | "scanner.bitcoin" | "scanner.tron" | "scanner.solana" => 99.9,

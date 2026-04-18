@@ -23,7 +23,7 @@ use custody_scanner::ChainScanner;
 use custody_withdrawal_pipeline::WithdrawalPipeline;
 use tracing_subscriber::EnvFilter;
 
-mod readiness_build;
+use custody_server::readiness_build;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

@@ -659,6 +659,13 @@ async fn health_features_uptime(
         };
         let slo = custody_common::readiness::slo_target(&f.name);
         let breach = uptime_pct < slo;
+        // Error budget: how many seconds of downtime the SLO permits
+        // over this window. 99.9% over 30d = 43.2m. Consumed is the
+        // down time we've already spent; remaining is what's left
+        // before breach. remaining can go negative during a breach —
+        // that's the useful signal.
+        let budget_secs = window_secs * (1.0 - slo / 100.0);
+        let remaining_secs = budget_secs - down_secs;
         uptimes.push(serde_json::json!({
             "feature": f.name,
             "uptime_pct": format!("{uptime_pct:.4}"),
@@ -666,6 +673,9 @@ async fn health_features_uptime(
             "transitions": events.len(),
             "slo_target_pct": format!("{slo:.2}"),
             "slo_breach": breach,
+            "budget_seconds": budget_secs as i64,
+            "budget_consumed_seconds": down_secs as i64,
+            "budget_remaining_seconds": remaining_secs as i64,
         }));
     }
     Ok(Json(serde_json::json!({
