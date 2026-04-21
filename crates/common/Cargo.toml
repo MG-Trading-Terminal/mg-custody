@@ -39,3 +39,5 @@ aes-gcm = { workspace = true }
 [dev-dependencies]
 serde_json = { workspace = true }
 rust_decimal_macros = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }

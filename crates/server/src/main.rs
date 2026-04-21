@@ -1747,7 +1747,12 @@ async fn main() -> anyhow::Result<()> {
     // Scheduled withdrawal execution loop (every 60 seconds)
     {
         let sched_db = db.clone();
-        let sched_pipeline = withdrawal_pipeline.clone();
+        // `sched_pipeline` stays prefix-underscored: the scheduled
+        // executor below calls the DB directly (due_scheduled_*) and
+        // doesn't touch the pipeline; the name is kept so git-blame
+        // on a reader can see this loop is the scheduling side of
+        // the pipeline.
+        let _sched_pipeline = withdrawal_pipeline.clone();
         tokio::spawn(async move {
             tracing::info!("Starting scheduled withdrawal executor loop");
             loop {

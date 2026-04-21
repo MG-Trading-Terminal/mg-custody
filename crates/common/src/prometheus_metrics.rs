@@ -5,7 +5,7 @@
 
 use prometheus::{
     register_counter_vec, register_gauge, register_gauge_vec, register_histogram_vec,
-    CounterVec, Gauge, GaugeVec, HistogramVec, TextEncoder, Encoder,
+    CounterVec, GaugeVec, HistogramVec, TextEncoder, Encoder,
 };
 use once_cell::sync::Lazy;
 
