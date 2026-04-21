@@ -486,9 +486,52 @@ impl WithdrawalPipeline {
                 }
             }
 
-            // Policy check
+            // Policy check.
+            //
+            // Compute the REAL DestinationType for this address
+            // instead of hard-coding `Any`. Previously the
+            // pipeline always passed `Any`, which meant any
+            // policy rule that specified
+            // `destination_type: Some(Whitelisted)` would
+            // silently never match (the matcher in
+            // policy/rule.rs::matches treats non-Any rules as
+            // exact equality — `Whitelisted != Any`). An
+            // operator who configured "auto-approve up to $X to
+            // whitelisted destinations" saw those rules drop
+            // through to the default-deny branch or to the next
+            // rule with no idea why. Making the lookup honest
+            // here fixes the fake-feature.
+            //
+            // We classify as Whitelisted when the address exists
+            // in the per-chain whitelist table, Any otherwise.
+            // Internal (our own vaults) isn't tracked yet —
+            // treat as Any until vault-ownership lookup lands.
+            let destination_type = match self
+                .db
+                .is_address_whitelisted(&w.destination_address, w.chain.as_str())
+                .await
+            {
+                Ok(true) => DestinationType::Whitelisted,
+                // On Ok(false) the earlier process_received stage
+                // would have already failed the withdrawal when a
+                // whitelist exists — if we reach here, either
+                // there's no whitelist (empty table) or this
+                // specific address isn't listed. Either way it's
+                // not "Whitelisted" for policy purposes.
+                Ok(false) => DestinationType::Any,
+                Err(e) => {
+                    tracing::warn!(
+                        id = %w.id, error = %e,
+                        "Whitelist lookup for policy evaluation failed — \
+                         defaulting destination_type to Any (rules demanding \
+                         Whitelisted will not match this run)"
+                    );
+                    DestinationType::Any
+                }
+            };
+
             if let Some(ref engine) = self.policy_engine {
-                match engine.evaluate(w.chain, &w.asset, w.amount, &DestinationType::Any, &Role::Editor).action {
+                match engine.evaluate(w.chain, &w.asset, w.amount, &destination_type, &Role::Editor).action {
                     PolicyAction::Deny { ref reason } => {
                         custody_common::prometheus_metrics::POLICY_DECISIONS
                             .with_label_values(&[w.chain.as_str(), "deny"]).inc();
