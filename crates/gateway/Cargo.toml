@@ -26,6 +26,8 @@ reqwest = { workspace = true }
 hmac = { workspace = true }
 sha2 = { workspace = true }
 sha3 = { workspace = true }
+p256 = { workspace = true }
+base64 = { workspace = true }
 alloy = { workspace = true }
 custody-scanner = { path = "../scanner" }
 argon2 = { workspace = true }

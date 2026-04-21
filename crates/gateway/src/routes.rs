@@ -1101,15 +1101,32 @@ async fn get_withdrawal_status(
 }
 
 /// Request body for withdrawal approval.
+///
+/// FIDO2 fields (required when withdrawal.amount >=
+/// FIDO2_REQUIRED_THRESHOLD_USD):
+/// - `fido2_credential_id`: stored credential id
+/// - `fido2_challenge`: the challenge string we handed to the
+///   authenticator via the begin endpoint
+/// - `fido2_sign_count`: monotonically-increasing counter
+/// - `fido2_client_data_json`: base64-URL-encoded raw
+///   clientDataJSON produced by the browser/authenticator
+/// - `fido2_authenticator_data`: base64-URL-encoded raw
+///   authenticatorData
+/// - `fido2_signature`: base64-URL-encoded raw ES256 signature
 #[derive(serde::Deserialize)]
 struct ApproveWithdrawalBody {
     approved: bool,
     #[serde(default)]
     approver: Option<String>,
-    // Required when withdrawal.amount >= FIDO2_REQUIRED_THRESHOLD_USD
     fido2_credential_id: Option<String>,
     fido2_challenge: Option<String>,
     fido2_sign_count: Option<i64>,
+    #[serde(default)]
+    fido2_client_data_json: Option<String>,
+    #[serde(default)]
+    fido2_authenticator_data: Option<String>,
+    #[serde(default)]
+    fido2_signature: Option<String>,
 }
 
 async fn approve_withdrawal(
@@ -1169,7 +1186,37 @@ async fn approve_withdrawal(
             return Err(ApiError::unauthorized("FIDO2 credential is disabled"));
         }
 
-        // 3. Enforce monotonically increasing sign count (cloned key detection).
+        // 3. Real WebAuthn verification — parse clientDataJSON,
+        //    validate the origin/type/challenge bindings, then
+        //    verify the ES256 signature against the stored
+        //    credential's COSE public key. Previously this
+        //    handler only checked sign_count monotonicity, which
+        //    is insufficient on its own — a forged signature with
+        //    a fabricated counter would pass. See
+        //    `crate::fido2_verify` for the full recipe.
+        let client_data = body.fido2_client_data_json.as_deref().ok_or_else(|| {
+            ApiError::bad_request("FIDO2 verification requires fido2_client_data_json")
+        })?;
+        let auth_data = body.fido2_authenticator_data.as_deref().ok_or_else(|| {
+            ApiError::bad_request("FIDO2 verification requires fido2_authenticator_data")
+        })?;
+        let signature = body.fido2_signature.as_deref().ok_or_else(|| {
+            ApiError::bad_request("FIDO2 verification requires fido2_signature")
+        })?;
+        crate::fido2_verify::verify_assertion(
+            &credential.public_key_cose,
+            client_data,
+            auth_data,
+            signature,
+            challenge,
+            &crate::fido2_verify::fido2_expected_origin_default(),
+        )
+        .map_err(|e| {
+            tracing::warn!(id = %id, approver, error = %e, "FIDO2 signature verification failed");
+            ApiError::unauthorized(&format!("FIDO2 verification: {e}"))
+        })?;
+
+        // 4. Enforce monotonically increasing sign count (cloned key detection).
         //    update_fido2_sign_count returns false if new_count <= stored count.
         let updated = state.db.update_fido2_sign_count(cred_id, sign_count).await
             .map_err(|e| ApiError::internal(&e.to_string()))?;

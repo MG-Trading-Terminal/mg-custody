@@ -4,6 +4,7 @@
 //! All requests authenticated via HMAC-SHA256.
 
 pub mod admin_cooldown;
+pub mod fido2_verify;
 pub mod admin_routes;
 pub mod nft_routes;
 pub mod webhook_mgmt_routes;
