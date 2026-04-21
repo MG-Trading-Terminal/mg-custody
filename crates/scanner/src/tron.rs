@@ -223,9 +223,44 @@ impl TronScanner {
                     // Check if destination is one of our addresses
                     let Some(user_id) = self.address_cache.lookup(&to_base58) else { continue; };
 
-                    // Parse amount from log data
-                    let data_hex = log["data"].as_str().unwrap_or("0");
-                    let amount_raw = u128::from_str_radix(data_hex.trim_start_matches("0x"), 16).unwrap_or(0);
+                    // Parse amount from log `data`. A TRC-20
+                    // `Transfer(from,to,value)` event encodes `value`
+                    // as a 32-byte hex-padded uint256. Previously
+                    // this was `unwrap_or(0)` followed by
+                    // `if amount == 0 { continue }` — which meant a
+                    // malformed RPC payload (truncated string,
+                    // missing `data` field, non-hex chars) was
+                    // indistinguishable from "no transfer happened"
+                    // and a real USDT deposit would silently never
+                    // credit. Now we log at WARN with the tx hash
+                    // so an operator sees the gap and can
+                    // re-replay the block from a healthy node.
+                    let Some(data_hex) = log["data"].as_str() else {
+                        tracing::warn!(
+                            tx = txid, block = block_num,
+                            token = %token.symbol,
+                            "TRC-20 log missing `data` field — skipping; \
+                             possible RPC payload bug, operator should verify"
+                        );
+                        continue;
+                    };
+                    let amount_raw = match u128::from_str_radix(
+                        data_hex.trim_start_matches("0x"),
+                        16,
+                    ) {
+                        Ok(n) => n,
+                        Err(e) => {
+                            tracing::warn!(
+                                tx = txid, block = block_num,
+                                token = %token.symbol,
+                                raw = %data_hex,
+                                error = %e,
+                                "TRC-20 log `data` unparseable as hex uint256 — \
+                                 skipping; a real deposit may be missing from this tx"
+                            );
+                            continue;
+                        }
+                    };
                     if amount_raw == 0 { continue; }
 
                     let amount = Decimal::new(amount_raw as i64, token.decimals.into());

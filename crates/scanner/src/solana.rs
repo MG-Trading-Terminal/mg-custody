@@ -402,15 +402,57 @@ impl ChainScanner for SolanaScanner {
                                 };
 
                                 // Find pre-balance for same account index.
-                                // `.ok()` on the parse step falls back to 0
-                                // which is the right default for "no pre
-                                // balance row existed yet" (a freshly-
-                                // created token account).
-                                let pre_amount: u128 = pre_tokens.iter()
-                                    .find(|e| e["accountIndex"].as_u64() == Some(account_index))
-                                    .and_then(|e| e["uiTokenAmount"]["amount"].as_str())
-                                    .and_then(|s| s.parse().ok())
-                                    .unwrap_or(0);
+                                //
+                                // TWO cases that used to collapse into
+                                // `unwrap_or(0)`:
+                                //
+                                //   (a) No pre-balance row exists — the
+                                //       token account was CREATED by
+                                //       this very transaction. In that
+                                //       case `pre = 0` is correct and
+                                //       the full post-balance is a real
+                                //       deposit.
+                                //   (b) A pre-balance row exists but its
+                                //       `uiTokenAmount.amount` is missing
+                                //       or unparseable. Falling back to
+                                //       0 here CREDITS the user with
+                                //       the entire post-balance — a
+                                //       silent over-credit driven by an
+                                //       RPC payload bug. Skip the row
+                                //       instead and let an operator
+                                //       reconcile from a healthy node.
+                                let pre_row = pre_tokens.iter()
+                                    .find(|e| e["accountIndex"].as_u64() == Some(account_index));
+                                let pre_amount: u128 = match pre_row {
+                                    None => 0, // case (a) — freshly-created ATA
+                                    Some(row) => {
+                                        let raw = row["uiTokenAmount"]["amount"].as_str();
+                                        match raw.map(|s| s.parse::<u128>()) {
+                                            Some(Ok(n)) => n,
+                                            Some(Err(e)) => {
+                                                tracing::warn!(
+                                                    signature, mint, owner,
+                                                    raw = ?raw,
+                                                    error = %e,
+                                                    "Solana SPL pre-balance amount unparseable — \
+                                                     skipping this deposit (would over-credit \
+                                                     if we defaulted pre=0)"
+                                                );
+                                                continue;
+                                            }
+                                            None => {
+                                                tracing::warn!(
+                                                    signature, mint, owner,
+                                                    "Solana SPL pre-balance row missing \
+                                                     `uiTokenAmount.amount` — skipping this \
+                                                     deposit (would over-credit if we \
+                                                     defaulted pre=0)"
+                                                );
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                };
 
                                 if post_amount > pre_amount {
                                     let received = post_amount - pre_amount;
