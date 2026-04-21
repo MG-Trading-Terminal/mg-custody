@@ -846,6 +846,37 @@ impl WithdrawalPipeline {
 
     /// Sign a Tron withdrawal.
     async fn sign_trx(&self, w: &Withdrawal) -> Result<()> {
+        // Asset gate. `sign_trx` below builds a Tron
+        // TransferContract — a NATIVE TRX transfer — and passes
+        // `amount_sun = trx_to_sun(w.amount)`. For a TRC-20
+        // asset (USDT, USDC) the correct wire format is
+        // TriggerSmartContract with the token contract address
+        // and ABI-encoded `transfer(to, amount)` calldata; the
+        // signing crate has `encode_trc20_transfer_params` but
+        // no full `sign_trc20_transfer` and the pipeline has no
+        // TRC-20 branch. Previous behaviour: a USDT/Tron
+        // withdrawal silently signed a NATIVE TRX transfer of
+        // `amount_sun` — i.e., a "withdraw 100 USDT" request
+        // signed a 100 TRX transfer to the destination. Massive
+        // silent miscredit. Refuse until the TRC-20 path lands.
+        let token_registry = custody_common::token_registry::TokenRegistry::with_defaults();
+        if !token_registry.is_native(w.asset.as_str(), w.chain) {
+            let msg = format!(
+                "TRC-20 withdrawal signing is not implemented (asset={}). \
+                 Refusing to sign; native-TRX transfer would miscredit the user.",
+                w.asset.as_str()
+            );
+            tracing::error!(id = %w.id, asset = %w.asset.as_str(), "{msg}");
+            self.db
+                .update_withdrawal_status_with_error(
+                    w.id,
+                    WithdrawalStatus::Failed,
+                    &msg,
+                )
+                .await?;
+            return Ok(());
+        }
+
         let seed = self.seed.as_ref().ok_or_else(|| anyhow::anyhow!("No seed"))?;
 
         let from_hex = custody_signing::tron::tron_address_hex(seed, 0)?;
