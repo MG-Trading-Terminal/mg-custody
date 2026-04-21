@@ -127,20 +127,71 @@ impl MpcTransport for InMemoryTransport {
 }
 
 /// Compute HMAC for MPC message authentication.
+///
+/// Covers every field the receiver will trust. Earlier versions
+/// omitted `to_party` and `timestamp`, which meant an attacker
+/// sitting on the party-to-party network could take a valid
+/// broadcast message (`to_party = None`) and rewrite its
+/// `to_party` to a specific peer — the HMAC would still verify
+/// because those bytes weren't in the MAC input. For a signing
+/// protocol that sends round-specific per-party shares, that
+/// redirect changes who receives which secret. The timestamp is
+/// included so a future freshness check (message_timestamp vs
+/// server_now, or per-round window) has a reliable anchor.
 pub fn sign_message(secret: &[u8], msg: &MpcMessage) -> String {
     use hmac::{Hmac, Mac};
     let mut mac = Hmac::<sha2::Sha256>::new_from_slice(secret).unwrap();
     mac.update(msg.session_id.as_bytes());
     mac.update(&msg.round.to_le_bytes());
     mac.update(&msg.from_party.to_le_bytes());
+    // to_party: distinguish None (broadcast) from Some(n).
+    // 0xFF-prefix for the tag so a broadcast MAC never matches
+    // a unicast MAC with a wild to_party value.
+    match msg.to_party {
+        None => mac.update(&[0xFFu8]),
+        Some(n) => {
+            mac.update(&[0x00u8]);
+            mac.update(&n.to_le_bytes());
+        }
+    }
+    mac.update(msg.timestamp.timestamp_nanos_opt().unwrap_or(0).to_le_bytes().as_slice());
     mac.update(&msg.payload);
     hex::encode(mac.finalize().into_bytes())
 }
 
-/// Verify HMAC on received MPC message.
+/// Verify HMAC on received MPC message in constant time.
+///
+/// Earlier code did `expected == msg.hmac` — plain `String ==
+/// String` short-circuits on the first differing byte, leaking
+/// timing information about how many leading hex nibbles
+/// matched. The MPC party network is authenticated but not
+/// otherwise secret-proof; a malicious / compromised peer could
+/// extract the shared HMAC secret byte-by-byte via latency
+/// observations (~64 probes per hex nibble). Decode the
+/// claimed hex to raw bytes and hand it to `verify_slice`, which
+/// does a fixed-time compare against the fresh MAC.
 pub fn verify_message(secret: &[u8], msg: &MpcMessage) -> bool {
-    let expected = sign_message(secret, msg);
-    expected == msg.hmac
+    use hmac::{Hmac, Mac};
+    let mut mac = match Hmac::<sha2::Sha256>::new_from_slice(secret) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    mac.update(msg.session_id.as_bytes());
+    mac.update(&msg.round.to_le_bytes());
+    mac.update(&msg.from_party.to_le_bytes());
+    match msg.to_party {
+        None => mac.update(&[0xFFu8]),
+        Some(n) => {
+            mac.update(&[0x00u8]);
+            mac.update(&n.to_le_bytes());
+        }
+    }
+    mac.update(msg.timestamp.timestamp_nanos_opt().unwrap_or(0).to_le_bytes().as_slice());
+    mac.update(&msg.payload);
+    match hex::decode(&msg.hmac) {
+        Ok(raw) => mac.verify_slice(&raw).is_ok(),
+        Err(_) => false,
+    }
 }
 
 #[cfg(test)]
@@ -226,6 +277,53 @@ mod tests {
         };
         msg.hmac = sign_message(b"correct", &msg);
         assert!(!verify_message(b"wrong", &msg));
+    }
+
+    #[test]
+    fn message_hmac_to_party_redirect_blocked() {
+        // Attacker takes a broadcast message and rewrites
+        // `to_party` to target a specific peer. Old sign_message
+        // didn't cover this field, so the MAC would have still
+        // verified. New impl catches it.
+        let secret = b"party_secret";
+        let mut msg = MpcMessage {
+            session_id: Uuid::new_v4(),
+            round: 1,
+            from_party: 0,
+            to_party: None, // broadcast
+            payload: vec![0xAA],
+            hmac: String::new(),
+            timestamp: Utc::now(),
+        };
+        msg.hmac = sign_message(secret, &msg);
+        assert!(verify_message(secret, &msg));
+
+        // Redirect broadcast → unicast to party 1.
+        msg.to_party = Some(1);
+        assert!(
+            !verify_message(secret, &msg),
+            "to_party rewrite must invalidate the HMAC"
+        );
+    }
+
+    #[test]
+    fn message_hmac_timestamp_tamper_detected() {
+        let secret = b"party_secret";
+        let mut msg = MpcMessage {
+            session_id: Uuid::new_v4(),
+            round: 1,
+            from_party: 0,
+            to_party: Some(2),
+            payload: vec![0xAA],
+            hmac: String::new(),
+            timestamp: Utc::now(),
+        };
+        msg.hmac = sign_message(secret, &msg);
+        msg.timestamp = msg.timestamp + chrono::Duration::seconds(60);
+        assert!(
+            !verify_message(secret, &msg),
+            "timestamp rewrite must invalidate the HMAC"
+        );
     }
 
     #[test]
