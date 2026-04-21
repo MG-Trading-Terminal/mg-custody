@@ -79,6 +79,31 @@ impl SolanaScanner {
         }
     }
 
+    /// Confirmations to require before crediting a deposit, driven
+    /// by the configured commitment level.
+    ///
+    /// Previously hardcoded to 1. That was defensible only under
+    /// `finalized` commitment (where Solana itself requires 32+
+    /// slots + supermajority stake). Under `confirmed` (~400ms-2s
+    /// of consensus) a single confirmation is NOT final — a reorg
+    /// in the first few seconds can replay the deposit. Under
+    /// `processed` (one leader's local view) it's nowhere near
+    /// final. This helper rescales per commitment.
+    fn required_confirmations(&self) -> u64 {
+        match self.commitment.as_str() {
+            "finalized" => 1,
+            // "confirmed" is supermajority-stake but not root;
+            // pair it with 32 additional slots to get protocol-
+            // equivalent finality before crediting.
+            "confirmed" => 32,
+            // "processed" is leader-only. Double the finalized
+            // threshold as a conservative floor; still insufficient
+            // for high-value deposits — operators should run
+            // "finalized" in prod.
+            _ => 64,
+        }
+    }
+
     /// Manually register an address (for tests + ad-hoc flows).
     /// Production callers should use `reload_from_db` so the cache
     /// stays in sync with the `addresses` table.
@@ -165,6 +190,66 @@ impl SolanaScanner {
     }
 }
 
+/// Solana's official memo programs. A transaction may carry at
+/// most a handful of memo instructions (Solana doesn't have a
+/// memo field like Stellar/XRP; you attach a Memo Program
+/// instruction instead). We accept both the v1 no-signer program
+/// and the v2 program that optionally requires a signer.
+const MEMO_PROGRAM_V1: &str = "Memo1111111111111111111111111111111111111111";
+const MEMO_PROGRAM_V2: &str = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
+
+/// Walk the `transaction.message.instructions` array looking for
+/// Memo-Program instructions and concatenate their decoded data
+/// with "; " separators. Previously every deposit's `source_memo`
+/// was hardcoded to `None`, so exchange integrations that match
+/// deposits by memo (e.g. a deposit address shared across users,
+/// disambiguated by memo) had no data to work with.
+///
+/// Base58 decode of the instruction `data` field yields the raw
+/// bytes the user embedded; we assume UTF-8 per Memo Program
+/// convention and lossy-decode rather than error — a non-UTF-8
+/// memo is still better surfaced as replacement characters than
+/// silently dropped.
+fn extract_solana_memo(tx: &serde_json::Value) -> Option<String> {
+    let accounts = tx["transaction"]["message"]["accountKeys"].as_array()?;
+    let instructions = tx["transaction"]["message"]["instructions"].as_array()?;
+    let mut memos: Vec<String> = Vec::new();
+    for ix in instructions {
+        let program_id_idx = ix.get("programIdIndex").and_then(|v| v.as_u64());
+        let Some(idx) = program_id_idx else { continue };
+        let program_id = accounts
+            .get(idx as usize)
+            .and_then(|v| v.as_str().or_else(|| v["pubkey"].as_str()))
+            .unwrap_or("");
+        if program_id != MEMO_PROGRAM_V1 && program_id != MEMO_PROGRAM_V2 {
+            continue;
+        }
+        let data_b58 = match ix.get("data").and_then(|v| v.as_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        match bs58::decode(data_b58).into_vec() {
+            Ok(bytes) => {
+                let s = String::from_utf8_lossy(&bytes).to_string();
+                if !s.is_empty() {
+                    memos.push(s);
+                }
+            }
+            Err(e) => {
+                tracing::debug!(
+                    data = data_b58, error = %e,
+                    "Memo instruction data not valid base58 — skipping"
+                );
+            }
+        }
+    }
+    if memos.is_empty() {
+        None
+    } else {
+        Some(memos.join("; "))
+    }
+}
+
 impl ChainScanner for SolanaScanner {
     fn chain(&self) -> Chain {
         Chain::Solana
@@ -218,6 +303,12 @@ impl ChainScanner for SolanaScanner {
                 // Get transaction details for amount
                 if let Ok(tx) = self.get_transaction(signature).await {
                     let meta = &tx["meta"];
+                    // Extract memo once per tx. Both SOL and SPL
+                    // deposit constructors below reuse this —
+                    // previously `source_memo: None` was hardcoded
+                    // so exchange integrations that match deposits
+                    // via Solana Memo Program had no signal.
+                    let source_memo = extract_solana_memo(&tx);
 
                     // ── SOL native detection ──────────────────
                     let pre_balances = meta["preBalances"].as_array();
@@ -250,13 +341,13 @@ impl ChainScanner for SolanaScanner {
                                             log_index: None,
                                             block_height: slot,
                                             confirmations: 0,
-                                            required_confirmations: 1,
+                                            required_confirmations: self.required_confirmations(),
                                             status: DepositStatus::Detected,
                                             detected_at: Utc::now(),
                                             confirmed_at: None,
                                             credited_at: None,
                                             memo: None,
-                                            source_memo: None,
+                                            source_memo: source_memo.clone(),
                                         });
                                     }
                                 }
@@ -336,13 +427,13 @@ impl ChainScanner for SolanaScanner {
                                         log_index: Some(account_index as u32),
                                         block_height: slot,
                                         confirmations: 0,
-                                        required_confirmations: 1,
+                                        required_confirmations: self.required_confirmations(),
                                         status: DepositStatus::Detected,
                                         detected_at: Utc::now(),
                                         confirmed_at: None,
                                         credited_at: None,
                                         memo: None,
-                                        source_memo: None,
+                                        source_memo: source_memo.clone(),
                                     });
 
                                     tracing::info!(
@@ -392,6 +483,61 @@ pub const MAX_BLOCKHASH_RETRIES: u32 = 3;
 mod tests {
     use super::*;
     use rust_decimal_macros::dec;
+
+    #[test]
+    fn extract_memo_picks_up_v2_program_data() {
+        // Build a minimal getTransaction response shape with one
+        // memo-program instruction. "Hello" base58 = "9Ajdvzr".
+        let memo_text = "trace-12345";
+        let memo_b58 = bs58::encode(memo_text.as_bytes()).into_string();
+        let tx = serde_json::json!({
+            "transaction": {
+                "message": {
+                    "accountKeys": [
+                        "SenderPubkey1111111111111111111111111111111",
+                        MEMO_PROGRAM_V2,
+                    ],
+                    "instructions": [
+                        {"programIdIndex": 1, "data": memo_b58, "accounts": []},
+                    ],
+                }
+            }
+        });
+        assert_eq!(extract_solana_memo(&tx), Some(memo_text.to_string()));
+    }
+
+    #[test]
+    fn extract_memo_ignores_non_memo_programs() {
+        let tx = serde_json::json!({
+            "transaction": {
+                "message": {
+                    "accountKeys": ["Sender", "SystemProgram"],
+                    "instructions": [
+                        {"programIdIndex": 1, "data": "abcdef", "accounts": []},
+                    ],
+                }
+            }
+        });
+        assert_eq!(extract_solana_memo(&tx), None);
+    }
+
+    #[test]
+    fn extract_memo_joins_multiple_with_semicolon() {
+        let a = bs58::encode(b"first").into_string();
+        let b = bs58::encode(b"second").into_string();
+        let tx = serde_json::json!({
+            "transaction": {
+                "message": {
+                    "accountKeys": [MEMO_PROGRAM_V1, "_"],
+                    "instructions": [
+                        {"programIdIndex": 0, "data": a},
+                        {"programIdIndex": 0, "data": b},
+                    ],
+                }
+            }
+        });
+        assert_eq!(extract_solana_memo(&tx), Some("first; second".to_string()));
+    }
 
     #[test]
     fn lamports_sol_conversion() {

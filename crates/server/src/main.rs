@@ -614,6 +614,8 @@ async fn main() -> anyhow::Result<()> {
 
     // ─── Confirmation Tracker ────────────────────────────────────────
     let mut block_height_fns: HashMap<Chain, BlockHeightFn> = HashMap::new();
+    let mut tx_success_fns: HashMap<Chain, custody_confirmations::tracker::TxSuccessFn> =
+        HashMap::new();
 
     if let Some(ref scanner) = eth_scanner {
         let scanner_clone = scanner.clone();
@@ -622,6 +624,33 @@ async fn main() -> anyhow::Result<()> {
             Box::pin(async move { s.current_block_height().await })
         });
         block_height_fns.insert(Chain::Ethereum, height_fn);
+
+        // Wire tx-success hook for ETH. Without this, the tracker
+        // would flip ETH withdrawals to Finalized on block-count
+        // alone — a reverted ERC-20 transfer would accumulate
+        // confirmations and fire `withdrawal_confirmed` even though
+        // the token never moved. The broadcaster's `tx_status`
+        // returns `success: bool` read off `receipt.status()` which
+        // is exactly the EVM success flag.
+        if let Some(ref eth_cfg) = config.chains.ethereum {
+            let rpc_url = std::env::var("CUSTODY_CHAINS__ETHEREUM__RPC_URL")
+                .unwrap_or_else(|_| eth_cfg.rpc_url.clone());
+            if !rpc_url.is_empty()
+                && let Ok(bc) = custody_broadcaster::ethereum::EthereumBroadcaster::new(&rpc_url)
+            {
+                let bc = Arc::new(bc);
+                let bc_clone = bc.clone();
+                let success_fn: custody_confirmations::tracker::TxSuccessFn = Arc::new(move |tx_hash| {
+                    let b = bc_clone.clone();
+                    Box::pin(async move {
+                        use custody_broadcaster::Broadcaster;
+                        let status = b.tx_status(&tx_hash).await?;
+                        Ok(status.map(|s| s.success))
+                    })
+                });
+                tx_success_fns.insert(Chain::Ethereum, success_fn);
+            }
+        }
     }
 
     // ─── Push notification service ──────────────────────────────────
@@ -853,11 +882,17 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    let confirmation_tracker = Arc::new(ConfirmationTracker::new(
-        db.clone(),
-        block_height_fns,
-        webhook_sender.clone(),
-    ));
+    let confirmation_tracker = {
+        let mut t = ConfirmationTracker::new(
+            db.clone(),
+            block_height_fns,
+            webhook_sender.clone(),
+        );
+        for (chain, f) in tx_success_fns {
+            t = t.with_tx_success_fn(chain, f);
+        }
+        Arc::new(t)
+    };
 
     // ─── Email transport ─────────────────────────────────────────────
     //
