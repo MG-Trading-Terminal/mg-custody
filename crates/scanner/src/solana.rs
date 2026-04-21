@@ -42,7 +42,12 @@ pub struct SolanaScanner {
     rpc_url: String,
     client: reqwest::Client,
     db: CustodyDb,
-    deposit_addresses: Vec<String>,
+    /// Address → user_id map. Populated by `reload_from_db` at
+    /// startup and periodically thereafter so new deposit
+    /// addresses created via the API become scannable without a
+    /// restart. Replaces a prior `Vec<String>` that left
+    /// `user_id: Uuid::nil()` on every detected deposit.
+    deposit_addresses: tokio::sync::RwLock<std::collections::HashMap<String, Uuid>>,
     commitment: String,
     /// SPL tokens to detect (USDT, USDC, etc.)
     spl_tokens: Vec<SplToken>,
@@ -68,14 +73,49 @@ impl SolanaScanner {
             rpc_url: rpc_url.to_string(),
             client: reqwest::Client::new(),
             db,
-            deposit_addresses: Vec::new(),
+            deposit_addresses: tokio::sync::RwLock::new(std::collections::HashMap::new()),
             commitment: commitment.to_string(),
             spl_tokens,
         }
     }
 
-    pub fn add_address(&mut self, address: &str) {
-        self.deposit_addresses.push(address.to_string());
+    /// Manually register an address (for tests + ad-hoc flows).
+    /// Production callers should use `reload_from_db` so the cache
+    /// stays in sync with the `addresses` table.
+    pub async fn add_address(&self, address: &str, user_id: Uuid) {
+        self.deposit_addresses
+            .write()
+            .await
+            .insert(address.to_string(), user_id);
+    }
+
+    /// Pull every known Solana deposit address from the DB into
+    /// the in-memory map. Call this at startup and periodically
+    /// (every scan tick is fine — the query is cheap and the map
+    /// is small) so new user-generated addresses get picked up
+    /// without a restart.
+    ///
+    /// Silently does nothing on DB error; the scanner keeps its
+    /// previous snapshot rather than wiping the cache mid-flight.
+    pub async fn reload_from_db(&self) -> Result<()> {
+        let pairs = self
+            .db
+            .addresses_with_users(Chain::Solana)
+            .await
+            .context("reload Solana addresses")?;
+        let mut map = self.deposit_addresses.write().await;
+        // Full rebuild — cheaper than reconciling diffs for the
+        // typical cache size (hundreds to low thousands of
+        // addresses).
+        map.clear();
+        for (addr, uid) in pairs {
+            map.insert(addr, uid);
+        }
+        tracing::debug!(
+            count = map.len(),
+            "Solana address map reloaded from DB"
+        );
+        Ok(())
     }
 
     pub fn add_spl_token(&mut self, symbol: &str, mint: &str, decimals: u8) {
@@ -134,8 +174,21 @@ impl ChainScanner for SolanaScanner {
         let current = self.current_block_height().await?;
         let mut deposits = Vec::new();
 
-        // For each monitored address, check recent transactions
-        for address in &self.deposit_addresses {
+        // Snapshot the address→user_id map once so we don't hold
+        // the RwLock across RPC calls. Clone is cheap (hundreds of
+        // entries tops) and avoids deadlocks if reload_from_db
+        // fires mid-scan.
+        let addresses: Vec<(String, Uuid)> = self
+            .deposit_addresses
+            .read()
+            .await
+            .iter()
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+
+        for (address, user_id) in &addresses {
+            let address = address.as_str();
+            let user_id = *user_id;
             let sigs = self.get_signatures(address, 20).await?;
 
             for sig_info in sigs {
@@ -176,10 +229,10 @@ impl ChainScanner for SolanaScanner {
 
                                         deposits.push(Deposit {
                                             id: Uuid::new_v4(),
-                                            user_id: Uuid::nil(),
+                                            user_id,
                                             asset: Asset::new("SOL"),
                                             chain: Chain::Solana,
-                                            address: address.clone(),
+                                            address: address.to_string(),
                                             amount,
                                             tx_hash: signature.to_string(),
                                             log_index: None,
@@ -236,10 +289,10 @@ impl ChainScanner for SolanaScanner {
 
                                     deposits.push(Deposit {
                                         id: Uuid::new_v4(),
-                                        user_id: Uuid::nil(),
+                                        user_id,
                                         asset: Asset::new(&token.symbol),
                                         chain: Chain::Solana,
-                                        address: address.clone(),
+                                        address: address.to_string(),
                                         amount,
                                         tx_hash: signature.to_string(),
                                         log_index: Some(account_index as u32),
@@ -272,7 +325,7 @@ impl ChainScanner for SolanaScanner {
             self.db.insert_deposit(deposit).await?;
         }
 
-        tracing::info!(addresses = self.deposit_addresses.len(), deposits = deposits.len(), "Solana scan");
+        tracing::info!(addresses = addresses.len(), deposits = deposits.len(), "Solana scan");
         Ok((deposits, current))
     }
 

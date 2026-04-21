@@ -117,9 +117,25 @@ impl BitcoinScanner {
                         let amount_sats = (value_btc * 100_000_000.0).round() as u64;
                         let amount = Decimal::new(amount_sats as i64, 8);
 
-                        let user_id = self.address_cache
-                            .lookup(addr)
-                            .unwrap_or(Uuid::nil());
+                        // Cache says this is one of our addresses but
+                        // the user-id lookup failed — stale cache or
+                        // row vanished mid-scan. Skip-and-warn rather
+                        // than credit the deposit to `Uuid::nil()`:
+                        // a nil-UUID row exists in the DB forever,
+                        // never gets picked up by per-user webhook
+                        // fanout, and silently blocks reconciliation
+                        // from spotting the missing credit.
+                        let Some(user_id) = self.address_cache.lookup(addr) else {
+                            tracing::warn!(
+                                addr,
+                                txid = %txid,
+                                amount_sats,
+                                "BTC deposit to known address whose user_id \
+                                 is not in the cache — skipped. Refresh the \
+                                 address cache and rescan this block."
+                            );
+                            continue;
+                        };
 
                         deposits.push(Deposit {
                             id: Uuid::new_v4(),

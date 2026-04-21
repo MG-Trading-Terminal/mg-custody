@@ -1296,7 +1296,29 @@ async fn main() -> anyhow::Result<()> {
             tokio::spawn(async move {
                 let mut from_slot = db_scan.get_scan_progress(Chain::Solana).await.unwrap_or(None).unwrap_or(0);
                 tracing::info!(from_slot, "Starting Solana scanner loop");
+                // Initial load — fatal if it fails because an empty
+                // map means every deposit gets missed until the next
+                // reload tick. Better to log loudly and still start
+                // so operators see the gap rather than silent-no-scan.
+                if let Err(e) = scanner.reload_from_db().await {
+                    tracing::error!(
+                        error = %e,
+                        "Solana scanner: initial address reload failed — \
+                         scanner starts with empty map and will detect NO \
+                         deposits until a later reload succeeds"
+                    );
+                }
+                let mut last_reload = std::time::Instant::now();
                 loop {
+                    // Refresh the address map every 30s. Cheap query;
+                    // picks up new user-generated addresses without
+                    // a service restart.
+                    if last_reload.elapsed() > std::time::Duration::from_secs(30) {
+                        if let Err(e) = scanner.reload_from_db().await {
+                            tracing::warn!(error = %e, "Solana address reload failed — keeping previous snapshot");
+                        }
+                        last_reload = std::time::Instant::now();
+                    }
                     match scanner.scan(from_slot).await {
                         Ok((deposits, next)) => {
                             if !deposits.is_empty() {

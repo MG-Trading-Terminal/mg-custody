@@ -138,9 +138,24 @@ impl TronScanner {
                     let amount_sun = params["amount"].as_u64().unwrap_or(0);
 
                     if self.address_cache.contains(to) && amount_sun > 0 {
+                        // Skip-and-warn rather than credit to nil UUID.
+                        // See bitcoin.rs for the rationale on the same
+                        // pattern — we do not want orphan deposit rows
+                        // that never reconcile against a user.
+                        let Some(user_id) = self.address_cache.lookup(to) else {
+                            tracing::warn!(
+                                to,
+                                txid = %txid,
+                                amount_sun,
+                                "TRX deposit to known address whose user_id \
+                                 is not in the cache — skipped. Refresh the \
+                                 address cache and rescan."
+                            );
+                            continue;
+                        };
                         deposits.push(Deposit {
                             id: Uuid::new_v4(),
-                            user_id: self.address_cache.lookup(to).unwrap_or(Uuid::nil()),
+                            user_id,
                             asset: Asset::new("TRX"),
                             chain: Chain::Tron,
                             address: to.to_string(),
