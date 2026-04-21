@@ -583,6 +583,85 @@ pub fn silence_pattern_matches(pattern: &str, feature: &str) -> bool {
 /// Failures posting to the webhook are logged but not retried — a
 /// subsequent transition will try again; queueing alerts just means
 /// a paged oncall sees the incident twice instead of timed out.
+/// Validate alert-sink environment variables at boot. Logs a
+/// warning for each suspicious value — doesn't refuse to start,
+/// because an operator may be testing a staging receiver with
+/// deliberately odd URLs. Catches the common footguns:
+///   - Slack webhook pointed at a non-Slack host
+///   - PagerDuty routing key that isn't the expected 32 hex chars
+///   - generic webhook without https://
+///   - HMAC secret shorter than 16 chars (brute-forceable)
+///   - heartbeat URL without https://
+///
+/// Called once at startup from main.rs, after env parsing but
+/// before the refresh task spawns.
+pub fn validate_alert_config() {
+    if let Ok(url) = std::env::var("CUSTODY_READINESS__ALERT_WEBHOOK")
+        && !url.is_empty()
+        && !url.starts_with("https://")
+        && !url.starts_with("http://127.")
+        && !url.starts_with("http://localhost")
+    {
+        tracing::warn!(
+            target: "custody::readiness::config",
+            url = %url,
+            "Alert webhook is not https:// — payload is sent in the clear. \
+             Set CUSTODY_READINESS__ALERT_WEBHOOK_SECRET at minimum if you must use http."
+        );
+    }
+
+    if let Ok(url) = std::env::var("CUSTODY_READINESS__ALERT_SLACK_WEBHOOK")
+        && !url.is_empty()
+        && !url.starts_with("https://hooks.slack.com/")
+    {
+        tracing::warn!(
+            target: "custody::readiness::config",
+            url = %url,
+            "Slack webhook URL does not match https://hooks.slack.com/... shape. \
+             Verify the URL was copied from Slack's Incoming Webhooks app, not from \
+             a custom proxy or someone's personal inbox."
+        );
+    }
+
+    if let Ok(key) = std::env::var("CUSTODY_READINESS__ALERT_PAGERDUTY_ROUTING_KEY")
+        && !key.is_empty()
+    {
+        let trimmed = key.trim();
+        if trimmed.len() != 32 || !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+            tracing::warn!(
+                target: "custody::readiness::config",
+                len = trimmed.len(),
+                "PagerDuty routing key is not the expected 32 hex chars — v2 Events API \
+                 will reject requests. Copy the Integration Key from the PD service page."
+            );
+        }
+    }
+
+    if let Ok(secret) = std::env::var("CUSTODY_READINESS__ALERT_WEBHOOK_SECRET")
+        && !secret.is_empty()
+        && secret.len() < 16
+    {
+        tracing::warn!(
+            target: "custody::readiness::config",
+            len = secret.len(),
+            "Alert webhook HMAC secret is under 16 chars — consider at least 32 random bytes \
+             so a brute-force attack on the signature isn't practical."
+        );
+    }
+
+    if let Ok(url) = std::env::var("CUSTODY_READINESS__HEARTBEAT_URL")
+        && !url.is_empty()
+        && !url.starts_with("https://")
+    {
+        tracing::warn!(
+            target: "custody::readiness::config",
+            url = %url,
+            "Heartbeat URL is not https:// — a MITM could suppress heartbeats to defeat \
+             the dead-man's-switch alert. Use https:// wherever the monitor supports it."
+        );
+    }
+}
+
 /// Dead-man's-switch heartbeat. Fires after every successful probe
 /// sweep — if the refresh task hangs, the service crashes, or the
 /// whole box loses power, the pings stop and the external monitor

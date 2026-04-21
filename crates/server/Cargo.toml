@@ -70,3 +70,5 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 hmac = { workspace = true }
 sha2 = { workspace = true }
+futures = { workspace = true }
+tokio-tungstenite = "0.24"

@@ -80,6 +80,8 @@
 	let timer: ReturnType<typeof setInterval> | null = null;
 	let probing = $state(false);
 	let probeNote = $state('');
+	let wsConn: WebSocket | null = null;
+	let wsConnected = $state(false);
 
 	async function load() {
 		try {
@@ -286,12 +288,54 @@
 		}
 	}
 
+	function connectWs() {
+		if (typeof window === 'undefined') return;
+		// Build ws:// or wss:// URL from current location so same-origin
+		// routing / cookies work. Falls through to polling if the
+		// upgrade fails for any reason.
+		const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+		const url = `${proto}//${window.location.host}/v1/health/features/stream`;
+		try {
+			wsConn = new WebSocket(url);
+		} catch {
+			wsConn = null;
+			return;
+		}
+		wsConn.onopen = () => { wsConnected = true; };
+		wsConn.onmessage = (ev) => {
+			try {
+				const data = JSON.parse(ev.data);
+				features = data.features ?? [];
+				summary = data.summary ?? summary;
+				lastLoaded = new Date();
+				// Ack state is embedded in the WS payload, so we
+				// don't need to reload it separately. Silences and
+				// history are still pulled via HTTP on an interval
+				// since they change on different timelines.
+			} catch { /* ignore malformed frames */ }
+		};
+		wsConn.onclose = () => {
+			wsConnected = false;
+			wsConn = null;
+			// Gracefully fall back to polling by letting the
+			// existing timer do its job. Reconnect attempt in 5s.
+			setTimeout(connectWs, 5_000);
+		};
+		wsConn.onerror = () => { /* onclose follows */ };
+	}
+
 	onMount(() => {
 		load();
+		connectWs();
+		// Polling timer stays on as a belt-and-braces fallback —
+		// slower than WS but still updates if the stream drops.
 		if (autoRefresh) timer = setInterval(load, REFRESH_MS);
 	});
 
-	onDestroy(() => { if (timer) clearInterval(timer); });
+	onDestroy(() => {
+		if (timer) clearInterval(timer);
+		if (wsConn) { try { wsConn.close(); } catch { /* noop */ } wsConn = null; }
+	});
 
 	$effect(() => {
 		if (timer) { clearInterval(timer); timer = null; }
@@ -493,7 +537,9 @@
 				<span class="chip-lbl">Problems only</span>
 			</button>
 		{/if}
-		<span class="last-loaded">Last: {fmtTime(lastLoaded)}</span>
+		<span class="last-loaded">
+			{wsConnected ? '● live' : '○ polling'} · {fmtTime(lastLoaded)}
+		</span>
 	</section>
 
 	{#if loading && features.length === 0}

@@ -148,14 +148,32 @@ pub struct ReadinessHandle {
     /// here; the task catches up and re-runs every probe ahead of
     /// the periodic tick.
     refresh_notify: std::sync::Arc<tokio::sync::Notify>,
+    /// Broadcast channel fired on every `replace()`. Dashboard
+    /// WebSocket subscribers use this to push live updates without
+    /// polling. Capacity is small (8) because subscribers read
+    /// every tick or fall behind and reconnect — there's no value
+    /// in buffering a minute of stale snapshots.
+    updates_tx: tokio::sync::broadcast::Sender<std::sync::Arc<ReadinessReport>>,
 }
 
 impl ReadinessHandle {
     pub fn new(report: ReadinessReport) -> Self {
+        let (updates_tx, _) = tokio::sync::broadcast::channel(8);
         Self {
             inner: std::sync::Arc::new(std::sync::RwLock::new(std::sync::Arc::new(report))),
             refresh_notify: std::sync::Arc::new(tokio::sync::Notify::new()),
+            updates_tx,
         }
+    }
+
+    /// Subscribe to every future report update. Existing snapshots
+    /// are NOT replayed — the caller should `snapshot()` first, then
+    /// subscribe, to get the current state plus all future changes
+    /// without gaps. Broadcast channel lag (> 8 missed updates) is
+    /// delivered as a `RecvError::Lagged`; WS handlers should close
+    /// the connection on lag so the client reconnects and resyncs.
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<std::sync::Arc<ReadinessReport>> {
+        self.updates_tx.subscribe()
     }
 
     /// Read-cheap snapshot. Takes the read lock just long enough to
@@ -171,10 +189,15 @@ impl ReadinessHandle {
 
     /// Hot-swap the report. The background refresh task calls this
     /// after rebuilding the report; in-flight request handlers keep
-    /// the old snapshot they captured at entry.
+    /// the old snapshot they captured at entry. Fires the updates
+    /// broadcast channel so any WS subscribers get the new snapshot
+    /// immediately. Send failure (no subscribers) is silently
+    /// dropped — broadcast returns an error in that case, but it's
+    /// expected and benign.
     pub fn replace(&self, report: ReadinessReport) {
-        *self.inner.write().expect("readiness lock poisoned") =
-            std::sync::Arc::new(report);
+        let arc = std::sync::Arc::new(report);
+        *self.inner.write().expect("readiness lock poisoned") = arc.clone();
+        let _ = self.updates_tx.send(arc);
     }
 
     /// Ask the background refresh task to re-run every probe now.

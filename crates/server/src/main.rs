@@ -921,6 +921,12 @@ async fn main() -> anyhow::Result<()> {
     // refresh task below, and dump the human-readable table so
     // operators see the truth before any other log noise.
     let travel_rule_configured = travel_rule_provider.is_some();
+    // Boot-time sanity check on alert-sink env vars. Logs warnings
+    // for Slack URLs not pointing at hooks.slack.com, PagerDuty
+    // keys with the wrong shape, http:// webhooks without an HMAC
+    // secret, etc. Never refuses to start — those might be
+    // deliberate (staging relays, local tests).
+    readiness_build::validate_alert_config();
     let chaos_overrides = custody_common::readiness_chaos::ChaosOverrides::new();
     let incident_acks = custody_common::readiness_ack::IncidentAcks::new();
     let initial = readiness_build::build(&config, &email_sender, travel_rule_configured).await;

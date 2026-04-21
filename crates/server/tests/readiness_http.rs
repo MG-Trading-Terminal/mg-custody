@@ -403,6 +403,63 @@ async fn chaos_override_round_trip() {
 }
 
 #[tokio::test]
+async fn websocket_stream_pushes_first_snapshot_and_live_update() {
+    use futures::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+
+    // Bind a real TCP port — WS needs a real socket, oneshot won't do.
+    let handle = seeded_handle();
+    let app = build_router(handle.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let serve = tokio::spawn(async move {
+        axum::serve(listener, app).await.ok();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let url = format!("ws://{addr}/v1/health/features/stream");
+    let (mut ws, _resp) = tokio_tungstenite::connect_async(&url)
+        .await
+        .expect("ws connect");
+
+    // Initial frame: current snapshot.
+    let first = tokio::time::timeout(std::time::Duration::from_secs(2), ws.next())
+        .await
+        .expect("timed out waiting for initial frame")
+        .unwrap()
+        .unwrap();
+    let text = match first {
+        Message::Text(t) => t.to_string(),
+        other => panic!("expected text frame, got {other:?}"),
+    };
+    let body: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(body["summary"]["total"], 4, "initial snapshot shape");
+
+    // Trigger a live update by swapping the report.
+    let mut new_report = custody_common::readiness::ReadinessReport::new();
+    new_report.push(custody_common::readiness::FeatureStatus::ready(
+        "scanner.ethereum",
+        "ETH",
+    ));
+    handle.replace(new_report);
+
+    let second = tokio::time::timeout(std::time::Duration::from_secs(2), ws.next())
+        .await
+        .expect("timed out waiting for live update")
+        .unwrap()
+        .unwrap();
+    let text = match second {
+        Message::Text(t) => t.to_string(),
+        other => panic!("expected text frame, got {other:?}"),
+    };
+    let body: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(body["summary"]["total"], 1, "swap reduced count to 1");
+
+    ws.send(Message::Close(None)).await.ok();
+    serve.abort();
+}
+
+#[tokio::test]
 async fn health_features_refresh_requires_admin_body_is_202() {
     let app = build_router(seeded_handle());
     let resp = app

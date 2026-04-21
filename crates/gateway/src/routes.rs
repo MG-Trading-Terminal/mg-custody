@@ -54,6 +54,7 @@ pub fn router(state: AppState) -> Router {
         .route("/health/deep", get(crate::health::deep_health))
         .route("/v1/health/features", get(health_features))
         .route("/v1/health/features/refresh", post(health_features_refresh))
+        .route("/v1/health/features/stream", get(health_features_stream))
         .route("/v1/health/features/history", get(health_features_history))
         .route(
             "/v1/health/features/uptime",
@@ -151,6 +152,7 @@ pub fn router_with_middleware(state: AppState, hmac_secret: &[u8]) -> Router {
         .route("/health/deep", get(crate::health::deep_health))
         .route("/v1/health/features", get(health_features))
         .route("/v1/health/features/refresh", post(health_features_refresh))
+        .route("/v1/health/features/stream", get(health_features_stream))
         .route("/v1/health/features/history", get(health_features_history))
         .route(
             "/v1/health/features/uptime",
@@ -820,16 +822,93 @@ async fn clear_incident_ack(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn health_features(
+/// `GET /v1/health/features/stream` — WebSocket stream of readiness
+/// updates. First frame carries the current snapshot; every
+/// subsequent frame is the post-replace snapshot from the refresh
+/// task. Dashboard subscribes to this and falls back to polling if
+/// the WS connection drops (mobile network, load-balancer idle
+/// timeout, etc).
+///
+/// No auth on the stream itself — the payload is already served
+/// by the polled endpoint which is also unauthenticated under
+/// `router()` mode. When deployed with middleware(), the
+/// surrounding layer enforces RBAC.
+async fn health_features_stream(
+    ws: axum::extract::WebSocketUpgrade,
     axum::extract::State(state): axum::extract::State<AppState>,
-) -> Json<serde_json::Value> {
-    let snap = state.readiness.snapshot();
-    let (ready, disabled, misc, degraded) = snap.summary_counts();
-    let acks = state.incident_acks.snapshot();
-    // Fold the per-feature ack onto the serialised feature row so
-    // the dashboard gets `{name, state, reason?, ack?}` in one read
-    // instead of fetching ack state separately.
-    let features: Vec<serde_json::Value> = snap
+) -> axum::response::Response {
+    ws.on_upgrade(move |socket| async move {
+        use axum::extract::ws::Message;
+        use futures::{SinkExt, StreamExt};
+
+        let (mut sender, mut receiver) = socket.split();
+        let mut rx = state.readiness.subscribe();
+
+        // First frame: current snapshot so the client has a baseline
+        // before any updates land.
+        let initial = state.readiness.snapshot();
+        let body = serde_json::json!({
+            "summary": summary_of(&initial),
+            "features": render_features(&initial, &state.incident_acks.snapshot()),
+        });
+        if let Ok(txt) = serde_json::to_string(&body)
+            && sender.send(Message::Text(txt.into())).await.is_err()
+        {
+            return;
+        }
+
+        loop {
+            tokio::select! {
+                // Client closed or sent something — we don't accept
+                // any frames from the client, just watch for close.
+                client = receiver.next() => {
+                    match client {
+                        Some(Ok(Message::Close(_))) | None => return,
+                        _ => continue,
+                    }
+                }
+                update = rx.recv() => {
+                    let snap = match update {
+                        Ok(s) => s,
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                            // Client fell behind — close so it
+                            // reconnects and resyncs from the next
+                            // initial-snapshot frame.
+                            let _ = sender.send(Message::Close(None)).await;
+                            return;
+                        }
+                        Err(_) => return,
+                    };
+                    let body = serde_json::json!({
+                        "summary": summary_of(&snap),
+                        "features": render_features(&snap, &state.incident_acks.snapshot()),
+                    });
+                    let Ok(txt) = serde_json::to_string(&body) else { continue };
+                    if sender.send(Message::Text(txt.into())).await.is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+    })
+}
+
+fn summary_of(report: &custody_common::readiness::ReadinessReport) -> serde_json::Value {
+    let (ready, disabled, misc, degraded) = report.summary_counts();
+    serde_json::json!({
+        "ready": ready,
+        "disabled": disabled,
+        "misconfigured": misc,
+        "degraded": degraded,
+        "total": report.features.len(),
+    })
+}
+
+fn render_features(
+    report: &custody_common::readiness::ReadinessReport,
+    acks: &std::collections::HashMap<String, custody_common::readiness_ack::IncidentAck>,
+) -> Vec<serde_json::Value> {
+    report
         .features
         .iter()
         .map(|f| {
@@ -839,16 +918,17 @@ async fn health_features(
             }
             v
         })
-        .collect();
+        .collect()
+}
+
+async fn health_features(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> Json<serde_json::Value> {
+    let snap = state.readiness.snapshot();
+    let acks = state.incident_acks.snapshot();
     Json(serde_json::json!({
-        "summary": {
-            "ready": ready,
-            "disabled": disabled,
-            "misconfigured": misc,
-            "degraded": degraded,
-            "total": snap.features.len(),
-        },
-        "features": features,
+        "summary": summary_of(&snap),
+        "features": render_features(&snap, &acks),
     }))
 }
 
