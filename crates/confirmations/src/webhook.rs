@@ -122,10 +122,33 @@ impl WebhookSender {
     /// Deliver a payload to the exchange webhook endpoint.
     async fn deliver(&self, payload: &str) -> Result<()> {
         let timestamp = Utc::now().timestamp().to_string();
+
+        // Sign the PATH, not the full URL. CLAUDE.md
+        // §API Contract fixes the HMAC convention as
+        // `method + path + timestamp + body`, and
+        // gateway/auth.rs::verify_signature (the inbound half
+        // of the same protocol) uses `path`. Previously this
+        // signed `self.webhook_url` (a full URL including
+        // scheme + host), which meant any exchange-side
+        // verifier following the documented convention
+        // produced a different HMAC and rejected every
+        // outbound webhook. Retries then ran the delivery up
+        // to max_attempts and landed it in the dead-letter
+        // queue — deposits/withdrawals confirmed on-chain but
+        // the exchange never learned about them. Extracting
+        // the path here aligns the two sides of the protocol.
+        let path = reqwest::Url::parse(&self.webhook_url)
+            .map(|u| u.path().to_string())
+            .map_err(|e| anyhow::anyhow!(
+                "Webhook URL {} is not parseable: {e} — \
+                 refusing to sign; operator must supply a valid URL",
+                self.webhook_url
+            ))?;
+
         let signature = compute_hmac(
             &self.hmac_secret,
             "POST",
-            &self.webhook_url,
+            &path,
             &timestamp,
             payload,
         );

@@ -146,11 +146,23 @@ impl NotificationDispatcher {
     ///
     /// Headers added:
     /// - `X-Custody-Timestamp`: Unix timestamp string
-    /// - `X-Custody-Signature`: hex(HMAC-SHA256(POST + url + ts + body))
+    /// - `X-Custody-Signature`: hex(HMAC-SHA256(POST + path + ts + body))
+    ///
+    /// The HMAC covers the request PATH, matching the documented
+    /// protocol convention (CLAUDE.md §API Contract) and the
+    /// inbound verifier in gateway/auth.rs. Signing the full URL
+    /// would produce a signature the exchange can't verify,
+    /// which silently fails every outbound webhook.
     pub async fn send_webhook(&self, url: &str, payload: &Value) -> Result<()> {
         let body = serde_json::to_string(payload)?;
         let timestamp = Utc::now().timestamp().to_string();
-        let signature = compute_hmac(&self.hmac_secret, "POST", url, &timestamp, &body);
+
+        let path = reqwest::Url::parse(url)
+            .map(|u| u.path().to_string())
+            .map_err(|e| anyhow::anyhow!(
+                "Webhook URL {url} is not parseable: {e} — refusing to sign"
+            ))?;
+        let signature = compute_hmac(&self.hmac_secret, "POST", &path, &timestamp, &body);
 
         let response = self
             .client
