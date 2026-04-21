@@ -56,6 +56,21 @@ impl RbacState {
                 "/v1/auth/password-reset/request".into(), // no auth needed to request a reset
                 "/v1/auth/password-reset/confirm".into(), // no auth needed to confirm a reset
                 "/v1/auth/register".into(), // self-registration is pre-auth
+                // API discovery — safe to expose so integrators can
+                // pull the schema before obtaining credentials.
+                "/v1/openapi.json".into(),
+                "/v1/sdk/methods".into(),
+                "/v1/sdk/endpoints".into(),
+                "/v1/sdk/python".into(),
+                "/v1/sdk/typescript".into(),
+                // Feature-readiness monitoring — only the paths
+                // whose handlers do NOT demand a role via
+                // `RequireAdmin` / `RequireEditor` / etc. Summary
+                // + live stream are world-readable; history,
+                // uptime, refresh, silences, acks stay
+                // admin-gated by their respective extractors.
+                "/v1/health/features".into(),
+                "/v1/health/features/stream".into(),
             ],
         }
     }
@@ -77,8 +92,19 @@ pub async fn rbac_auth(
 ) -> Result<Response, StatusCode> {
     let path = request.uri().path().to_string();
 
-    // Skip for public paths
-    if rbac.public_paths.iter().any(|p| path.starts_with(p)) {
+    // Skip for public paths. Exact match only — the old
+    // `starts_with` matcher opened admin sub-paths whenever a
+    // public prefix was added (e.g., public
+    // `/v1/health/features` would also have exposed
+    // `/v1/health/features/.../ack`, an admin write). Every
+    // entry below is a full URL path.
+    //
+    // Note: endpoints also rely on per-handler extractors like
+    // `RequireAdmin` — a path may appear public at the
+    // middleware layer while the handler still demands a role.
+    // Only list paths here whose handlers are genuinely
+    // authentication-free.
+    if rbac.public_paths.iter().any(|p| p.as_str() == path) {
         return Ok(next.run(request).await);
     }
 
@@ -156,10 +182,27 @@ pub async fn rbac_auth(
         }
     }
 
-    // No Bearer token — if HMAC auth already validated this request,
-    // grant Admin role (exchange is a trusted internal service).
-    // The HMAC middleware runs before RBAC in the middleware stack,
-    // so if we reach here without Bearer, HMAC either passed or is not configured.
+    // No Bearer token — grant Admin only if hmac_auth actually
+    // ran upstream and inserted HmacVerified. Previous code
+    // trusted middleware ordering invisibly ("if we reach here
+    // without Bearer, HMAC either passed or is not configured"),
+    // which would become an auth bypass the day someone wires a
+    // new router that forgets hmac_auth, or re-orders layers, or
+    // a public_paths drift makes hmac_auth skip a path that
+    // rbac_auth doesn't. The marker proves hmac_auth ran and
+    // either verified a signature or deliberately allowed the
+    // request (dev mode, empty hmac_secret). Absence = deny.
+    let hmac_ran = request.extensions().get::<crate::middleware::HmacVerified>().is_some();
+    if !hmac_ran {
+        tracing::warn!(
+            path = %path,
+            "Rejected: no session token and HmacVerified marker absent — \
+             either the caller is unauthenticated or hmac_auth is missing \
+             from the middleware chain for this route"
+        );
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
     let ctx = AuthContext {
         user_id: Uuid::nil(),
         workspace_id: Uuid::nil(),
@@ -387,10 +430,18 @@ mod tests {
 
     #[test]
     fn rbac_public_paths_logic() {
-        let paths = vec!["/health".to_string(), "/metrics".to_string()];
-        assert!(paths.iter().any(|p| "/health".starts_with(p)));
-        assert!(paths.iter().any(|p| "/metrics".starts_with(p)));
-        assert!(!paths.iter().any(|p| "/v1/vaults".starts_with(p)));
+        // Exact-match semantics — a public prefix does NOT
+        // expose deeper admin paths. `/v1/health/features` is
+        // public, but `/v1/health/features/uptime` (admin via
+        // handler extractor) must not match.
+        let paths = vec![
+            "/health".to_string(),
+            "/v1/health/features".to_string(),
+        ];
+        assert!(paths.iter().any(|p| p == "/health"));
+        assert!(paths.iter().any(|p| p == "/v1/health/features"));
+        assert!(!paths.iter().any(|p| p == "/v1/health/features/uptime"));
+        assert!(!paths.iter().any(|p| p == "/v1/vaults"));
     }
 
     #[test]

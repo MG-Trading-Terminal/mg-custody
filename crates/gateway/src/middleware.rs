@@ -40,13 +40,25 @@ impl MiddlewareState {
     }
 }
 
+/// Extension marker inserted by `hmac_auth` when it runs and
+/// either verifies a signature or allows a request through in
+/// dev mode (`hmac_secret` empty). `rbac_auth` uses this marker
+/// to gate its "no Bearer → Admin" fallback: without the
+/// marker, an unauthenticated request must NOT be granted Admin
+/// just because it reached rbac_auth — the marker proves
+/// hmac_auth actually ran. Defence-in-depth against future
+/// middleware-chain misconfiguration (a new router that forgets
+/// to wire hmac_auth, or a re-ordering that skips it).
+#[derive(Clone, Copy, Debug)]
+pub struct HmacVerified;
+
 /// HMAC authentication middleware.
 ///
 /// Verifies X-Custody-Signature header on all non-public endpoints.
 /// Rejects requests with missing/invalid signature or stale timestamp (>30s).
 pub async fn hmac_auth(
     State(mw): State<MiddlewareState>,
-    request: Request<Body>,
+    mut request: Request<Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
     let path = request.uri().path().to_string();
@@ -102,8 +114,11 @@ pub async fn hmac_auth(
             return Err(StatusCode::UNAUTHORIZED);
         }
 
-        // Reconstruct the request with the body
-        let request = Request::from_parts(parts, Body::from(body_bytes));
+        // Reconstruct the request with the body + the
+        // HmacVerified marker so rbac_auth's Admin fallback
+        // knows this middleware actually ran.
+        let mut request = Request::from_parts(parts, Body::from(body_bytes));
+        request.extensions_mut().insert(HmacVerified);
         custody_common::prometheus_metrics::DEPOSITS_TOTAL
             .with_label_values(&["all", "request"]).inc();
         return Ok(next.run(request).await);
@@ -111,7 +126,12 @@ pub async fn hmac_auth(
 
     // No signature provided — reject in production mode
     if mw.hmac_secret.is_empty() {
-        // No secret configured, allow (dev mode)
+        // No secret configured, allow (dev mode). Marker is
+        // inserted so rbac_auth recognises "this request passed
+        // through a properly-wired middleware chain that
+        // happened to be in dev mode", distinct from "hmac_auth
+        // was never wired at all".
+        request.extensions_mut().insert(HmacVerified);
         return Ok(next.run(request).await);
     }
 

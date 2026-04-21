@@ -236,19 +236,26 @@ async fn unauthenticated_request_denied() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// AUTH BEHAVIOR (router() mode — RBAC gives Admin to all)
+// AUTH BEHAVIOR (router() mode — no Bearer must now fail closed)
 // ═══════════════════════════════════════════════════════════════
 
 #[tokio::test]
-async fn rbac_grants_admin_without_bearer() {
+async fn rbac_rejects_when_no_bearer_and_no_hmac() {
+    // router() does NOT wire hmac_auth (it's the dashboard path
+    // where Bearer is mandatory). A request without a cookie /
+    // Bearer used to silently fall through to the HMAC→Admin
+    // fallback in rbac_auth — an auth bypass waiting to happen
+    // the day someone wires a new router and forgets hmac_auth.
+    // The marker-based gate now forces 401 unless hmac_auth ran.
     let app = build_app_no_db();
-    // In router() mode, requests without Bearer get Admin via HMAC fallback.
-    // The request will fail on DB (lazy pool), but should NOT be 401/403.
     let req = api_request("GET", "/v1/wallets/ETH", None);
     let resp = app.oneshot(req).await.unwrap();
-    assert_ne!(resp.status(), StatusCode::UNAUTHORIZED, "Should not be 401");
-    assert_ne!(resp.status(), StatusCode::FORBIDDEN, "Should not be 403");
-    // Will be 500 (DB not connected) — that's fine, auth passed
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "Unauthenticated request on an hmac_auth-less router must be 401, \
+         not silently granted Admin"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════
