@@ -277,8 +277,33 @@ impl ChainScanner for SolanaScanner {
             let sigs = self.get_signatures(address, 100).await?;
 
             for sig_info in sigs {
-                let signature = sig_info["signature"].as_str().unwrap_or("");
-                let slot = sig_info["slot"].as_u64().unwrap_or(0);
+                // Refuse to process a signature entry that lacks
+                // its own identifiers. A missing `signature`
+                // field used to default to "" — the dedup check
+                // (`find_deposit_by_tx_hash`) then kept the FIRST
+                // broken row and silently dropped every
+                // subsequent one, hiding real deposits with the
+                // same RPC bug. A missing `slot` defaulted to 0
+                // — the confirmations tracker then computed
+                // `current_slot - 0 = huge` and instant-credited
+                // the deposit without knowing its real on-chain
+                // position.
+                let Some(signature) = sig_info["signature"].as_str() else {
+                    tracing::warn!(
+                        address,
+                        raw = %sig_info,
+                        "Solana getSignaturesForAddress entry without `signature` — skipping"
+                    );
+                    continue;
+                };
+                let Some(slot) = sig_info["slot"].as_u64() else {
+                    tracing::warn!(
+                        signature, address,
+                        "Solana getSignaturesForAddress entry without `slot` — skipping; \
+                         defaulting to 0 would instant-credit on next tracker tick"
+                    );
+                    continue;
+                };
                 let err = &sig_info["err"];
 
                 if !err.is_null() { continue; } // skip failed txs

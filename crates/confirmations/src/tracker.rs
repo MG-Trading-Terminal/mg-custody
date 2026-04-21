@@ -107,19 +107,57 @@ impl ConfirmationTracker {
             let confirmations = current_height.saturating_sub(deposit.block_height);
 
             if confirmations >= deposit.required_confirmations {
-                // Transition to Confirmed
+                // Credit FIRST, then flip status, then webhook.
+                //
+                // Previously the order was flip-status →
+                // `let _ = credit_deposit(...)` (fire-and-forget)
+                // → webhook. If the ledger write failed (DB
+                // hiccup, pool exhaustion) the deposit was
+                // already marked Confirmed — the next tick's
+                // `deposits_by_status(Detected)` query no longer
+                // returned it, so the credit was LOST FOREVER.
+                // The webhook still fired, so the exchange
+                // credited the user on its side. Silent ledger
+                // divergence until reconciliation caught it
+                // hours or days later.
+                //
+                // New order: propagate the error. On failure,
+                // skip this row for the tick; the deposit stays
+                // Detected and the next tick retries with the
+                // accumulated confirmation count.
+                //
+                // TODO: close the narrow double-credit window
+                // (credit succeeds, status update fails → next
+                // tick credits again) with a
+                // `UNIQUE (reference_id, reference_type)` index
+                // on custody_ledger so a duplicate insert
+                // becomes a loud constraint violation rather
+                // than a silent double-credit.
+                if let Err(e) = self
+                    .db
+                    .credit_deposit(
+                        deposit.id,
+                        deposit.asset.as_str(),
+                        deposit.chain,
+                        deposit.amount,
+                        deposit.user_id,
+                    )
+                    .await
+                {
+                    tracing::error!(
+                        deposit_id = %deposit.id,
+                        error = %e,
+                        "credit_deposit failed — holding off Confirmed transition \
+                         and webhook so the exchange doesn't see a credit the \
+                         ledger can't back"
+                    );
+                    continue;
+                }
+
+                // Ledger credit OK — now safe to flip status.
                 self.db
                     .update_deposit_status(deposit.id, DepositStatus::Confirmed, confirmations)
                     .await?;
-
-                // Credit deposit in the double-entry ledger
-                let _ = self.db.credit_deposit(
-                    deposit.id,
-                    deposit.asset.as_str(),
-                    deposit.chain,
-                    deposit.amount,
-                    deposit.user_id,
-                ).await;
 
                 // Fire webhook
                 let event = custody_common::CustodyEvent::DepositConfirmed {
