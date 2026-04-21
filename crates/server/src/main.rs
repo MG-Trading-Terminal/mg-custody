@@ -929,6 +929,9 @@ async fn main() -> anyhow::Result<()> {
     readiness_build::validate_alert_config();
     let chaos_overrides = custody_common::readiness_chaos::ChaosOverrides::new();
     let incident_acks = custody_common::readiness_ack::IncidentAcks::new();
+    let admin_cooldown = std::sync::Arc::new(
+        custody_gateway::admin_cooldown::AdminCooldown::new(),
+    );
     let initial = readiness_build::build(&config, &email_sender, travel_rule_configured).await;
     custody_common::readiness::startup_log_report(&initial);
     initial.export_prometheus_gauges();
@@ -1096,6 +1099,7 @@ async fn main() -> anyhow::Result<()> {
         readiness: readiness.clone(),
         chaos_overrides: chaos_overrides.clone(),
         incident_acks: incident_acks.clone(),
+        admin_cooldown: admin_cooldown.clone(),
     };
 
     // Use middleware if HMAC secret is configured

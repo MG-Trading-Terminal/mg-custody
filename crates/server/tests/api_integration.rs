@@ -59,6 +59,7 @@ fn build_app_no_db() -> axum::Router {
         readiness: custody_common::readiness::ReadinessHandle::new(custody_common::readiness::ReadinessReport::new()),
         chaos_overrides: custody_common::readiness_chaos::ChaosOverrides::new(),
         incident_acks: custody_common::readiness_ack::IncidentAcks::new(),
+        admin_cooldown: std::sync::Arc::new(custody_gateway::admin_cooldown::AdminCooldown::new()),
     };
 
     // Use router() — no HMAC layer.
@@ -135,6 +136,7 @@ async fn build_app_with_db() -> Option<(axum::Router, CustodyDb)> {
         readiness: custody_common::readiness::ReadinessHandle::new(custody_common::readiness::ReadinessReport::new()),
         chaos_overrides: custody_common::readiness_chaos::ChaosOverrides::new(),
         incident_acks: custody_common::readiness_ack::IncidentAcks::new(),
+        admin_cooldown: std::sync::Arc::new(custody_gateway::admin_cooldown::AdminCooldown::new()),
     };
 
     let app = custody_gateway::routes::router(state);

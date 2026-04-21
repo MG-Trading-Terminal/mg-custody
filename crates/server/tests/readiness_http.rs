@@ -50,6 +50,7 @@ fn build_router(handle: ReadinessHandle) -> axum::Router {
         readiness: handle,
         chaos_overrides: ChaosOverrides::new(),
         incident_acks: custody_common::readiness_ack::IncidentAcks::new(),
+        admin_cooldown: std::sync::Arc::new(custody_gateway::admin_cooldown::AdminCooldown::new()),
     };
     custody_gateway::routes::router(state)
 }
@@ -156,6 +157,7 @@ async fn health_features_uptime_shape_matches_dashboard() {
         readiness: seeded_handle(),
         chaos_overrides: ChaosOverrides::new(),
         incident_acks: custody_common::readiness_ack::IncidentAcks::new(),
+        admin_cooldown: std::sync::Arc::new(custody_gateway::admin_cooldown::AdminCooldown::new()),
     };
     let app = custody_gateway::routes::router(state);
     // Admin-only endpoint; router() falls through to Admin without Bearer.
@@ -359,14 +361,16 @@ async fn chaos_override_round_trip() {
     assert_eq!(body["count"], 1);
     assert!(body["overrides"]["scanner.ethereum"].is_object());
 
-    // Bad state rejected.
+    // Second POST inside the 10s cooldown window → 429. Exercises
+    // the admin cooldown path end-to-end — protecting chaos inject
+    // from shell-loop spam.
     let resp = app
         .clone()
         .oneshot(
             Request::post("/v1/admin/chaos/overrides")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    r#"{"feature":"x","state":"ready","reason":"bogus"}"#,
+                    r#"{"feature":"scanner.bitcoin","state":"degraded","reason":"second"}"#,
                 ))
                 .unwrap(),
         )
@@ -374,8 +378,8 @@ async fn chaos_override_round_trip() {
         .unwrap();
     assert_eq!(
         resp.status(),
-        StatusCode::BAD_REQUEST,
-        "ready as a chaos state doesn't test any alerting path"
+        StatusCode::TOO_MANY_REQUESTS,
+        "rapid second chaos inject should hit the cooldown"
     );
 
     // DELETE clears.
@@ -400,6 +404,78 @@ async fn chaos_override_round_trip() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn health_features_handles_sustained_requests_under_p99() {
+    // Dashboard polling + operator browsers + monitoring scrapes
+    // can produce sustained request rates on this endpoint. It
+    // must stay cheap — snapshot() is a read lock + Arc clone, no
+    // DB, no network — and shape serialization dominates the cost.
+    //
+    // 100 is enough to get a meaningful latency distribution
+    // without hitting the per-user rate limiter (default is
+    // 60/min/user; every oneshot in this test resolves to the
+    // same fall-through "admin" user). A real load tool against a
+    // prod deployment would use many users in parallel.
+    use std::time::Instant;
+    let app = build_router(seeded_handle());
+    const N: usize = 100;
+    let mut latencies_us: Vec<u128> = Vec::with_capacity(N);
+    let mut successes = 0;
+    for _ in 0..N {
+        let start = Instant::now();
+        let resp = app
+            .clone()
+            .oneshot(Request::get("/v1/health/features").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        latencies_us.push(start.elapsed().as_micros());
+        if resp.status().is_success() {
+            successes += 1;
+        }
+    }
+    assert_eq!(
+        successes, N,
+        "all {N} requests must succeed; rate limiter or accidental DB call would break this"
+    );
+    latencies_us.sort_unstable();
+    let p50 = latencies_us[N / 2];
+    let p99 = latencies_us[(N * 99) / 100];
+    let max = *latencies_us.last().unwrap();
+    eprintln!("p50={p50}us p99={p99}us max={max}us over {N} requests");
+    // Debug-build snapshot+serialize should sit well under 100ms p99.
+    // Release would be an order of magnitude faster; 100ms is a
+    // generous ceiling that catches regressions like an O(n²)
+    // feature merge or an accidental DB call sneaking in.
+    assert!(
+        p99 < 100_000,
+        "p99 {p99}us exceeds 100ms budget — likely a regression"
+    );
+}
+
+#[tokio::test]
+async fn chaos_override_rejects_invalid_state() {
+    // Separate test with its own fresh AppState (fresh cooldown)
+    // so the invalid-state check isn't masked by a 429 from a
+    // preceding POST.
+    let app = build_router(seeded_handle());
+    let resp = app
+        .oneshot(
+            Request::post("/v1/admin/chaos/overrides")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    r#"{"feature":"x","state":"ready","reason":"bogus"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "ready as a chaos state doesn't test any alerting path"
+    );
 }
 
 #[tokio::test]

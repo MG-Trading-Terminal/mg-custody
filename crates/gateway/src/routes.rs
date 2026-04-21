@@ -351,6 +351,22 @@ async fn create_health_silence(
     axum::extract::State(state): axum::extract::State<AppState>,
     Json(req): Json<CreateSilenceRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    // Same 10s cooldown as chaos — silences can be just as noisy
+    // if a script starts creating dozens in a loop, and each one
+    // writes an audit_log row.
+    if let Err(retry) = state.admin_cooldown.check(
+        &format!("silence-create:{}", auth.0.user_id),
+        std::time::Duration::from_secs(10),
+    ) {
+        return Err(ApiError {
+            error: "rate_limited".into(),
+            message: format!(
+                "Silence create cooldown active — retry in {retry}s."
+            ),
+            request_id: Uuid::new_v4().to_string(),
+            status: StatusCode::TOO_MANY_REQUESTS,
+        });
+    }
     const MAX_SECS: i64 = 7 * 24 * 60 * 60;
     if req.feature.is_empty() {
         return Err(ApiError::bad_request("feature must not be empty"));
@@ -518,6 +534,22 @@ async fn set_chaos_override(
     Json(req): Json<ChaosOverrideRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     use custody_common::readiness::FeatureState;
+    // Per-user 10s cooldown — a shell loop accidentally running
+    // this handler in the background would otherwise spam the
+    // audit log + refresh task + alert channel every tick.
+    if let Err(retry) = state.admin_cooldown.check(
+        &format!("chaos-inject:{}", auth.0.user_id),
+        std::time::Duration::from_secs(10),
+    ) {
+        return Err(ApiError {
+            error: "rate_limited".into(),
+            message: format!(
+                "Chaos inject cooldown active — retry in {retry}s."
+            ),
+            request_id: Uuid::new_v4().to_string(),
+            status: StatusCode::TOO_MANY_REQUESTS,
+        });
+    }
     if req.feature.is_empty() {
         return Err(ApiError::bad_request("feature must not be empty"));
     }

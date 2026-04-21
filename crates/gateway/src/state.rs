@@ -56,4 +56,9 @@ pub struct AppState {
     /// Cleared on service restart and pruned when the refresh task
     /// sees the feature return to Ready.
     pub incident_acks: IncidentAcks,
+    /// Per-user cooldown for admin-driven state mutations (chaos
+    /// inject, silence create). 10s-per-op debounce so an accidental
+    /// shell loop can't paint the audit log or page oncall every
+    /// tick.
+    pub admin_cooldown: Arc<crate::admin_cooldown::AdminCooldown>,
 }

@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { api } from '$lib/api';
 	import { icon } from '$lib/icons/ui';
+	import { t, locale } from '$lib/i18n';
 
 	type FeatureState = 'ready' | 'disabled' | 'misconfigured' | 'degraded';
 
@@ -458,21 +459,21 @@
 <div class="page">
 	<header class="page-head">
 		<div>
-			<h1>Feature readiness</h1>
-			<p class="sub">Live state of every subsystem. Degraded or misconfigured entries mean the feature is wired but can't actually serve requests — the endpoint will return 503 until it's fixed.</p>
+			<h1>{$locale, t('readiness.title')}</h1>
+			<p class="sub">{$locale, t('readiness.subtitle')}</p>
 		</div>
 		<div class="head-actions">
 			<label class="toggle">
 				<input type="checkbox" bind:checked={autoRefresh} />
-				<span>Auto-refresh</span>
+				<span>{$locale, t('readiness.refresh.auto')}</span>
 			</label>
 			<button class="btn" onclick={load} disabled={loading}>
 				<span class="btn-icon">{@html icon('refresh', 14)}</span>
-				<span>Reload report</span>
+				<span>{$locale, t('readiness.refresh.reload')}</span>
 			</button>
 			<button class="btn btn-primary" onclick={requestProbe} disabled={probing}>
 				<span class="btn-icon">{@html icon('zap', 14)}</span>
-				<span>{probing ? 'Probing…' : 'Re-probe now'}</span>
+				<span>{$locale, t(probing ? 'readiness.refresh.probing' : 'readiness.refresh.reprobe')}</span>
 			</button>
 		</div>
 	</header>
@@ -492,49 +493,49 @@
 
 	<section class="kpi-row">
 		<div class="kpi-tile">
-			<div class="kpi-label">Incidents 24h</div>
+			<div class="kpi-label">{$locale, t('readiness.kpi.incidents')}</div>
 			<div class="kpi-value {incidents24h === 0 ? 'kpi-ok' : 'kpi-bad'}">{incidents24h}</div>
-			<div class="kpi-sub">{incidents24h === 0 ? 'Quiet day' : 'Degradation + misconfig events'}</div>
+			<div class="kpi-sub">{$locale, incidents24h === 0 ? t('readiness.kpi.quiet') : t('readiness.section.incidents_hint')}</div>
 		</div>
 		<div class="kpi-tile">
-			<div class="kpi-label">SLO breaches</div>
+			<div class="kpi-label">{$locale, t('readiness.kpi.slo_breaches')}</div>
 			<div class="kpi-value {sloBreaches === 0 ? 'kpi-ok' : 'kpi-bad'}">{sloBreaches}</div>
-			<div class="kpi-sub">{sloBreaches === 0 ? 'All features within target' : 'Features below their 30d SLO target'}</div>
+			<div class="kpi-sub">{$locale, sloBreaches === 0 ? t('readiness.kpi.all_ready') : t('readiness.kpi.slo_breaches')}</div>
 		</div>
 		<div class="kpi-tile">
-			<div class="kpi-label">Avg uptime 24h</div>
+			<div class="kpi-label">{$locale, t('readiness.kpi.avg_uptime')}</div>
 			<div class="kpi-value">
 				{#if avgUptime() !== null}{avgUptime()!.toFixed(3)}%{:else}—{/if}
 			</div>
-			<div class="kpi-sub">Mean across reported features</div>
+			<div class="kpi-sub">{$locale, t('readiness.kpi.avg_uptime')}</div>
 		</div>
 	</section>
 
 	<section class="summary-row">
 		<button class="chip chip-total" class:active={filter === 'all'} onclick={() => filter = 'all'}>
 			<span class="chip-n">{summary.total}</span>
-			<span class="chip-lbl">Total</span>
+			<span class="chip-lbl">{$locale, t('readiness.filter.total')}</span>
 		</button>
 		<button class="chip chip-ready" class:active={filter === 'ready'} onclick={() => filter = 'ready'}>
 			<span class="chip-n">{summary.ready}</span>
-			<span class="chip-lbl">Ready</span>
+			<span class="chip-lbl">{$locale, t('readiness.filter.ready')}</span>
 		</button>
 		<button class="chip chip-disabled" class:active={filter === 'disabled'} onclick={() => filter = 'disabled'}>
 			<span class="chip-n">{summary.disabled}</span>
-			<span class="chip-lbl">Disabled</span>
+			<span class="chip-lbl">{$locale, t('readiness.filter.disabled')}</span>
 		</button>
 		<button class="chip chip-misc" class:active={filter === 'misconfigured'} onclick={() => filter = 'misconfigured'}>
 			<span class="chip-n">{summary.misconfigured}</span>
-			<span class="chip-lbl">Misconfigured</span>
+			<span class="chip-lbl">{$locale, t('readiness.filter.misc')}</span>
 		</button>
 		<button class="chip chip-degraded" class:active={filter === 'degraded'} onclick={() => filter = 'degraded'}>
 			<span class="chip-n">{summary.degraded}</span>
-			<span class="chip-lbl">Degraded</span>
+			<span class="chip-lbl">{$locale, t('readiness.filter.degraded')}</span>
 		</button>
 		{#if summary.degraded + summary.misconfigured > 0}
 			<button class="chip chip-problems" class:active={filter === 'problems'} onclick={() => filter = 'problems'}>
 				<span class="chip-n">{summary.degraded + summary.misconfigured}</span>
-				<span class="chip-lbl">Problems only</span>
+				<span class="chip-lbl">{$locale, t('readiness.filter.problems')}</span>
 			</button>
 		{/if}
 		<span class="last-loaded">
@@ -543,9 +544,9 @@
 	</section>
 
 	{#if loading && features.length === 0}
-		<div class="empty">Loading readiness report…</div>
+		<div class="empty">{$locale, t('readiness.empty.loading')}</div>
 	{:else if filtered.length === 0}
-		<div class="empty">No features match the current filter.</div>
+		<div class="empty">{$locale, t('readiness.empty.filter')}</div>
 	{:else}
 		<div class="feature-list">
 			{#each filtered as f (f.name)}
@@ -617,8 +618,8 @@
 	{#if silences.length > 0}
 		<section class="silences-section">
 			<header class="silences-head">
-				<h2>Active silences</h2>
-				<span class="silences-hint">Alerts muted — handler gates still enforce state.</span>
+				<h2>{$locale, t('readiness.section.silences')}</h2>
+				<span class="silences-hint">{$locale, t('readiness.section.silences_hint')}</span>
 			</header>
 			<ul class="silences-list">
 				{#each silences as s (s.id)}
@@ -635,13 +636,13 @@
 
 	<section class="history-section">
 		<header class="history-head">
-			<h2>Recent incidents</h2>
-			<span class="history-hint">Last 50 transitions — degradations, misconfigurations, recoveries.</span>
+			<h2>{$locale, t('readiness.section.incidents')}</h2>
+			<span class="history-hint">{$locale, t('readiness.section.incidents_hint')}</span>
 		</header>
 		{#if historyErr}
 			<div class="banner banner-error">{historyErr}</div>
 		{:else if history.length === 0}
-			<div class="empty empty-small">No transitions recorded yet. Incidents will appear here as features change state.</div>
+			<div class="empty empty-small">{$locale, t('readiness.empty.transitions')}</div>
 		{:else}
 			<ul class="history-list">
 				{#each history as t (t.id)}

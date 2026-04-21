@@ -87,6 +87,7 @@ async fn full_stack_app() -> Option<(axum::Router, custody_db::CustodyDb)> {
         readiness: custody_common::readiness::ReadinessHandle::new(custody_common::readiness::ReadinessReport::new()),
         chaos_overrides: custody_common::readiness_chaos::ChaosOverrides::new(),
         incident_acks: custody_common::readiness_ack::IncidentAcks::new(),
+        admin_cooldown: std::sync::Arc::new(custody_gateway::admin_cooldown::AdminCooldown::new()),
     };
 
     // Use router WITH middleware
