@@ -153,9 +153,23 @@ impl ReconciliationService {
             return Ok(());
         }
 
-        let internal_hot = self.db.account_balance("hot:eth", "ETH").await?;
+        // Account name is case-sensitive. Pipeline writes
+        // ledger entries as `hot:{w.asset.as_str()}` where the
+        // canonical asset code is uppercase ("ETH"), so the
+        // account key is "hot:ETH". The prior hard-coded
+        // "hot:eth" (lowercase) matched NO ledger entries — the
+        // query returned 0 every tick, so the reconciler
+        // compared the real on-chain total against zero and
+        // fired a 100% discrepancy alert forever. Alert fatigue
+        // then masked real divergence. Sum all three tiers to
+        // match the reconcile_asset semantics elsewhere in this
+        // file.
+        let hot = self.db.account_balance("hot:ETH", "ETH").await?;
+        let warm = self.db.account_balance("warm:ETH", "ETH").await?;
+        let cold = self.db.account_balance("cold:ETH", "ETH").await?;
+        let internal_total = hot + warm + cold;
         let (result, alert) = reconciler::run_reconciliation(
-            Chain::Ethereum, "ETH", on_chain_total, internal_hot,
+            Chain::Ethereum, "ETH", on_chain_total, internal_total,
         );
 
         if let Some(ref alert) = alert {
@@ -165,7 +179,7 @@ impl ReconciliationService {
                 addresses_queried = queried,
                 addresses_failed = failed,
                 on_chain = %on_chain_total,
-                internal = %internal_hot,
+                internal = %internal_total,
                 discrepancy = %result.discrepancy,
                 severity = ?alert.severity,
                 "RECONCILIATION ALERT — ETH balance mismatch"
@@ -175,7 +189,7 @@ impl ReconciliationService {
                 addresses_queried = queried,
                 addresses_failed = failed,
                 on_chain = %on_chain_total,
-                internal = %internal_hot,
+                internal = %internal_total,
                 "ETH reconciliation clean"
             );
         }
