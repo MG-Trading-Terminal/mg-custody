@@ -29,7 +29,23 @@ impl Broadcaster for TronBroadcaster {
             .json().await?;
 
         if resp["result"].as_bool() == Some(true) {
-            let txid = resp["txid"].as_str().unwrap_or("").to_string();
+            // Refuse to return an empty txid. `broadcasttransaction`
+            // returning `result=true` means the node accepted the
+            // tx — money is committed. If the `txid` field is
+            // missing or not a string, the previous `unwrap_or("")`
+            // would hand an empty hash back to the pipeline, which
+            // stored it as the withdrawal's tx_hash. Downstream
+            // tx_status calls then polled an empty string forever
+            // and the row could never finalise. Bail with the raw
+            // response so the operator can recover the real txid
+            // from the node's tx index.
+            let txid = resp["txid"]
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!(
+                    "Tron broadcast returned result=true but no txid field: {resp} — \
+                     tx was accepted but txid is lost"
+                ))?
+                .to_string();
             tracing::info!(txid = %txid, "Tron tx broadcast");
             Ok(txid)
         } else {
@@ -45,7 +61,22 @@ impl Broadcaster for TronBroadcaster {
             .json().await?;
 
         if resp["blockNumber"].is_number() {
-            let block = resp["blockNumber"].as_u64().unwrap_or(0);
+            // Honest parse: `is_number()` returns true for floats
+            // too, but `.as_u64()` only returns Some for integer-
+            // representable values. Previously `unwrap_or(0)` here
+            // would have made `confirmations = head - 0 = head`
+            // (huge), triggering premature finalization the same
+            // way the ETH/SOL broadcasters did. Skip honestly if
+            // the RPC hands us something other than a u64.
+            let Some(block) = resp["blockNumber"].as_u64() else {
+                tracing::warn!(
+                    txid = %tx_hash,
+                    raw = %resp["blockNumber"],
+                    "Tron gettransactioninfobyid blockNumber not a u64 — \
+                     treating as pending"
+                );
+                return Ok(None);
+            };
             // Tron receipt.result semantics:
             //   "SUCCESS"       — tx executed OK
             //   "REVERT"        — EVM/contract revert

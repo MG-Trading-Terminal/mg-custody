@@ -36,7 +36,24 @@ impl Broadcaster for BitcoinBroadcaster {
     async fn broadcast(&self, signed_tx: &[u8]) -> Result<String> {
         let tx_hex = hex::encode(signed_tx);
         let txid = self.rpc("sendrawtransaction", serde_json::json!([tx_hex])).await?;
-        let hash = txid.as_str().unwrap_or("").to_string();
+        // Refuse to return an empty txid. `sendrawtransaction`
+        // succeeding means the tx was accepted into the mempool —
+        // money is committed. If the response shape is wrong
+        // (not a string), the previous `unwrap_or("")` would
+        // hand an empty hash back to the pipeline, which stored
+        // it as the withdrawal's tx_hash. Downstream tx_status
+        // calls then polled an empty string forever, webhooks
+        // fired `tx_hash: ""`, and the confirmation tracker
+        // looped on a row that could never finalise. Bail with
+        // the raw response so the operator can recover the real
+        // txid from node logs and repair the row manually.
+        let hash = txid.as_str().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Bitcoin sendrawtransaction returned non-string result: {txid} — \
+                 tx was broadcast but txid was lost; operator must recover \
+                 from node logs"
+            )
+        })?.to_string();
         tracing::info!(txid = %hash, "Bitcoin tx broadcast");
         Ok(hash)
     }
