@@ -5,7 +5,7 @@ use anyhow::Result;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 use uuid::Uuid;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::protocol::*;
 
@@ -39,12 +39,24 @@ impl IpcServer {
         loop {
             match listener.accept().await {
                 Ok((stream, _addr)) => {
-                    let seed = self.seed;
-                    let secret = self.ipc_secret.clone();
+                    // Per-connection seed COPY is wrapped in
+                    // Zeroizing so the connection task zeroes it
+                    // on drop. The plain `[u8; 64]` copy the
+                    // previous code kept in the task's Future
+                    // state had no Drop — memory was freed but
+                    // not wiped, leaving seed residue in heap
+                    // after every client session. With multiple
+                    // concurrent clients, a core dump or process
+                    // memory scrape could recover the seed from
+                    // any of those ghost copies. Zeroizing forces
+                    // a zero-on-drop barrier.
+                    let seed = Zeroizing::new(self.seed);
+                    let secret = Zeroizing::new(self.ipc_secret.clone());
                     tokio::spawn(async move {
                         if let Err(e) = handle_connection(stream, &seed, &secret).await {
                             tracing::error!(error = %e, "IPC connection error");
                         }
+                        // `seed` and `secret` drop at end of task → zeroed.
                     });
                 }
                 Err(e) => {
@@ -169,9 +181,13 @@ fn process_request(seed: &[u8; 64], request: &SignRequest) -> SignResult {
                         },
                     }
                 }
-                _ => SignResult::Success {
-                    signed_data: String::new(),
-                    public_key: None,
+                chain => SignResult::Error {
+                    code: 5005,
+                    message: format!(
+                        "GetPublicKey for chain {chain:?} not implemented in signer-service — \
+                         only Ethereum and Solana are wired today. Returning Error instead of a \
+                         fake Success with an empty public_key."
+                    ),
                 },
             }
         }
