@@ -69,8 +69,14 @@ fn valid_addresses_all_chains() {
     let btc = test_withdrawal(Chain::Bitcoin, "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq", dec!(0.1));
     assert!(validate_withdrawal(&btc).is_ok());
 
+    // Legacy P2PKH ("1...") and P2SH ("3...") addresses are now
+    // refused at validation: the signer only builds P2WPKH
+    // outputs, and the previous legacy-address path silently
+    // fell back to the custody change script (withdrawal looked
+    // on-chain but funds stayed with custody). Re-enable when
+    // sign_btc grows a legacy-target branch.
     let btc_legacy = test_withdrawal(Chain::Bitcoin, "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", dec!(0.1));
-    assert!(validate_withdrawal(&btc_legacy).is_ok());
+    assert!(validate_withdrawal(&btc_legacy).is_err());
 
     let trx = test_withdrawal(Chain::Tron, "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", dec!(100));
     assert!(validate_withdrawal(&trx).is_ok());
