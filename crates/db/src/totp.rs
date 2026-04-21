@@ -134,6 +134,10 @@ pub struct StoredTotp {
     pub backup_codes_used: Vec<bool>,
     pub created_at: DateTime<Utc>,
     pub last_used_at: Option<DateTime<Utc>>,
+    /// Last accepted TOTP counter for this user. Used to reject
+    /// replay of the same code within its 90-second validity
+    /// window. None means no TOTP code has ever succeeded yet.
+    pub last_used_counter: Option<i64>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -145,6 +149,7 @@ struct TotpRow {
     backup_codes_used: Vec<bool>,
     created_at: DateTime<Utc>,
     last_used_at: Option<DateTime<Utc>>,
+    last_used_counter: Option<i64>,
 }
 
 impl From<TotpRow> for StoredTotp {
@@ -157,6 +162,7 @@ impl From<TotpRow> for StoredTotp {
             backup_codes_used: r.backup_codes_used,
             created_at: r.created_at,
             last_used_at: r.last_used_at,
+            last_used_counter: r.last_used_counter,
         }
     }
 }
@@ -214,13 +220,41 @@ impl CustodyDb {
     pub async fn load_totp(&self, user_id: Uuid) -> anyhow::Result<Option<StoredTotp>> {
         let row: Option<TotpRow> = sqlx::query_as(
             "SELECT user_id, secret_encrypted, enabled, backup_codes, backup_codes_used,
-                    created_at, last_used_at
+                    created_at, last_used_at, last_used_counter
              FROM user_totp WHERE user_id = $1",
         )
         .bind(user_id)
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.map(StoredTotp::from))
+    }
+
+    /// Record the accepted TOTP counter atomically.
+    ///
+    /// Returns `Ok(true)` when the update wrote a strictly greater
+    /// counter — success, first-use of this code. Returns
+    /// `Ok(false)` when the existing `last_used_counter` is
+    /// already ≥ the submitted value; that is a replay and the
+    /// caller MUST reject the login. The SQL uses `WHERE
+    /// (existing IS NULL OR existing < $2)` so two concurrent
+    /// verify-2fa calls with the same code can't both succeed:
+    /// exactly one will see rows_affected = 1, the loser sees 0.
+    pub async fn record_totp_counter(
+        &self,
+        user_id: Uuid,
+        counter: i64,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query(
+            "UPDATE user_totp
+             SET last_used_counter = $2, last_used_at = NOW()
+             WHERE user_id = $1
+               AND (last_used_counter IS NULL OR last_used_counter < $2)",
+        )
+        .bind(user_id)
+        .bind(counter)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
     }
 
     /// Consume a backup code: mark it used and return true on success, false if not found/already used.

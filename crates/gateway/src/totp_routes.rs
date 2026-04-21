@@ -369,7 +369,33 @@ pub async fn verify_2fa_login(
             let secret = TotpSecret::from_base32(&secret_base32)
                 .ok_or_else(|| ApiError::internal("Stored TOTP secret is corrupt"))?;
             let now_ts = Utc::now().timestamp() as u64;
-            secret.verify(&req.code, now_ts)
+
+            // Replay defence: verify_counter returns the matched
+            // counter (current ±1 for clock skew); we atomically
+            // CAS it into user_totp.last_used_counter, succeeding
+            // only when the new counter is strictly greater than
+            // the previously-accepted one. This closes the
+            // 90-second window where the stateless `verify` used
+            // to accept the same code twice — an attacker with
+            // an intercepted code can no longer replay it against
+            // a fresh pending_2fa_token.
+            match secret.verify_counter(&req.code, now_ts) {
+                Some(counter) => {
+                    let accepted = state
+                        .db
+                        .record_totp_counter(user_id, counter as i64)
+                        .await
+                        .map_err(|e| ApiError::internal(&e.to_string()))?;
+                    if !accepted {
+                        tracing::warn!(
+                            user_id = %user_id, counter,
+                            "TOTP code rejected — already used (replay defence)"
+                        );
+                    }
+                    accepted
+                }
+                None => false,
+            }
         } else if req.code.len() == 8 && req.code.chars().all(|c| c.is_alphanumeric()) {
             // 8-character backup code.
             let code_hash = hash_backup_code(&req.code);

@@ -78,19 +78,38 @@ impl TotpSecret {
     ///
     /// `time` is Unix timestamp in seconds.
     /// Returns true only if the code matches any of the three accepted windows.
+    ///
+    /// This method is stateless — it does NOT defend against
+    /// replay of a code within its validity window. Callers that
+    /// need replay defence must use `verify_counter` and persist
+    /// the returned counter as the per-user "last accepted".
     pub fn verify(&self, code: &str, time: u64) -> bool {
+        self.verify_counter(code, time).is_some()
+    }
+
+    /// Verify and return the matched TOTP counter.
+    ///
+    /// Returns `Some(counter)` if the code matches any of the
+    /// three windows (current, previous, next) for clock skew.
+    /// Returns `None` for invalid format or no match.
+    ///
+    /// The returned counter is the authoritative value for
+    /// replay defence: persist `max(stored, counter)` per user,
+    /// and reject any subsequent submission whose matched
+    /// counter is ≤ the stored value.
+    pub fn verify_counter(&self, code: &str, time: u64) -> Option<u64> {
         if code.len() != TOTP_DIGITS as usize || !code.chars().all(|c| c.is_ascii_digit()) {
-            return false;
+            return None;
         }
         let current_counter = (time / TOTP_STEP_SECONDS) as i64;
         for delta in -TOTP_SKEW_WINDOWS..=TOTP_SKEW_WINDOWS {
             let counter = (current_counter + delta) as u64;
             let expected = hotp_code(&self.raw, counter);
             if constant_time_eq(code.as_bytes(), expected.as_bytes()) {
-                return true;
+                return Some(counter);
             }
         }
-        false
+        None
     }
 
     /// Generate a provisioning URI for authenticator apps (otpauth:// scheme).
@@ -355,6 +374,42 @@ mod tests {
     fn from_base32_rejects_invalid_chars() {
         // '1' and '8' are not in the base32 alphabet
         assert!(TotpSecret::from_base32("1111111111111111111111111111111111").is_none());
+    }
+
+    #[test]
+    fn verify_counter_returns_matched_step() {
+        let secret = rfc_secret();
+        let time = 59u64;
+        // Known vector: counter = 1 at t=59
+        let code = hotp_code(&secret.raw, 1);
+        assert_eq!(secret.verify_counter(&code, time), Some(1));
+    }
+
+    #[test]
+    fn verify_counter_matches_skew_windows() {
+        let secret = TotpSecret::generate();
+        let time = 1_700_000_000u64;
+        let cur = time / TOTP_STEP_SECONDS;
+
+        // Current window
+        let cur_code = hotp_code(&secret.raw, cur);
+        assert_eq!(secret.verify_counter(&cur_code, time), Some(cur));
+
+        // Previous window (caller uses this to reject replay)
+        let prev_code = hotp_code(&secret.raw, cur - 1);
+        assert_eq!(secret.verify_counter(&prev_code, time), Some(cur - 1));
+
+        // Next window
+        let next_code = hotp_code(&secret.raw, cur + 1);
+        assert_eq!(secret.verify_counter(&next_code, time), Some(cur + 1));
+    }
+
+    #[test]
+    fn verify_counter_rejects_invalid() {
+        let secret = TotpSecret::generate();
+        assert_eq!(secret.verify_counter("000000", 1_700_000_000), None);
+        assert_eq!(secret.verify_counter("abcdef", 1_700_000_000), None);
+        assert_eq!(secret.verify_counter("12345", 1_700_000_000), None);
     }
 
     #[test]
