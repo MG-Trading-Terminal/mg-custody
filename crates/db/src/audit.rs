@@ -257,16 +257,44 @@ impl AuditEntry {
 
 impl CustodyDb {
     /// Insert an audit log entry with tamper-evident hash chain.
+    ///
+    /// The chain is linear: each entry's `prev_hash` must match
+    /// the `prev_hash` of the immediately preceding row. If two
+    /// handlers insert concurrently (freeze + approval decision,
+    /// signing + RBAC denial, etc.) a naive read-then-write would
+    /// let both read the same parent and write siblings — the
+    /// chain forks and tamper-evidence is lost: a deleted row
+    /// between two siblings is undetectable by chain-walking.
+    ///
+    /// Serialize with a PostgreSQL transaction-scoped advisory
+    /// lock keyed on a constant. Every insert acquires the same
+    /// lock, so SELECT-prev + INSERT form an atomic unit. The
+    /// advisory lock is scoped to the transaction so it's
+    /// released when we commit (or rollback) — no risk of a
+    /// permanent lock if the caller panics.
     pub async fn insert_audit_entry(&self, entry: &AuditEntry) -> anyhow::Result<()> {
-        // Compute prev_hash from the last entry
+        // Arbitrary but fixed key so every caller contends on
+        // the same lock. 0x_A441_1_06 = "audit log chain head"
+        // mnemonic — value doesn't matter, just needs to be the
+        // same everywhere.
+        const AUDIT_LOCK_KEY: i64 = 0x_A441_1_06;
+
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(AUDIT_LOCK_KEY)
+            .execute(&mut *tx)
+            .await?;
+
+        // Now safe: no other audit insert can read/write the
+        // chain head until we commit.
         let prev_hash: Option<String> = sqlx::query_as::<_, (Option<String>,)>(
-            "SELECT prev_hash FROM audit_log ORDER BY timestamp DESC LIMIT 1"
+            "SELECT prev_hash FROM audit_log ORDER BY timestamp DESC LIMIT 1",
         )
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?
         .and_then(|r| r.0);
 
-        // Hash the previous entry's hash + current entry data for chain integrity
         let hash_input = format!(
             "{}:{}:{:?}:{}:{}",
             prev_hash.as_deref().unwrap_or("genesis"),
@@ -293,8 +321,10 @@ impl CustodyDb {
         .bind(&entry.derivation_path)
         .bind(&entry.details)
         .bind(&current_hash)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+
+        tx.commit().await?;
 
         tracing::info!(
             operation = ?entry.operation,
@@ -345,7 +375,33 @@ impl CustodyDb {
             .await?;
 
         Ok(rows.into_iter().map(|(id, timestamp, operation, actor, chain, derivation_path, details, prev_hash)| {
-            let op: AuditOperation = serde_json::from_str(&operation).unwrap_or(AuditOperation::SigningRequest);
+            // An unknown `operation` string used to silently
+            // deserialize as `SigningRequest`. That misreports
+            // the audit record to anyone reading the UI or the
+            // recent-entries endpoint: a `WithdrawalOverride`
+            // (or a newly-added operation from a future build)
+            // would appear as a benign SigningRequest row. For
+            // a tamper-evident log the FIRST job is to not lie
+            // about what happened. Log loudly on an unknown
+            // operation; keep the SigningRequest fallback only
+            // so the API doesn't 500 on a schema-drift scenario
+            // — an operator sees the WARN and investigates.
+            let op: AuditOperation = match serde_json::from_str(&operation) {
+                Ok(o) => o,
+                Err(e) => {
+                    tracing::warn!(
+                        audit_id = %id,
+                        raw_operation = %operation,
+                        error = %e,
+                        "audit_log: unknown operation string — falling back to \
+                         SigningRequest for API shape; the row's real type is \
+                         whatever the raw string says. Likely a newer build \
+                         wrote an operation the current reader doesn't know, \
+                         or DB tampering."
+                    );
+                    AuditOperation::SigningRequest
+                }
+            };
             let chain = chain.map(|c| custody_common::Chain::parse_str(&c));
             AuditEntry { id, timestamp, operation: op, actor, chain, derivation_path, details, prev_hash }
         }).collect())
