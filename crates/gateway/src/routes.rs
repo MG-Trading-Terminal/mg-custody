@@ -1151,7 +1151,7 @@ struct ApproveWithdrawalBody {
 }
 
 async fn approve_withdrawal(
-    _auth: RequireSigner,
+    auth: RequireSigner,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     Json(body): Json<ApproveWithdrawalBody>,
@@ -1166,7 +1166,35 @@ async fn approve_withdrawal(
         )));
     }
 
-    let approver = body.approver.as_deref().unwrap_or("unknown");
+    // CRITICAL: the approver identity MUST come from the
+    // authenticated session, never from the request body. The
+    // previous handler signature used `_auth: RequireSigner`
+    // (authenticated but ignored) and pulled `body.approver` as
+    // the approver name. That let a single authenticated signer
+    // meet a 2-of-N / 3-of-N quorum by POSTing multiple times
+    // with different claimed names — the idempotency check
+    // further down compares decision-set entries by string,
+    // and each fresh name slipped past it. Tie the approver
+    // identity to the session email so one authenticated user
+    // can only contribute exactly ONE decision regardless of
+    // what they submit in the body.
+    //
+    // `body.approver` is kept as a request-audit breadcrumb only:
+    // if the caller attaches a display name we log it alongside
+    // the authoritative email so operators can correlate UI
+    // flows without trusting the name for the count.
+    let approver = auth.0.email.as_str();
+    let claimed_display_name = body.approver.as_deref();
+    if let Some(claimed) = claimed_display_name
+        && claimed != approver
+    {
+        tracing::info!(
+            id = %id,
+            authenticated_as = approver,
+            claimed = claimed,
+            "Approval body.approver differs from authenticated email — using authenticated identity"
+        );
+    }
 
     // Tier 2+ withdrawals ($10K+) require FIDO2 second factor.
     if withdrawal.amount >= FIDO2_REQUIRED_THRESHOLD_USD {
