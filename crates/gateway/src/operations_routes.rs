@@ -123,23 +123,69 @@ async fn cancel_scheduled(
 
 async fn screen_address(
     _auth: RequireViewer,
+    State(state): State<AppState>,
     Json(req): Json<ScreenAddressRequest>,
 ) -> Result<Json<ScreeningResult>, ApiError> {
-    // Simulated screening — in production would call Chainalysis/Elliptic
-    let result = ScreeningResult {
+    // Call through to the same ScreeningService the withdrawal
+    // pipeline uses. Previous behaviour returned a hardcoded
+    // "low risk" for every address — operators looking at the
+    // dashboard's "screen this address" button got a green
+    // checkmark for OFAC-sanctioned wallets. Classic compliance
+    // bypass wrapped in a helpful UI affordance.
+    //
+    // When the service isn't wired (no Chainalysis/Elliptic keys
+    // configured), 503 honestly tells the caller "this service
+    // isn't available here" instead of lying with a fake clean
+    // result. The withdrawal pipeline still runs screening on
+    // every withdrawal regardless of this endpoint's availability.
+    let Some(svc) = state.screening_service.as_ref() else {
+        return Err(ApiError {
+            error: "screening_unavailable".into(),
+            message: "AML screening provider not configured. \
+                      Set CUSTODY_CHAINALYSIS_API_KEY or CUSTODY_ELLIPTIC_API_KEY, \
+                      or use the withdrawal submission path which runs screening \
+                      regardless of this endpoint.".into(),
+            request_id: Uuid::new_v4().to_string(),
+            status: StatusCode::SERVICE_UNAVAILABLE,
+        });
+    };
+
+    // ScreeningService::screen_address never returns Err — it
+    // maps provider failures to its configured ScreeningFallback
+    // (Block → High risk, AllowAndFlag → Low with a categories
+    // tag). The handler gets a concrete ScreeningResult and just
+    // adapts the shape to the public API.
+    let outcome = svc.screen_address(&req.address, req.chain).await;
+    let sanctions_match = outcome
+        .categories
+        .iter()
+        .any(|c| c.eq_ignore_ascii_case("sanctions"));
+    Ok(Json(ScreeningResult {
         id: Uuid::new_v4(),
         address: req.address,
         chain: req.chain,
-        provider: "internal".into(),
-        risk_level: RiskLevel::Low,
-        risk_score: Some(0.05),
-        flags: vec![],
-        sanctions_match: false,
-        screened_at: Utc::now(),
-        details: Some("No risk indicators found".into()),
-    };
+        provider: outcome.provider,
+        risk_level: adapt_risk_level(outcome.risk_level),
+        risk_score: Some(outcome.risk_score as f32),
+        flags: outcome.categories,
+        sanctions_match,
+        screened_at: outcome.screened_at,
+        details: outcome.details,
+    }))
+}
 
-    Ok(Json(result))
+/// Map the compliance crate's RiskLevel enum onto the public API's
+/// identically-shaped enum in custody_common. They're separate
+/// types today for layering reasons (compliance is business logic,
+/// common has the wire contract) but the variants line up 1:1.
+fn adapt_risk_level(l: custody_compliance::screening::RiskLevel) -> RiskLevel {
+    use custody_compliance::screening::RiskLevel as C;
+    match l {
+        C::Low => RiskLevel::Low,
+        C::Medium => RiskLevel::Medium,
+        C::High => RiskLevel::High,
+        C::Severe => RiskLevel::Severe,
+    }
 }
 
 async fn screening_history(

@@ -51,6 +51,7 @@ fn build_router(handle: ReadinessHandle) -> axum::Router {
         chaos_overrides: ChaosOverrides::new(),
         incident_acks: custody_common::readiness_ack::IncidentAcks::new(),
         admin_cooldown: std::sync::Arc::new(custody_gateway::admin_cooldown::AdminCooldown::new()),
+        screening_service: None,
     };
     custody_gateway::routes::router(state)
 }
@@ -158,6 +159,7 @@ async fn health_features_uptime_shape_matches_dashboard() {
         chaos_overrides: ChaosOverrides::new(),
         incident_acks: custody_common::readiness_ack::IncidentAcks::new(),
         admin_cooldown: std::sync::Arc::new(custody_gateway::admin_cooldown::AdminCooldown::new()),
+        screening_service: None,
     };
     let app = custody_gateway::routes::router(state);
     // Admin-only endpoint; router() falls through to Admin without Bearer.

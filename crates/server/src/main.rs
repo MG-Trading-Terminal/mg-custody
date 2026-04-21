@@ -428,6 +428,11 @@ async fn main() -> anyhow::Result<()> {
     //   CUSTODY_ELLIPTIC_API_KEY     → Elliptic Lens
     //   CUSTODY_SCREENING_FALLBACK   → "block" (default) | "allow_and_flag"
     //
+    // Captured at AppState build time so the gateway's
+    // /v1/screening/address endpoint can call through to the same
+    // provider the pipeline uses. `None` when no key configured.
+    let mut screening_service_for_state: Option<Arc<custody_compliance::screening::ScreeningService>> = None;
+
     // If at least one key is set we assemble a ScreeningService and
     // plug it into the pipeline. If `fallback=block` (the default),
     // provider errors + missing providers both refuse the screening
@@ -466,7 +471,9 @@ async fn main() -> anyhow::Result<()> {
                     + if elliptic_key.is_some() { 1 } else { 0 },
                 "AML screening enabled (fail-closed)"
             );
-            pipeline_builder = pipeline_builder.with_screening_service(Arc::new(svc));
+            let svc_arc = Arc::new(svc);
+            pipeline_builder = pipeline_builder.with_screening_service(svc_arc.clone());
+            screening_service_for_state = Some(svc_arc);
         } else {
             tracing::warn!(
                 "No CUSTODY_CHAINALYSIS_API_KEY / CUSTODY_ELLIPTIC_API_KEY — AML screening \
@@ -1121,6 +1128,7 @@ async fn main() -> anyhow::Result<()> {
         chaos_overrides: chaos_overrides.clone(),
         incident_acks: incident_acks.clone(),
         admin_cooldown: admin_cooldown.clone(),
+        screening_service: screening_service_for_state.clone(),
     };
 
     // Use middleware if HMAC secret is configured

@@ -1186,16 +1186,89 @@ async fn approve_withdrawal(
         tracing::info!(id = %id, approver, "FIDO2 verification passed for high-value withdrawal");
     }
 
-    if body.approved {
-        state.db.update_withdrawal_status(id, WithdrawalStatus::Validated).await
+    // Load the pending approval_request the pipeline created at
+    // the PendingApproval transition. Every approve call records a
+    // decision here; only when `check_approval_quorum` reports the
+    // required count is met do we flip the withdrawal to Validated.
+    //
+    // Previous behaviour: flip Validated on a single "approved:true"
+    // regardless of policy quorum. That was a straight multi-
+    // approver bypass — the /v1/withdrawals/{id}/approve endpoint
+    // always granted 1-of-N in practice.
+    let pending = state.db.find_pending_approval_for_withdrawal(id).await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+    let Some((request_id, required, decisions)) = pending else {
+        return Err(ApiError::conflict(
+            "Withdrawal has no pending approval_request row — cannot attach a decision. \
+             The pipeline creates this row on the PendingApproval transition; \
+             if it's missing the row was denied, expired, or never created."
+        ));
+    };
+
+    // Idempotency + double-approval guard: one approver can't pad
+    // the count by hitting this endpoint twice with the same
+    // identity. Scan existing decisions for a matching approver.
+    let already = decisions.as_array()
+        .map(|arr| arr.iter().any(|d| d["approver"].as_str() == Some(approver)))
+        .unwrap_or(false);
+    if already {
+        return Err(ApiError::conflict(&format!(
+            "Approver '{approver}' has already recorded a decision on withdrawal {id}"
+        )));
+    }
+
+    // Record the decision.
+    state.db.add_approval_decision(request_id, approver, body.approved).await
+        .map_err(|e| ApiError::internal(&e.to_string()))?;
+
+    if !body.approved {
+        // One rejection finalises the whole request — one "no"
+        // votes the withdrawal down, matching how most multi-sig
+        // policies are understood in custody operations.
+        state.db.update_approval_status(request_id, "rejected").await
             .map_err(|e| ApiError::internal(&e.to_string()))?;
-        tracing::info!(id = %id, approver, "Withdrawal approved");
-        Ok(Json(serde_json::json!({"status": "approved", "withdrawal_id": id})))
-    } else {
         state.db.update_withdrawal_status(id, WithdrawalStatus::Cancelled).await
             .map_err(|e| ApiError::internal(&e.to_string()))?;
-        tracing::info!(id = %id, approver, "Withdrawal rejected");
-        Ok(Json(serde_json::json!({"status": "rejected", "withdrawal_id": id})))
+        tracing::info!(id = %id, approver, "Withdrawal rejected — approval_request closed");
+        return Ok(Json(serde_json::json!({
+            "status": "rejected", "withdrawal_id": id,
+        })));
+    }
+
+    // Approved this round. Check whether the quorum is met.
+    let met = state.db.check_approval_quorum(id).await
+        .map_err(|e| ApiError::internal(&e.to_string()))?
+        .unwrap_or(false);
+
+    if met {
+        state.db.update_approval_status(request_id, "approved").await
+            .map_err(|e| ApiError::internal(&e.to_string()))?;
+        state.db.update_withdrawal_status(id, WithdrawalStatus::Validated).await
+            .map_err(|e| ApiError::internal(&e.to_string()))?;
+        tracing::info!(id = %id, approver, required, "Approval quorum met — moving to Validated");
+        Ok(Json(serde_json::json!({
+            "status": "approved",
+            "withdrawal_id": id,
+            "quorum_met": true,
+            "required": required,
+        })))
+    } else {
+        // Count the approvals recorded so far (including this one)
+        // for the response so the caller can show progress.
+        let current = decisions.as_array()
+            .map(|arr| arr.iter().filter(|d| d["approved"] == true).count())
+            .unwrap_or(0) + 1; // +1 for the one we just added
+        tracing::info!(
+            id = %id, approver, current, required,
+            "Approval recorded but quorum not yet met"
+        );
+        Ok(Json(serde_json::json!({
+            "status": "recorded",
+            "withdrawal_id": id,
+            "quorum_met": false,
+            "approvals_recorded": current,
+            "required": required,
+        })))
     }
 }
 

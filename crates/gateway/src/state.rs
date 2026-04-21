@@ -12,6 +12,7 @@ use custody_common::events::EventBroadcaster;
 use custody_common::readiness::ReadinessHandle;
 use custody_common::readiness_ack::IncidentAcks;
 use custody_common::readiness_chaos::ChaosOverrides;
+use custody_compliance::screening::ScreeningService;
 use custody_compliance::travel_rule::NotabeneProvider;
 use custody_db::CustodyDb;
 use custody_withdrawal_pipeline::WithdrawalPipeline;
@@ -61,4 +62,13 @@ pub struct AppState {
     /// shell loop can't paint the audit log or page oncall every
     /// tick.
     pub admin_cooldown: Arc<crate::admin_cooldown::AdminCooldown>,
+    /// AML screening service — wired when CUSTODY_CHAINALYSIS_API_KEY
+    /// or CUSTODY_ELLIPTIC_API_KEY is set. `None` means no single-
+    /// address screening endpoint; the withdrawal pipeline does its
+    /// own screening regardless of this field (the pipeline keeps
+    /// its own Arc<ScreeningService>).
+    ///
+    /// Handler-side uses this for the dashboard's
+    /// "screen this address now" button (operations_routes::screen_address).
+    pub screening_service: Option<Arc<ScreeningService>>,
 }

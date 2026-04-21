@@ -60,6 +60,7 @@ async fn setup() -> Option<(axum::Router, CustodyDb, Arc<WithdrawalPipeline>)> {
         chaos_overrides: custody_common::readiness_chaos::ChaosOverrides::new(),
         incident_acks: custody_common::readiness_ack::IncidentAcks::new(),
         admin_cooldown: std::sync::Arc::new(custody_gateway::admin_cooldown::AdminCooldown::new()),
+        screening_service: None,
     };
 
     Some((custody_gateway::routes::router(state), db, pipeline))

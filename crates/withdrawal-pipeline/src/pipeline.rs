@@ -459,10 +459,38 @@ impl WithdrawalPipeline {
                         self.db.update_withdrawal_status(w.id, WithdrawalStatus::Failed).await?;
                         continue;
                     }
-                    PolicyAction::RequireApproval { quorum, .. } => {
+                    PolicyAction::RequireApproval { quorum, approver_role } => {
                         custody_common::prometheus_metrics::POLICY_DECISIONS
                             .with_label_values(&[w.chain.as_str(), "require_approval"]).inc();
                         tracing::info!(id = %w.id, quorum, "Approval required");
+                        // Persist an approval_requests row so the
+                        // approve-withdrawal handler has something
+                        // to attach decisions to. Without this row
+                        // the handler previously flipped status on
+                        // a SINGLE approval regardless of quorum —
+                        // a straight-up bypass of the multi-approver
+                        // rule. Expiry matches Tier 4 delay per
+                        // CLAUDE.md (24h for the biggest withdrawals).
+                        let expires_at = chrono::Utc::now() + chrono::Duration::hours(24);
+                        if let Err(e) = self
+                            .db
+                            .insert_approval_request(
+                                w.id,
+                                quorum as i32,
+                                &format!("{approver_role:?}"),
+                                expires_at,
+                            )
+                            .await
+                        {
+                            tracing::error!(
+                                id = %w.id, error = %e,
+                                "Failed to persist approval_requests row — \
+                                 refusing to advance; quorum cannot be enforced \
+                                 without the pending record"
+                            );
+                            // Leave status as-is and retry on next tick.
+                            continue;
+                        }
                         self.db.update_withdrawal_status(w.id, WithdrawalStatus::PendingApproval).await?;
                         continue;
                     }

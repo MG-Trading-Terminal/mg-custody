@@ -131,6 +131,29 @@ impl CustodyDb {
         Ok(())
     }
 
+    /// Load the most-recent pending approval_request for a
+    /// withdrawal. Returns id, required count, and the current
+    /// decisions array. `None` means there's no pending request —
+    /// caller must refuse to accept an approval (there's nothing
+    /// to attach it to). Used by the approve-withdrawal handler
+    /// to record decisions and compute progress.
+    pub async fn find_pending_approval_for_withdrawal(
+        &self,
+        withdrawal_id: Uuid,
+    ) -> anyhow::Result<Option<(Uuid, i32, serde_json::Value)>> {
+        let row: Option<(Uuid, i32, serde_json::Value)> = sqlx::query_as(
+            "SELECT id, required_approvals, decisions
+             FROM approval_requests
+             WHERE withdrawal_id = $1 AND status = 'pending'
+             ORDER BY created_at DESC
+             LIMIT 1",
+        )
+        .bind(withdrawal_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
     /// Check if approval quorum is met for a withdrawal.
     pub async fn check_approval_quorum(&self, withdrawal_id: Uuid) -> anyhow::Result<Option<bool>> {
         let row: Option<(i32, serde_json::Value)> = sqlx::query_as(
