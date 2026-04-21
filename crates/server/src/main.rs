@@ -133,6 +133,7 @@ async fn main() -> anyhow::Result<()> {
                 ("036_readiness_transitions", include_str!("../../db/migrations/036_readiness_transitions.sql")),
                 ("037_readiness_silences", include_str!("../../db/migrations/037_readiness_silences.sql")),
                 ("038_readiness_silence_starts_at", include_str!("../../db/migrations/038_readiness_silence_starts_at.sql")),
+                ("039_system_config", include_str!("../../db/migrations/039_system_config.sql")),
             ];
             for (name, sql) in migrations {
                 if let Err(e) = sqlx::raw_sql(sql).execute(&pool).await {
