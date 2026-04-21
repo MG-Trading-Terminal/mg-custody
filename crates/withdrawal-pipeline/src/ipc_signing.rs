@@ -38,6 +38,62 @@ impl SigningMode {
         }
     }
 
+    /// Boot-time validation for operators who explicitly opted into
+    /// IPC signing. Returns an error with a concrete reason when
+    /// the config is half-done — the binary's main() uses this to
+    /// refuse to start rather than silently falling through to
+    /// Direct mode (which would put signing keys back in the API
+    /// process, defeating the whole point of the signer isolation).
+    ///
+    /// Rules:
+    ///   - SIGNER_SOCKET set, SIGNER_IPC_SECRET unset → hard error
+    ///   - SIGNER_IPC_SECRET set, SIGNER_SOCKET unset → hard error
+    ///   - Both set, socket path does not exist on disk → hard
+    ///     error (the signer daemon isn't running)
+    ///   - Both set + socket present → Ok; caller can use from_env()
+    ///     to get the configured mode
+    ///   - Neither set → Ok (dev Direct mode; from_env() warns
+    ///     loudly about keys in-process)
+    ///
+    /// Pipelines today still use the legacy SigningBackend trait
+    /// (HSM / seed); the IPC SignerClient is wired into staking and
+    /// swap paths but not yet universally. This check at least
+    /// catches the "I thought I enabled IPC but didn't" footgun.
+    pub fn validate_env() -> Result<()> {
+        let socket = std::env::var("SIGNER_SOCKET").ok().filter(|s| !s.is_empty());
+        let secret = std::env::var("SIGNER_IPC_SECRET")
+            .ok()
+            .filter(|s| !s.is_empty());
+        match (socket, secret) {
+            (Some(_), None) => {
+                anyhow::bail!(
+                    "SIGNER_SOCKET is set but SIGNER_IPC_SECRET is missing — \
+                     IPC signer authentication is impossible in this config. \
+                     Set both or unset both."
+                )
+            }
+            (None, Some(_)) => {
+                anyhow::bail!(
+                    "SIGNER_IPC_SECRET is set but SIGNER_SOCKET is missing — \
+                     no signer daemon to talk to. Set SIGNER_SOCKET to the \
+                     Unix socket path or unset SIGNER_IPC_SECRET."
+                )
+            }
+            (Some(socket), Some(_)) => {
+                if !std::path::Path::new(&socket).exists() {
+                    anyhow::bail!(
+                        "SIGNER_SOCKET={socket} but no socket exists at that path. \
+                         Is the custody-signer daemon running? Refusing to start in \
+                         a half-configured IPC mode rather than silently fall back \
+                         to in-process Direct signing.",
+                    )
+                }
+                Ok(())
+            }
+            (None, None) => Ok(()),
+        }
+    }
+
     /// Check if signer is available.
     pub fn is_signer_available(&self) -> bool {
         match self {

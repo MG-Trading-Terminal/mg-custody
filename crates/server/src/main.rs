@@ -66,6 +66,15 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Refuse to start on half-configured IPC signing — a common
+    // footgun where operators set SIGNER_SOCKET without the
+    // daemon actually running, then wonder why signing works
+    // (it silently fell back to in-process keys).
+    if let Err(e) = custody_withdrawal_pipeline::ipc_signing::SigningMode::validate_env() {
+        tracing::error!(error = %e, "IPC signing config invalid");
+        anyhow::bail!("{e}");
+    }
+
     // ─── Database ────────────────────────────────────────────────────
     let db_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| config.database.url.clone());
@@ -275,6 +284,19 @@ async fn main() -> anyhow::Result<()> {
     // Shared between AppState (API handlers) and the pipeline (background task).
     let freeze_flag = custody_common::emergency::FreezeFlag::new();
 
+    // Travel Rule provider (moved up so the pipeline builder can
+    // claim it before being finalized into Arc<_>). Creation stays
+    // env-driven: CUSTODY_TRAVELRULE__NOTABENE_API_KEY → wired,
+    // empty/absent → None (pipeline logs + proceeds; operator
+    // handles TR out-of-band).
+    let travel_rule_provider = std::env::var("CUSTODY_TRAVELRULE__NOTABENE_API_KEY")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(|key| {
+            tracing::info!("Notabene Travel Rule provider enabled — pipeline will dispatch pre-broadcast");
+            std::sync::Arc::new(custody_compliance::travel_rule::NotabeneProvider::new(&key))
+        });
+
     // ─── Withdrawal Pipeline with all deps ───────────────────────────
     let limits = &config.limits;
     let mut pipeline_builder = WithdrawalPipeline::new(
@@ -455,6 +477,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Wire freeze flag into pipeline so background task respects emergency freeze.
     pipeline_builder = pipeline_builder.with_freeze_flag(freeze_flag.clone());
+    if let Some(ref tr) = travel_rule_provider {
+        pipeline_builder = pipeline_builder.with_travel_rule_provider(tr.clone());
+    }
     let withdrawal_pipeline = Arc::new(pipeline_builder);
 
     // ─── Ethereum Scanner ────────────────────────────────────────────
@@ -852,13 +877,9 @@ async fn main() -> anyhow::Result<()> {
     // status = Required (awaiting out-of-band exchange). If set, the
     // handler dispatches originator data to the counterparty VASP via
     // the provider and flips the status based on success.
-    let travel_rule_provider = std::env::var("CUSTODY_TRAVELRULE__NOTABENE_API_KEY")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .map(|key| {
-            tracing::info!("Notabene Travel Rule provider enabled");
-            std::sync::Arc::new(custody_compliance::travel_rule::NotabeneProvider::new(&key))
-        });
+    // (Travel Rule provider constructed earlier so the pipeline
+    // builder can take ownership. `travel_rule_provider` in scope
+    // here for the AppState field below.)
 
     let email_sender = match email_mode.as_str() {
         "noop" => custody_common::email::EmailSender::noop(),

@@ -18,7 +18,7 @@ use custody_compliance::ofac::SanctionsChecker;
 use custody_confirmations::WebhookSender;
 use custody_db::CustodyDb;
 use custody_compliance::screening::ScreeningService;
-use custody_compliance::travel_rule;
+use custody_compliance::travel_rule::{self, NotabeneProvider, TravelRuleProvider as _};
 use custody_fee_estimator::bitcoin::BitcoinFeeEstimator;
 use custody_fee_estimator::ethereum::EthereumFeeEstimator;
 use custody_fee_estimator::solana::SolanaFeeEstimator;
@@ -74,6 +74,28 @@ pub struct WithdrawalPipeline {
     event_broadcaster: Option<Arc<custody_common::events::EventBroadcaster>>,
     /// Emergency freeze flag.  When set, `tick` returns early without processing.
     frozen: Option<FreezeFlag>,
+    /// Travel Rule dispatcher. When set AND a withdrawal is above
+    /// the jurisdictional threshold, the pipeline looks up the
+    /// persisted TravelRuleData (written by the gateway's
+    /// POST /v1/travel-rule handler) and calls `send_originator_data`
+    /// before moving the row to Validated.
+    ///
+    /// Fail-closed semantics:
+    ///   - Provider configured + TR data row present + dispatch Ok
+    ///       → proceed, mark row as Submitted
+    ///   - Provider configured + TR data row MISSING
+    ///       → refuse to advance; the withdrawal stays in Received
+    ///         until the gateway submits TR data
+    ///   - Provider configured + dispatch Err
+    ///       → refuse to advance; mark row as Failed; operator retries
+    ///   - Provider absent
+    ///       → log a warning; proceed (operator has opted to handle
+    ///         Travel Rule out-of-band)
+    ///
+    /// Silently bypassing Travel Rule when configured is a
+    /// compliance bug — same class as the AML fail-closed gate on
+    /// the submit endpoint.
+    travel_rule_provider: Option<Arc<NotabeneProvider>>,
     /// Tron API URL for fetching latest block (ref_block_bytes/hash).
     trx_api_url: Option<String>,
     /// Solana RPC URL for fetching recent blockhash.
@@ -99,6 +121,7 @@ impl WithdrawalPipeline {
             screening_service: None, nonce_manager: None,
             webhook_sender: None, event_broadcaster: None,
             frozen: None,
+            travel_rule_provider: None,
             trx_api_url: None, sol_rpc_url: None,
             eth_chain_id: 1,
         }
@@ -111,6 +134,10 @@ impl WithdrawalPipeline {
         self
     }
 
+    pub fn with_travel_rule_provider(mut self, p: Arc<NotabeneProvider>) -> Self {
+        self.travel_rule_provider = Some(p);
+        self
+    }
     pub fn with_policy_engine(mut self, e: Arc<PolicyEngine>) -> Self { self.policy_engine = Some(e); self }
     pub fn with_sanctions_checker(mut self, c: Arc<SanctionsChecker>) -> Self { self.sanctions_checker = Some(c); self }
     pub fn with_seed(mut self, s: Arc<[u8; 64]>) -> Self { self.seed = Some(s); self }
@@ -345,14 +372,94 @@ impl WithdrawalPipeline {
                     .with_label_values(&[&provider_label, "clean"]).inc();
             }
 
-            // Travel Rule check (FATF Recommendation 16)
+            // Travel Rule (FATF Recommendation 16).
+            //
+            // When a withdrawal crosses the jurisdictional threshold
+            // we MUST exchange originator/beneficiary data with the
+            // counterparty VASP before broadcast. Three outcomes:
+            //
+            //   1. Provider wired + TR data row already persisted
+            //      (gateway's POST /v1/travel-rule was called) and
+            //      dispatch succeeds → mark row Submitted, proceed.
+            //   2. Provider wired but one of the pre-conditions is
+            //      missing (no TR row yet, dispatch errored) →
+            //      refuse to advance this withdrawal. Row stays in
+            //      Received / moves to Failed respectively. Caller
+            //      retries after supplying TR data or after the
+            //      vendor recovers. Never silently broadcast without
+            //      the required data exchange — that's the
+            //      compliance bug this path exists to prevent.
+            //   3. Provider absent → log warn, proceed. Operator has
+            //      opted to handle TR out-of-band (e.g. manual
+            //      bilateral exchange before admitting the
+            //      withdrawal via API).
             if travel_rule::requires_travel_rule(w.amount, "EU") {
-                tracing::info!(
-                    id = %w.id, amount = %w.amount,
-                    "Travel Rule applies — data exchange required"
-                );
-                // In production: send_originator_data() via NotabeneProvider
-                // For now, log and continue (Travel Rule doesn't block, just requires data)
+                match self.travel_rule_provider.as_ref() {
+                    Some(provider) => {
+                        let tr_row = self
+                            .db
+                            .find_travel_rule_by_withdrawal(w.id)
+                            .await
+                            .ok()
+                            .flatten();
+                        let Some(tr) = tr_row else {
+                            tracing::warn!(
+                                id = %w.id, amount = %w.amount,
+                                "Travel Rule threshold exceeded but no TR data submitted — \
+                                 withdrawal stays in Received until POST /v1/travel-rule runs"
+                            );
+                            continue;
+                        };
+                        let mapped = travel_rule::data_from_persisted(&tr);
+                        match provider.send_originator_data(&mapped).await {
+                            Ok(()) => {
+                                tracing::info!(
+                                    id = %w.id,
+                                    "Travel Rule originator data dispatched to counterparty VASP"
+                                );
+                                // Best-effort — persist Submitted status
+                                // so the gateway's GET /v1/travel-rule/{id}
+                                // reflects reality. Failure here is
+                                // logged but not fatal: the dispatch
+                                // succeeded, just the local record
+                                // didn't update.
+                                if let Err(e) = self
+                                    .db
+                                    .update_travel_rule_status(tr.id, "submitted")
+                                    .await
+                                {
+                                    tracing::warn!(
+                                        id = %w.id, error = %e,
+                                        "TR dispatch OK but DB status update failed"
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    id = %w.id, error = %e,
+                                    "Travel Rule dispatch failed — refusing to advance \
+                                     withdrawal; compliance bypass prevented"
+                                );
+                                let _ = self
+                                    .db
+                                    .update_travel_rule_status(tr.id, "failed")
+                                    .await;
+                                self.db
+                                    .update_withdrawal_status(w.id, WithdrawalStatus::Failed)
+                                    .await?;
+                                continue;
+                            }
+                        }
+                    }
+                    None => {
+                        tracing::warn!(
+                            id = %w.id, amount = %w.amount,
+                            "Travel Rule threshold exceeded but no provider configured — \
+                             operator must handle originator/beneficiary data exchange \
+                             out-of-band before this broadcast lands."
+                        );
+                    }
+                }
             }
 
             // Policy check
@@ -406,7 +513,19 @@ impl WithdrawalPipeline {
         // threshold property.
         let seed = self.seed.as_ref().ok_or_else(|| anyhow::anyhow!("No seed and no signing_backend — refusing to sign"))?;
 
-        // Fee estimation
+        // Fee estimation. Fail-closed: if an estimator is wired but
+        // the upstream call fails, we do NOT fall back to a
+        // hardcoded 50 gwei. A stale fixed price underbids mainnet
+        // during fee spikes and the transaction sits in the mempool
+        // forever, which looks like "broadcast succeeded" at the
+        // custody layer but is effectively silent failure. Refuse
+        // to sign until the estimator recovers; the pipeline tick
+        // will retry on the next pass.
+        //
+        // The fallback constants below apply ONLY when no estimator
+        // was wired — in that case the operator opted out explicitly
+        // and accepts the static-price consequences (useful for
+        // testnets or private chains where fee markets are flat).
         let (max_fee, priority_fee) = match &self.eth_fee_estimator {
             Some(est) => match est.estimate().await {
                 Ok(e) => {
@@ -417,7 +536,14 @@ impl WithdrawalPipeline {
                     (custody_fee_estimator::ethereum::gwei_to_wei(e.max_fee),
                      custody_fee_estimator::ethereum::gwei_to_wei(e.priority_fee))
                 }
-                Err(_) => (50_000_000_000u128, 2_000_000_000u128),
+                Err(e) => {
+                    tracing::warn!(
+                        id = %w.id, error = %e,
+                        "ETH fee estimator failed — deferring signing to next tick \
+                         rather than broadcasting at a stale fallback price"
+                    );
+                    return Ok(());
+                }
             },
             None => (50_000_000_000u128, 2_000_000_000u128),
         };
