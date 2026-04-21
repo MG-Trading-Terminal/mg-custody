@@ -178,7 +178,25 @@ async fn submit_approval_decision(
     // The approver is whoever is authenticated — NEVER trust approver_id from
     // the request body. Previously this field was blindly persisted, allowing
     // any Signer to submit decisions as another user.
+    //
+    // Extended fix: the `approver_email` field was still being pulled from
+    // `req.approver_email`. The id-based duplicate check + quorum count
+    // remained sound because those use the authoritative id, but the audit
+    // record stored the attacker-supplied email. A compromised Signer could
+    // write "alice@company.com" into decision rows while authenticated as
+    // their own account, misleading the postmortem operator reading
+    // `approval_workflows.decisions` to identify who approved what. Bind the
+    // email to the session too.
     let approver_id = auth.0.user_id;
+    let approver_email = auth.0.email.clone();
+    if !req.approver_email.is_empty() && req.approver_email != approver_email {
+        tracing::info!(
+            withdrawal_id = %withdrawal_id,
+            authenticated_as = %approver_email,
+            claimed = %req.approver_email,
+            "Approval body.approver_email differs from session email — using authenticated identity"
+        );
+    }
 
     // Check duplicate approver
     if wf.decisions.iter().any(|d| d.approver_id == approver_id) {
@@ -187,7 +205,7 @@ async fn submit_approval_decision(
 
     let decision = ApprovalDecision {
         approver_id,
-        approver_email: req.approver_email,
+        approver_email,
         decision: req.decision,
         reason: req.reason,
         decided_at: Utc::now(),
