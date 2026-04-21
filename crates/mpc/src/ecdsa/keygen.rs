@@ -25,7 +25,12 @@ pub fn trusted_dealer_keygen(threshold: u16, parties: u16) -> Result<(EcdsaGroup
     anyhow::ensure!(parties >= threshold, "Parties must be >= threshold");
 
     let key_id = Uuid::new_v4().to_string();
-    let mut rng = rand::thread_rng();
+    // OsRng for the group secret + Paillier keys. CGGMP21's
+    // security reduction assumes uniform random coefficients for
+    // the polynomial AND primes for the Paillier key; any bias
+    // undermines both. Use the OS CSPRNG directly and match the
+    // convention across the rest of the custody tree.
+    let mut rng = rand::rngs::OsRng;
 
     // generate_shares() = CoreKeyShare + AuxInfo (Paillier) + validated
     let shares: Vec<FullKeyShare> = cggmp21::trusted_dealer::builder::<

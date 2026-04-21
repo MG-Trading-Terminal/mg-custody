@@ -36,7 +36,12 @@ pub async fn threshold_sign_async(
         let pi = party_indices.clone();
         async move {
             let eid = cggmp21::ExecutionId::new(b"mg-custody-sign");
-            let mut rng = rand::thread_rng();
+            // OsRng for the per-party signing randomness. ECDSA
+            // nonce leakage recovers the private key (the famous
+            // PS3 / Mt.Gox class of bugs). Use the OS CSPRNG
+            // directly — no thread-local cache between the RNG
+            // and the kernel.
+            let mut rng = rand::rngs::OsRng;
             cggmp21::signing(eid, i, &pi, share)
                 .set_digest::<sha2::Sha256>()
                 .sign(&mut rng, party, data)

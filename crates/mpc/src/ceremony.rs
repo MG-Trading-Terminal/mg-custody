@@ -62,65 +62,21 @@ pub fn run_frost_ceremony(
     Ok(result)
 }
 
-/// Emergency freeze — disable all signing operations.
-///
-/// Sets a global flag that the signing service checks before every operation.
-/// Any admin can trigger this. Requires admin quorum to unfreeze.
-#[derive(Debug)]
-pub struct EmergencyFreeze {
-    frozen: std::sync::atomic::AtomicBool,
-    frozen_at: std::sync::Mutex<Option<chrono::DateTime<chrono::Utc>>>,
-    frozen_by: std::sync::Mutex<Option<String>>,
-    reason: std::sync::Mutex<Option<String>>,
-}
-
-impl EmergencyFreeze {
-    pub fn new() -> Self {
-        Self {
-            frozen: std::sync::atomic::AtomicBool::new(false),
-            frozen_at: std::sync::Mutex::new(None),
-            frozen_by: std::sync::Mutex::new(None),
-            reason: std::sync::Mutex::new(None),
-        }
-    }
-
-    /// Freeze all operations immediately.
-    pub fn freeze(&self, admin: &str, reason: &str) {
-        self.frozen.store(true, std::sync::atomic::Ordering::SeqCst);
-        *self.frozen_at.lock().unwrap() = Some(chrono::Utc::now());
-        *self.frozen_by.lock().unwrap() = Some(admin.to_string());
-        *self.reason.lock().unwrap() = Some(reason.to_string());
-        tracing::error!(admin, reason, "EMERGENCY FREEZE ACTIVATED");
-    }
-
-    /// Unfreeze (requires separate admin quorum verification by caller).
-    pub fn unfreeze(&self, admin: &str) {
-        self.frozen.store(false, std::sync::atomic::Ordering::SeqCst);
-        tracing::warn!(admin, "Emergency freeze lifted");
-    }
-
-    /// Check if operations are frozen.
-    pub fn is_frozen(&self) -> bool {
-        self.frozen.load(std::sync::atomic::Ordering::SeqCst)
-    }
-
-    /// Get freeze details.
-    pub fn freeze_info(&self) -> Option<(String, String, chrono::DateTime<chrono::Utc>)> {
-        if !self.is_frozen() {
-            return None;
-        }
-        let by = self.frozen_by.lock().ok()?.clone()?;
-        let reason = self.reason.lock().ok()?.clone()?;
-        let at = (*self.frozen_at.lock().ok()?)?;
-        Some((by, reason, at))
-    }
-}
-
-impl Default for EmergencyFreeze {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// NOTE: a second `EmergencyFreeze` struct used to live here —
+// an AtomicBool + three Mutexes with freeze/unfreeze methods. It
+// was NEVER instantiated outside its own unit test: a grep
+// across the workspace confirms no call sites in signing,
+// coordinator, ceremony runners, or the HTTP server. It was a
+// look-alike security control: a reviewer skimming the MPC
+// crate sees "emergency freeze — disable all signing
+// operations" in a docstring and assumes the signing path
+// honours it, when in fact it was unreachable dead code.
+//
+// The real, wired, and now persisted freeze lives in
+// `common::emergency::FreezeFlag`, hydrated on startup from the
+// audit_log and checked on every per-withdrawal iteration in
+// the pipeline. Don't add a second freeze mechanism here; wire
+// new call sites to the `FreezeFlag` in `AppState` instead.
 
 #[cfg(test)]
 mod tests {
@@ -141,22 +97,5 @@ mod tests {
         // Verify shares are in HSM
         let keys = hsm.list_keys().unwrap();
         assert!(keys.contains(&result.key_id));
-    }
-
-    #[test]
-    fn emergency_freeze_lifecycle() {
-        let freeze = EmergencyFreeze::new();
-        assert!(!freeze.is_frozen());
-
-        freeze.freeze("admin@company.com", "Suspicious activity detected");
-        assert!(freeze.is_frozen());
-
-        let (by, reason, _at) = freeze.freeze_info().unwrap();
-        assert_eq!(by, "admin@company.com");
-        assert!(reason.contains("Suspicious"));
-
-        freeze.unfreeze("admin2@company.com");
-        assert!(!freeze.is_frozen());
-        assert!(freeze.freeze_info().is_none());
     }
 }

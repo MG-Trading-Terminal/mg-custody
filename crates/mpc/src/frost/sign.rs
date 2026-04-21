@@ -31,7 +31,13 @@ pub fn frost_sign(
         key_packages_json.len()
     );
 
-    let mut rng = rand::thread_rng();
+    // OsRng for FROST round-1 nonce commitments. Ed25519-style
+    // signatures that reuse (or leak bias in) a nonce leak the
+    // signing key — Sony PS3, CVE-2013-2099, and every re-
+    // implementation since. `thread_rng()` works, but `OsRng`
+    // makes the kernel-entropy path explicit and removes any
+    // doubt about thread-local reseed behaviour in audit review.
+    let mut rng = rand::rngs::OsRng;
 
     // Deserialize key packages
     let key_packages: BTreeMap<frost::Identifier, frost::keys::KeyPackage> =

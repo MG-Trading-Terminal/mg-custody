@@ -23,7 +23,15 @@ pub fn trusted_dealer_keygen(
     anyhow::ensure!(parties >= threshold, "Parties must be >= threshold");
 
     let key_id = Uuid::new_v4().to_string();
-    let mut rng = rand::thread_rng();
+    // OsRng for the group secret. This RNG produces the FROST
+    // group signing key — the threshold property only holds if
+    // the key is uniformly random. `thread_rng()` is
+    // cryptographically secure in current `rand`, but `OsRng`
+    // makes the kernel-entropy path explicit and matches the
+    // BIP-39 / Shamir / seed-tool convention elsewhere in the
+    // tree. Bias here = weak threshold key = private key
+    // recovery given enough signatures.
+    let mut rng = rand::rngs::OsRng;
 
     let (shares, pubkey_package) = frost::keys::generate_with_dealer(
         parties,
