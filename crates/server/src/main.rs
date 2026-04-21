@@ -1167,9 +1167,33 @@ async fn main() -> anyhow::Result<()> {
         screening_service: screening_service_for_state.clone(),
     };
 
-    // Use middleware if HMAC secret is configured
+    // Use middleware if HMAC secret is configured.
+    //
+    // When `CUSTODY_HMAC_SECRET` is empty the gateway skips HMAC
+    // verification entirely AND the RBAC middleware grants Admin to
+    // every unauthenticated request (see rbac_middleware.rs). That
+    // combination is useful for local dev and integration tests,
+    // but catastrophic in production — anyone who reaches the port
+    // gets admin access. An operator who forgets to set the secret
+    // would ship that silently.
+    //
+    // Require an explicit opt-in (`CUSTODY_ALLOW_INSECURE=1`) before
+    // we'll run with an empty secret. Dev shell sets the flag; prod
+    // doesn't, so prod fails loud if the secret is missing.
     let hmac_secret = std::env::var("CUSTODY_HMAC_SECRET")
         .unwrap_or_else(|_| "".to_string());
+
+    if hmac_secret.is_empty()
+        && std::env::var("CUSTODY_ALLOW_INSECURE").ok().as_deref() != Some("1")
+    {
+        anyhow::bail!(
+            "CUSTODY_HMAC_SECRET is empty and CUSTODY_ALLOW_INSECURE is not set. \
+             Running without HMAC auth grants Admin to every unauthenticated \
+             request — refusing to start. Set CUSTODY_HMAC_SECRET to a long \
+             random string for production, or CUSTODY_ALLOW_INSECURE=1 for \
+             local dev / CI."
+        );
+    }
 
     let app = if hmac_secret.is_empty() {
         tracing::warn!("No HMAC_SECRET — running WITHOUT auth middleware (dev mode)");

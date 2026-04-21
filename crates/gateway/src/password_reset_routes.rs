@@ -89,43 +89,74 @@ async fn request_password_reset(
     State(state): State<AppState>,
     Json(req): Json<PasswordResetRequestBody>,
 ) -> Result<Json<PasswordResetRequestResponse>, ApiError> {
-    // Validate email format (basic check)
-    if req.email.is_empty() || !req.email.contains('@') {
-        return Err(ApiError::bad_request("Invalid email address"));
-    }
+    // Uniform response time defeats email enumeration via the
+    // latency side-channel. The known-email branch does a DB
+    // insert (email_otp) + an email send; the unknown-email branch
+    // used to return immediately, which meant an attacker could
+    // probe addresses and distinguish "exists" (slow) from
+    // "doesn't" (fast). We pin the floor to ~the expected
+    // work-path latency so both branches return at roughly the
+    // same wall-clock time.
+    //
+    // 600ms covers a realistic Argon2 rehash + DB round-trip +
+    // SMTP connect on a nearby relay. If the real path runs
+    // faster, we pad; if slower, we don't cut it off.
+    let started = std::time::Instant::now();
+    const UNIFORM_FLOOR: std::time::Duration = std::time::Duration::from_millis(600);
 
-    // Look up user — tolerate not-found silently.
-    let user = state
-        .db
-        .find_user_id_by_email_for_reset(&req.email)
-        .await
-        .map_err(|e| ApiError::internal(&e.to_string()))?;
+    // Validate email format (basic check). Still honour uniform
+    // timing even on invalid-format — otherwise an empty body
+    // returns instantly while a plausible email takes 600ms,
+    // which is itself a (weaker) signal.
+    let valid_format = !req.email.is_empty() && req.email.contains('@');
 
-    if let Some((user_id, email, _enabled)) = user {
-        let code = state
+    if valid_format {
+        // Look up user — tolerate not-found silently.
+        let user = state
             .db
-            .create_email_otp(user_id, "password_reset")
+            .find_user_id_by_email_for_reset(&req.email)
             .await
             .map_err(|e| ApiError::internal(&e.to_string()))?;
 
-        let (subject, body) = render_password_reset(&code, 10);
-        if let Err(e) = state
-            .email
-            .send(EmailMessage::new(email.clone(), subject, body))
-            .await
-        {
-            tracing::warn!(
-                email = %email,
-                error = %e,
-                "Password reset email dispatch failed — returning generic success to caller"
+        if let Some((user_id, email, _enabled)) = user {
+            let code = state
+                .db
+                .create_email_otp(user_id, "password_reset")
+                .await
+                .map_err(|e| ApiError::internal(&e.to_string()))?;
+
+            let (subject, body) = render_password_reset(&code, 10);
+            if let Err(e) = state
+                .email
+                .send(EmailMessage::new(email.clone(), subject, body))
+                .await
+            {
+                tracing::warn!(
+                    email = %email,
+                    error = %e,
+                    "Password reset email dispatch failed — returning generic success to caller"
+                );
+            }
+        } else {
+            tracing::debug!(
+                email = %req.email,
+                "Password reset requested for unknown email — silently ignored"
             );
         }
-    } else {
-        // Introduce a consistent small delay to resist timing-based enumeration.
-        // In production, also consider uniform response time via tokio::time::sleep.
-        tracing::debug!(email = %req.email, "Password reset requested for unknown email — silently ignored");
     }
 
+    // Sleep until the floor is hit. Under normal load the known-
+    // email path already takes >= floor; this is a no-op. For the
+    // unknown-email / invalid-format paths it ensures the response
+    // lands at the same time as a successful lookup would.
+    let elapsed = started.elapsed();
+    if elapsed < UNIFORM_FLOOR {
+        tokio::time::sleep(UNIFORM_FLOOR - elapsed).await;
+    }
+
+    if !valid_format {
+        return Err(ApiError::bad_request("Invalid email address"));
+    }
     Ok(Json(PasswordResetRequestResponse {
         message: "If an account with that email exists, a reset code has been sent.".into(),
     }))

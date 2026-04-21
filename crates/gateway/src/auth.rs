@@ -30,10 +30,23 @@ pub fn verify_signature(
     mac.update(timestamp.as_bytes());
     mac.update(body);
 
-    let expected = hex::encode(mac.finalize().into_bytes());
-    // Constant-time comparison via the hmac crate is already done above,
-    // but we hex-encode for the header comparison.
-    expected == provided_signature
+    // Constant-time compare. Earlier code here did `expected ==
+    // provided_signature` over hex strings — `==` on `String` / `&str`
+    // short-circuits on the first differing byte, leaking timing
+    // information about how many leading hex nibbles the attacker
+    // got right per request. With a network-observable latency
+    // signal an attacker can extract the HMAC secret byte-by-byte
+    // (64 queries per hex nibble × 64 nibbles = tractable).
+    //
+    // Use the hmac crate's `verify_slice` which does a fixed-time
+    // compare against the raw tag. We do the hmac computation
+    // implicitly via `verify_slice` — no need to finalize + hex
+    // ourselves. The caller already provides the signature in hex,
+    // so we decode once and feed the raw bytes through.
+    match hex::decode(provided_signature) {
+        Ok(raw) => mac.verify_slice(&raw).is_ok(),
+        Err(_) => false,
+    }
 }
 
 #[cfg(test)]
