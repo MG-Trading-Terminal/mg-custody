@@ -581,8 +581,27 @@ impl WithdrawalPipeline {
         let (max_fee, priority_fee) = match &self.eth_fee_estimator {
             Some(est) => match est.estimate().await {
                 Ok(e) => {
-                    if est.gas_exceeds_cap().await.unwrap_or(false) {
-                        tracing::info!(id = %w.id, "Gas cap exceeded — deferring");
+                    // Cap check against the estimate we already
+                    // have. Previously this called
+                    // `est.gas_exceeds_cap().await.unwrap_or(false)`,
+                    // which did a SECOND RPC round-trip and —
+                    // worse — silently defaulted to "not
+                    // exceeded" if that call failed. A transient
+                    // RPC hiccup during a fee spike would then
+                    // let the pipeline sign a withdrawal at
+                    // whatever gas price `estimate()` returned,
+                    // well above the operator-configured cap.
+                    // Compare the local estimate against the
+                    // configured cap directly and fail-closed if
+                    // in doubt.
+                    let cap = rust_decimal::Decimal::new(est.gas_cap_gwei() as i64, 0);
+                    if e.base_fee > cap {
+                        tracing::info!(
+                            id = %w.id,
+                            base_fee_gwei = %e.base_fee,
+                            cap_gwei = %cap,
+                            "Gas cap exceeded — deferring"
+                        );
                         return Ok(());
                     }
                     (custody_fee_estimator::ethereum::gwei_to_wei(e.max_fee),

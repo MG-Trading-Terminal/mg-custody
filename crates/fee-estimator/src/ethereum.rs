@@ -56,7 +56,26 @@ impl EthereumFeeEstimator {
             .context("Failed to get latest block")?
             .context("Latest block not found")?;
 
-        let base_fee_wei = block.header.base_fee_per_gas.unwrap_or(0);
+        // Refuse to produce an estimate when the block has no
+        // baseFeePerGas. Every post-London block (since Aug 2021
+        // on mainnet) carries this field; a missing value means
+        // either the RPC is pointed at a pre-London chain or the
+        // response is malformed. Previous code used
+        // `unwrap_or(0)`, which returned a 0-gwei max_fee. The
+        // pipeline would then sign a tx at 0 gwei, the node
+        // would accept it into the mempool (base fee is
+        // technically enforced at inclusion time, not
+        // submission), and the tx would sit there forever. The
+        // withdrawal looked "broadcast" at the custody layer
+        // while the exchange never saw the confirmation webhook.
+        // Bail so the pipeline's fail-closed estimator branch
+        // defers signing to the next tick.
+        let base_fee_wei = block.header.base_fee_per_gas.ok_or_else(|| {
+            anyhow::anyhow!(
+                "Latest block missing baseFeePerGas — refusing to produce \
+                 a fee estimate (would default to 0 gwei and stick the tx)"
+            )
+        })?;
 
         // Get priority fee from node
         let priority_fee_wei: u128 = self
