@@ -72,7 +72,19 @@ impl AddressAllocator {
         // 3. Derive address
         let (address, derivation_path) = derive_address(seed, chain, index, &self.config)?;
 
-        // 4. Build and persist
+        // 4. Build and persist. A concurrent caller for the same
+        //    (user_id, asset, chain) tuple could have won the race
+        //    between our `find_address` at step 1 and this insert —
+        //    the UNIQUE constraint's `ON CONFLICT DO NOTHING` then
+        //    silently skips our row. If we returned our local
+        //    `deposit_address` anyway, the caller would have an
+        //    address that isn't scanned (another user's winning
+        //    row owns the unique slot; ours is orphaned at a burned
+        //    HD index). Funds deposited there would be lost.
+        //
+        //    `insert_address` now returns whether it actually
+        //    inserted; on a loser outcome, refetch the winning row
+        //    and return THAT — same semantics as a retried get.
         let deposit_address = DepositAddress {
             id: Uuid::new_v4(),
             user_id,
@@ -83,7 +95,29 @@ impl AddressAllocator {
             created_at: Utc::now(),
         };
 
-        self.db.insert_address(&deposit_address).await?;
+        let inserted = self.db.insert_address(&deposit_address).await?;
+        if !inserted {
+            // Another concurrent caller beat us. Refetch the row
+            // they wrote and hand that back — same address the
+            // user would see if they'd called us a moment later.
+            // The HD index we allocated at step 2 is wasted, which
+            // is fine: the key space is 2^31 per account and an
+            // unused index just never derives.
+            let winner = self.db.find_address(user_id, asset, chain).await?
+                .ok_or_else(|| anyhow::anyhow!(
+                    "address insert skipped by ON CONFLICT but find_address returned None — \
+                     likely a unique-constraint mismatch, refusing to guess"
+                ))?;
+            tracing::info!(
+                user_id = %user_id,
+                chain = %chain.as_str(),
+                wasted_index = index,
+                returned_address = %winner.address,
+                "Address allocator lost a race; returning winner's row \
+                 (local index is burned but otherwise harmless)"
+            );
+            return Ok(winner);
+        }
 
         tracing::info!(
             user_id = %user_id,

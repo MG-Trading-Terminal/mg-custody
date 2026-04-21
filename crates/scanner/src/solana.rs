@@ -170,7 +170,7 @@ impl ChainScanner for SolanaScanner {
         Chain::Solana
     }
 
-    async fn scan(&self, _from_block: u64) -> Result<(Vec<Deposit>, u64)> {
+    async fn scan(&self, from_block: u64) -> Result<(Vec<Deposit>, u64)> {
         let current = self.current_block_height().await?;
         let mut deposits = Vec::new();
 
@@ -189,7 +189,7 @@ impl ChainScanner for SolanaScanner {
         for (address, user_id) in &addresses {
             let address = address.as_str();
             let user_id = *user_id;
-            let sigs = self.get_signatures(address, 20).await?;
+            let sigs = self.get_signatures(address, 100).await?;
 
             for sig_info in sigs {
                 let signature = sig_info["signature"].as_str().unwrap_or("");
@@ -197,6 +197,18 @@ impl ChainScanner for SolanaScanner {
                 let err = &sig_info["err"];
 
                 if !err.is_null() { continue; } // skip failed txs
+
+                // Honor from_block so the scanner doesn't reprocess
+                // the same window forever after a restart. Previous
+                // code ignored `from_block` entirely (renamed it to
+                // `_from_block`) and relied on `find_deposit_by_tx_hash`
+                // for dedup — which works but also silently hid
+                // continuity gaps: if the backfill window didn't
+                // reach a missed slot, nothing surfaced it. Now we
+                // only consider signatures at slot >= from_block.
+                if slot < from_block {
+                    continue;
+                }
 
                 // Check if already processed
                 if self.db.find_deposit_by_tx_hash(signature).await?.is_some() {

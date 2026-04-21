@@ -31,8 +31,19 @@ impl CustodyDb {
     }
 
     /// Insert a newly generated deposit address.
-    pub async fn insert_address(&self, addr: &DepositAddress) -> anyhow::Result<()> {
-        sqlx::query(
+    /// Insert a freshly-derived address. Returns `Ok(true)` when the
+    /// row landed, `Ok(false)` when a concurrent caller beat us to
+    /// it (ON CONFLICT DO NOTHING skipped this one).
+    ///
+    /// Previously always returned `Ok(())` regardless of whether
+    /// anything was inserted — so the allocator's `get_or_create`
+    /// couldn't tell whether the local `DepositAddress` it built
+    /// actually matched what ended up in the DB. On race the loser
+    /// returned its locally-derived address (from a wasted HD
+    /// index) while the DB held the winner's — users deposited to
+    /// the unscanned loser address and the funds were lost.
+    pub async fn insert_address(&self, addr: &DepositAddress) -> anyhow::Result<bool> {
+        let result = sqlx::query(
             "INSERT INTO addresses (id, user_id, asset, chain, address, derivation_path, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (user_id, asset, chain) DO NOTHING",
@@ -47,7 +58,7 @@ impl CustodyDb {
         .execute(&self.pool)
         .await?;
 
-        Ok(())
+        Ok(result.rows_affected() > 0)
     }
 
     /// Look up a Bitcoin address in the `addresses` table and return
