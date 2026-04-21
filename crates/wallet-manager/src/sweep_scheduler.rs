@@ -85,10 +85,20 @@ impl SweepScheduler {
 
         let mut all_recommendations = Vec::new();
         for (asset, chain) in &assets {
-            let key = asset.to_lowercase();
-            let hot = self.db.account_balance(&format!("hot:{key}"), asset).await.unwrap_or(Decimal::ZERO);
-            let warm = self.db.account_balance(&format!("warm:{key}"), asset).await.unwrap_or(Decimal::ZERO);
-            let cold = self.db.account_balance(&format!("cold:{key}"), asset).await.unwrap_or(Decimal::ZERO);
+            // Canonical ledger key casing is the asset symbol
+            // verbatim ("hot:ETH"), not lowercased. The prior
+            // `asset.to_lowercase()` produced `"hot:eth"` which
+            // matched NO ledger rows — every balance came back
+            // zero, the `> 0` gate never fired, and the entire
+            // tiered-storage sweep (hot/warm/cold 5/15/80) was
+            // effectively dead code. Hot wallet could accumulate
+            // 100% of funds and the scheduler would never notice.
+            // record_sweep below already uses the uppercase
+            // convention via `{asset}` interpolation, so keeping
+            // it consistent here closes the loop.
+            let hot = self.db.account_balance(&format!("hot:{asset}"), asset).await.unwrap_or(Decimal::ZERO);
+            let warm = self.db.account_balance(&format!("warm:{asset}"), asset).await.unwrap_or(Decimal::ZERO);
+            let cold = self.db.account_balance(&format!("cold:{asset}"), asset).await.unwrap_or(Decimal::ZERO);
 
             if hot + warm + cold > Decimal::ZERO {
                 let recs = self.check_and_recommend(asset, *chain, hot, warm, cold);
