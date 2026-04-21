@@ -43,6 +43,15 @@ pub fn fido2_expected_origin_default() -> String {
         .unwrap_or_else(|_| "https://custody.local".into())
 }
 
+/// Expected relying-party ID, per CUSTODY_FIDO2_RP_ID env. This
+/// is the bare domain the credential was registered against —
+/// NOT the full origin. SHA-256(rp_id) is compared against the
+/// first 32 bytes of authenticatorData to ensure the assertion
+/// was scoped to our RP (WebAuthn §7.2 step 14).
+pub fn fido2_expected_rp_id_default() -> String {
+    std::env::var("CUSTODY_FIDO2_RP_ID").unwrap_or_else(|_| "custody.local".into())
+}
+
 /// Verify a WebAuthn authentication assertion.
 ///
 /// Every input is the raw string as POSTed by the client (except
@@ -55,6 +64,7 @@ pub fn verify_assertion(
     signature_b64: &str,
     expected_challenge_b64url: &str,
     expected_origin: &str,
+    expected_rp_id: &str,
 ) -> Result<()> {
     let client_data = decode_b64url(client_data_json_b64).context("clientDataJSON base64")?;
     let auth_data = decode_b64url(authenticator_data_b64).context("authenticatorData base64")?;
@@ -93,16 +103,56 @@ pub fn verify_assertion(
         bail!("clientDataJSON.origin mismatch: client={origin}, expected={expected_origin}");
     }
 
-    // 5. Parse the COSE public key. YubiKeys + Touch ID + Windows
+    // 5. authenticatorData structural + scope checks. The
+    //    server-side audit found this block was previously
+    //    skipped — the signature was verified over authData but
+    //    the authData itself was never inspected, meaning a
+    //    credential bound to a DIFFERENT relying party (rp_id =
+    //    evil.com) could authenticate here as long as the user
+    //    held the private key. Also a signing ceremony performed
+    //    without user interaction (UP flag == 0) passed.
+    //    WebAuthn §7.2 requires both checks explicitly.
+    //
+    //    authData layout:
+    //      [0..32]   rpIdHash (SHA-256 of the registered rp_id)
+    //      [32]      flags  (bit 0 = UP, bit 2 = UV, bit 6 = AT, bit 7 = ED)
+    //      [33..37]  signCount (big-endian u32) — monotonicity is
+    //                enforced by the caller via DB CAS, not here
+    //      [37..]    attestedCredentialData / extensions (ignored)
+    use sha2::{Digest, Sha256};
+    if auth_data.len() < 37 {
+        bail!(
+            "authenticatorData too short ({} bytes, need ≥37 for rpIdHash + flags + signCount)",
+            auth_data.len()
+        );
+    }
+    let rp_id_hash_expected = Sha256::digest(expected_rp_id.as_bytes());
+    // Constant-time compare is not required here (neither half is
+    // secret — the hash is deterministic from public config), but
+    // we use a byte-wise compare with clear error messaging.
+    if auth_data[..32] != rp_id_hash_expected[..] {
+        bail!(
+            "authenticatorData.rpIdHash mismatch: assertion was signed for a \
+             different relying party (expected SHA-256({expected_rp_id}))"
+        );
+    }
+    let flags = auth_data[32];
+    if flags & 0x01 == 0 {
+        bail!(
+            "authenticatorData.flags: User Presence bit (UP, 0x01) not set — \
+             assertion must be produced by a user-interacted authenticator"
+        );
+    }
+
+    // 6. Parse the COSE public key. YubiKeys + Touch ID + Windows
     //    Hello default to ES256 (alg = -7, kty = EC2, crv = P-256).
     let (pub_x, pub_y) = parse_cose_es256(&pubkey_bytes)
         .context("COSE public key not parseable as ES256 P-256")?;
 
-    // 6. Signature verification — ECDSA over P-256 with SHA-256.
+    // 7. Signature verification — ECDSA over P-256 with SHA-256.
     //    Signed message is authenticatorData || SHA-256(clientDataJSON).
     use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
     use p256::EncodedPoint;
-    use sha2::{Digest, Sha256};
 
     let client_data_hash = Sha256::digest(&client_data);
     let mut signed = Vec::with_capacity(auth_data.len() + 32);
@@ -308,6 +358,7 @@ fn skip_cbor_value(bytes: &[u8]) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::Digest;
 
     #[test]
     fn parse_cose_es256_realistic_key() {
@@ -368,6 +419,7 @@ mod tests {
             "AA",
             "abc",
             "https://example.com",
+            "example.com",
         )
         .unwrap_err();
         assert!(err.to_string().contains("webauthn.get"));
@@ -383,10 +435,81 @@ mod tests {
         let cdj_bytes = serde_json::to_vec(&cdj).unwrap();
         let cdj_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&cdj_bytes);
         let err = verify_assertion(
-            "AA", &cdj_b64, "AA", "AA", "abc", "https://custody.local",
+            "AA", &cdj_b64, "AA", "AA", "abc", "https://custody.local", "custody.local",
         )
         .unwrap_err();
         assert!(err.to_string().contains("origin mismatch"));
+    }
+
+    #[test]
+    fn verify_rejects_wrong_rp_id_hash() {
+        // Assertion signed for a DIFFERENT rp_id — even with
+        // valid challenge + origin, must not authenticate here.
+        let cdj = serde_json::json!({
+            "type": "webauthn.get",
+            "challenge": "abc",
+            "origin": "https://custody.local",
+        });
+        let cdj_bytes = serde_json::to_vec(&cdj).unwrap();
+        let cdj_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&cdj_bytes);
+
+        // authData with rpIdHash = SHA-256("evil.com") + UP flag set + zero signCount
+        let mut auth = Vec::new();
+        auth.extend_from_slice(&sha2::Sha256::digest(b"evil.com"));
+        auth.push(0x01); // UP flag
+        auth.extend_from_slice(&[0u8; 4]); // signCount
+        let auth_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&auth);
+
+        let err = verify_assertion(
+            "AA", &cdj_b64, &auth_b64, "AA", "abc", "https://custody.local", "custody.local",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("rpIdHash mismatch"));
+    }
+
+    #[test]
+    fn verify_rejects_missing_up_flag() {
+        // rpIdHash correct, but UP flag NOT set — authenticator
+        // produced the signature without user interaction.
+        let cdj = serde_json::json!({
+            "type": "webauthn.get",
+            "challenge": "abc",
+            "origin": "https://custody.local",
+        });
+        let cdj_bytes = serde_json::to_vec(&cdj).unwrap();
+        let cdj_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&cdj_bytes);
+
+        let mut auth = Vec::new();
+        auth.extend_from_slice(&sha2::Sha256::digest(b"custody.local"));
+        auth.push(0x00); // flags = 0 — no UP
+        auth.extend_from_slice(&[0u8; 4]);
+        let auth_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&auth);
+
+        let err = verify_assertion(
+            "AA", &cdj_b64, &auth_b64, "AA", "abc", "https://custody.local", "custody.local",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("User Presence"));
+    }
+
+    #[test]
+    fn verify_rejects_truncated_auth_data() {
+        let cdj = serde_json::json!({
+            "type": "webauthn.get",
+            "challenge": "abc",
+            "origin": "https://custody.local",
+        });
+        let cdj_bytes = serde_json::to_vec(&cdj).unwrap();
+        let cdj_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&cdj_bytes);
+
+        // Only 10 bytes — well short of the required 37.
+        let auth_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&[0u8; 10]);
+
+        let err = verify_assertion(
+            "AA", &cdj_b64, &auth_b64, "AA", "abc", "https://custody.local", "custody.local",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("authenticatorData too short"));
     }
 
     #[test]
@@ -399,7 +522,7 @@ mod tests {
         let cdj_bytes = serde_json::to_vec(&cdj).unwrap();
         let cdj_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&cdj_bytes);
         let err = verify_assertion(
-            "AA", &cdj_b64, "AA", "AA", "expected-abc", "https://custody.local",
+            "AA", &cdj_b64, "AA", "AA", "expected-abc", "https://custody.local", "custody.local",
         )
         .unwrap_err();
         assert!(err.to_string().contains("challenge mismatch"));

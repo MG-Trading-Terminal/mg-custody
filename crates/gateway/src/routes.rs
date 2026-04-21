@@ -1210,6 +1210,7 @@ async fn approve_withdrawal(
             signature,
             challenge,
             &crate::fido2_verify::fido2_expected_origin_default(),
+            &crate::fido2_verify::fido2_expected_rp_id_default(),
         )
         .map_err(|e| {
             tracing::warn!(id = %id, approver, error = %e, "FIDO2 signature verification failed");
