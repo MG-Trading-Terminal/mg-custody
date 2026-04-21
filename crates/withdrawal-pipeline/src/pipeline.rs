@@ -142,38 +142,25 @@ impl WithdrawalPipeline {
     pub fn with_sanctions_checker(mut self, c: Arc<SanctionsChecker>) -> Self { self.sanctions_checker = Some(c); self }
     pub fn with_seed(mut self, s: Arc<[u8; 64]>) -> Self { self.seed = Some(s); self }
     /// Plug in an external signing backend (PKCS#11 HSM, signer-service
-    /// IPC, etc.). When present, ETH + ERC-20 signatures come from the
-    /// backend's `sign(Chain::Ethereum, prehash)` call; the seed path
-    /// is bypassed. BTC / Tron / Solana still use the seed path until
-    /// their `prepare_*` helpers land.
+    /// IPC, MPC coordinator client, etc.). When present, ETH + ERC-20
+    /// signatures come from the backend's `sign(Chain::Ethereum,
+    /// prehash)` call; the seed path is bypassed. BTC / Tron / Solana
+    /// still use the seed path until their `prepare_*` helpers land.
+    ///
+    /// **MPC wiring note**: multi-host MPC plugs in HERE, not via a
+    /// dedicated method. An `MpcSigningBackend` wraps the coordinator
+    /// client and orchestrates the threshold ceremony across party
+    /// hosts, returning the aggregated signature. The pipeline only
+    /// provides the prehash (EVM/Tron) or message bytes (Solana) — it
+    /// never holds shares. An earlier `with_mpc_shares(...)` builder
+    /// method accepted raw ECDSA shares + group pubkey and called
+    /// `cggmp21::threshold_sign` in-process; that was single-process
+    /// threshold signing (every share in service memory — defeats the
+    /// threshold property) wrapped in fake-MPC naming. Removed in this
+    /// commit. If a caller needs MPC, write the backend impl and pass
+    /// it here; do not add a shortcut that silently downgrades to seed.
     pub fn with_signing_backend(mut self, b: Arc<dyn SigningBackend>) -> Self {
         self.signing_backend = Some(b);
-        self
-    }
-    /// Deprecated placeholder for direct-shares MPC signing.
-    ///
-    /// Previously accepted the raw ECDSA shares + group public key and
-    /// had the pipeline call `cggmp21::threshold_sign` in-process. That
-    /// is NOT multi-host MPC — it is single-process threshold signing
-    /// where every share lives in the service memory (defeating the
-    /// entire point of the threshold scheme). It also produced a
-    /// non-RLP custom-JSON "signed tx" blob that no broadcaster could
-    /// submit, so the path was spec-wise broken top to bottom.
-    ///
-    /// Real multi-host MPC plugs in via `with_signing_backend` — a
-    /// future `MpcSigningBackend` impl orchestrates the ceremony
-    /// across party hosts, and the pipeline only provides the
-    /// prehash (for EVM/Tron) or message (for Solana). This method
-    /// is retained as a hard-fail to surface the misconfiguration
-    /// to any caller still invoking it.
-    #[deprecated(
-        note = "Direct-shares MPC signing was broken and single-process-only. Use `with_signing_backend` with an MPC-backed SigningBackend impl instead."
-    )]
-    pub fn with_mpc_shares(self, _shares: Vec<Vec<u8>>, _group_pubkey: Vec<u8>) -> Self {
-        tracing::error!(
-            "with_mpc_shares is deprecated and ignored — use with_signing_backend with an \
-             MPC-backed SigningBackend. Pipeline will sign via seed/HSM until then."
-        );
         self
     }
     pub fn with_eth_broadcaster(mut self, b: Arc<EthereumBroadcaster>) -> Self { self.eth_broadcaster = Some(b); self }

@@ -131,6 +131,96 @@ pub fn requires_travel_rule(amount_usd: Decimal, jurisdiction: &str) -> bool {
     }
 }
 
+/// Parse a Notabene GET /transaction/{id} response into our
+/// neutral `TravelRuleData` shape. Mirrors the IVMS-101-style
+/// structure we POST on send_originator_data. Fields that are
+/// genuinely missing collapse to empty strings / None rather than
+/// returning an error — a real counterparty VASP might submit a
+/// subset of optional fields, and rejecting that would stall the
+/// workflow on every partial entry.
+///
+/// Returns Err only when the top-level shape is unrecognisable
+/// (no originator/beneficiary objects at all) — that IS a reason
+/// to escalate to human review rather than silently accept an
+/// empty record as valid TR data.
+fn parse_notabene_transfer(
+    body: &serde_json::Value,
+    transfer_id: Uuid,
+) -> Result<TravelRuleData> {
+    // Notabene wraps the parties under `originator` / `beneficiary`
+    // at the top level. We accept either their full IVMS shape or
+    // the flatter echoes some sandbox environments return.
+    let originator_obj = body
+        .get("originator")
+        .ok_or_else(|| anyhow::anyhow!("Notabene response missing originator"))?;
+    let beneficiary_obj = body
+        .get("beneficiary")
+        .ok_or_else(|| anyhow::anyhow!("Notabene response missing beneficiary"))?;
+
+    fn extract_person(v: &serde_json::Value, kind: &str) -> PersonData {
+        // IVMS path: {"originatorPersons":[{"naturalPerson":
+        //   {"name":[{"nameIdentifier":[{"primaryIdentifier": "..."}]}]}}]}
+        let ivms_name = v
+            .get(format!("{kind}Persons"))
+            .and_then(|a| a.get(0))
+            .and_then(|p| p.get("naturalPerson"))
+            .and_then(|np| np.get("name"))
+            .and_then(|a| a.get(0))
+            .and_then(|n| n.get("nameIdentifier"))
+            .and_then(|a| a.get(0))
+            .and_then(|id| id.get("primaryIdentifier"))
+            .and_then(|s| s.as_str())
+            .map(|s| s.to_string());
+        // Flat fallback: {"name": "..."}
+        let flat_name = v.get("name").and_then(|s| s.as_str()).map(|s| s.to_string());
+        let account = v
+            .get("accountNumber")
+            .and_then(|a| a.get(0).or(Some(a)))
+            .and_then(|s| s.as_str())
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty());
+        PersonData {
+            name: ivms_name.or(flat_name).unwrap_or_default(),
+            account_number: account,
+            address: None,
+            national_id: None,
+            date_of_birth: None,
+        }
+    }
+
+    let originator = extract_person(originator_obj, "originator");
+    let beneficiary = extract_person(beneficiary_obj, "beneficiary");
+    let amount_usd = body
+        .get("transactionAmount")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<Decimal>().ok())
+        .unwrap_or_default();
+    let asset = body
+        .get("transactionAsset")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let originator_vasp = body
+        .get("originatingVASP")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let beneficiary_vasp = body
+        .get("beneficiaryVASP")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    Ok(TravelRuleData {
+        transfer_id,
+        originator,
+        beneficiary,
+        amount_usd,
+        asset,
+        originator_vasp,
+        beneficiary_vasp,
+        created_at: Utc::now(),
+    })
+}
+
 /// Notabene Travel Rule provider.
 pub struct NotabeneProvider {
     api_key: String,
@@ -194,6 +284,12 @@ impl TravelRuleProvider for NotabeneProvider {
             .send()
             .await;
 
+        // Fail-closed on dispatch errors. Earlier versions returned
+        // Ok(()) on any outcome with a warning log — the pipeline
+        // called this, saw success, and broadcast without the
+        // required data exchange. That was the bug the readiness
+        // gate on screening.aml was also designed to prevent:
+        // configured-vendor-unreachable is not "OK, proceed".
         match resp {
             Ok(r) if r.status().is_success() => {
                 tracing::info!(transfer_id = %data.transfer_id, "Travel Rule data sent");
@@ -203,12 +299,11 @@ impl TravelRuleProvider for NotabeneProvider {
                 let status = r.status();
                 let body = r.text().await.unwrap_or_default();
                 tracing::warn!(status = %status, "Notabene API error: {body}");
-                // Don't block withdrawal on Travel Rule API failure
-                Ok(())
+                anyhow::bail!("Notabene API returned {status}: {body}")
             }
             Err(e) => {
                 tracing::warn!(error = %e, "Notabene API unreachable");
-                Ok(())
+                Err(anyhow::anyhow!("Notabene API unreachable: {e}"))
             }
         }
     }
@@ -233,16 +328,26 @@ impl TravelRuleProvider for NotabeneProvider {
         match resp {
             Ok(r) if r.status().is_success() => {
                 let body: serde_json::Value = r.json().await?;
-                if body["status"].as_str() == Some("accepted") {
-                    tracing::warn!(
-                        transfer_id = %transfer_id,
-                        "Notabene reports accepted beneficiary data, but parser is not implemented — caller must reconcile manually",
-                    );
-                    anyhow::bail!(
-                        "Notabene accepted transfer {transfer_id} but the beneficiary-parse path is not implemented; manual reconciliation required"
-                    );
+                match body["status"].as_str() {
+                    Some("accepted") => Ok(Some(parse_notabene_transfer(&body, transfer_id)?)),
+                    Some(other) => {
+                        // Counterparty hasn't responded yet or rejected —
+                        // "pending", "sent", "rejected" all map to "no
+                        // beneficiary data yet". Caller polls again.
+                        tracing::debug!(
+                            transfer_id = %transfer_id, status = %other,
+                            "Notabene transfer not yet accepted"
+                        );
+                        Ok(None)
+                    }
+                    None => {
+                        tracing::warn!(
+                            transfer_id = %transfer_id,
+                            "Notabene GET returned no status field"
+                        );
+                        Ok(None)
+                    }
                 }
-                Ok(None)
             }
             Ok(r) => {
                 tracing::debug!(transfer_id = %transfer_id, status = %r.status(), "Notabene returned non-success");
@@ -285,6 +390,88 @@ impl TravelRuleProvider for NotabeneProvider {
 mod tests {
     use super::*;
     use rust_decimal_macros::dec;
+
+    #[test]
+    fn parse_notabene_ivms_shape_round_trip() {
+        // Full IVMS-101-style response — what Notabene returns in
+        // production once the counterparty VASP accepts.
+        let body = serde_json::json!({
+            "status": "accepted",
+            "transactionAsset": "BTC",
+            "transactionAmount": "1500",
+            "originator": {
+                "originatorPersons": [{
+                    "naturalPerson": {
+                        "name": [{
+                            "nameIdentifier": [{"primaryIdentifier": "Alice Smith"}]
+                        }]
+                    }
+                }],
+                "accountNumber": ["bc1qorig..."],
+            },
+            "beneficiary": {
+                "beneficiaryPersons": [{
+                    "naturalPerson": {
+                        "name": [{
+                            "nameIdentifier": [{"primaryIdentifier": "Bob Jones"}]
+                        }]
+                    }
+                }],
+                "accountNumber": ["bc1qbeneficiary..."],
+            },
+            "originatingVASP": "vasp-us-123",
+            "beneficiaryVASP": "vasp-eu-456",
+        });
+        let id = Uuid::new_v4();
+        let parsed = parse_notabene_transfer(&body, id).unwrap();
+        assert_eq!(parsed.transfer_id, id);
+        assert_eq!(parsed.originator.name, "Alice Smith");
+        assert_eq!(parsed.originator.account_number.as_deref(), Some("bc1qorig..."));
+        assert_eq!(parsed.beneficiary.name, "Bob Jones");
+        assert_eq!(parsed.amount_usd, dec!(1500));
+        assert_eq!(parsed.asset, "BTC");
+        assert_eq!(parsed.originator_vasp.as_deref(), Some("vasp-us-123"));
+        assert_eq!(parsed.beneficiary_vasp.as_deref(), Some("vasp-eu-456"));
+    }
+
+    #[test]
+    fn parse_notabene_flat_fallback() {
+        // Some sandbox environments return a flatter echo shape —
+        // the parser must tolerate "name" at the top of each party.
+        let body = serde_json::json!({
+            "originator":   {"name": "Alice", "accountNumber": "0xabc"},
+            "beneficiary":  {"name": "Bob",   "accountNumber": "0xdef"},
+            "transactionAmount": "250",
+            "transactionAsset": "USDC",
+        });
+        let parsed = parse_notabene_transfer(&body, Uuid::new_v4()).unwrap();
+        assert_eq!(parsed.originator.name, "Alice");
+        assert_eq!(parsed.beneficiary.name, "Bob");
+        assert_eq!(parsed.amount_usd, dec!(250));
+    }
+
+    #[test]
+    fn parse_notabene_missing_parties_errors() {
+        // If both party objects are missing we escalate to "review
+        // manually" rather than return a bogus empty TravelRuleData.
+        let body = serde_json::json!({"status": "accepted"});
+        let res = parse_notabene_transfer(&body, Uuid::new_v4());
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn parse_notabene_tolerates_missing_optional_fields() {
+        // Realistic partial case: counterparty omitted VASP ids.
+        // Parser must NOT reject — it's still valid TR data.
+        let body = serde_json::json!({
+            "originator":  {"name": "A"},
+            "beneficiary": {"name": "B"},
+        });
+        let parsed = parse_notabene_transfer(&body, Uuid::new_v4()).unwrap();
+        assert!(parsed.originator_vasp.is_none());
+        assert!(parsed.beneficiary_vasp.is_none());
+        assert_eq!(parsed.amount_usd, Decimal::default());
+    }
 
     #[test]
     fn eu_travel_rule_threshold() {
