@@ -328,7 +328,15 @@ async fn get_vault_key_for_chain(
     State(state): State<AppState>,
     Path((vault_id, chain)): Path<(Uuid, String)>,
 ) -> Result<Json<SigningKeyInfo>, ApiError> {
-    let chain_parsed = Chain::parse_str(&chain);
+    // User-supplied URL path segment — fail closed on unknown
+    // strings. parse_str would coerce `/v1/vaults/{id}/keys/polygon`
+    // into Chain::Ethereum and hand back an ETH key, which is a
+    // silent category-error the caller would never spot.
+    let chain_parsed = Chain::try_parse_str(&chain).ok_or_else(|| {
+        ApiError::bad_request(&format!(
+            "Unknown chain '{chain}' — supported: bitcoin, ethereum, tron, solana"
+        ))
+    })?;
 
     let accounts = state.db.list_vault_accounts(vault_id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?;

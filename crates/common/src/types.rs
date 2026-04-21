@@ -52,14 +52,48 @@ impl Chain {
         }
     }
 
-    /// Parse from string.
+    /// Parse from string — infallible, falls back to Ethereum on
+    /// unknown input WITH a loud ERROR log. The fallback is
+    /// kept for source-compat with ~50 call sites (DB row
+    /// deserialization across vaults, transactions, audit,
+    /// etc.), but a silent bad-chain coercion is the inverse of
+    /// honest custody: it routes the request through the ETH
+    /// derivation path, ETH broadcaster, ETH validation — fine
+    /// for a legitimate "ethereum" string but catastrophic for
+    /// a typo in an API call ("polygon") or a DB row written by
+    /// a newer schema the current build doesn't recognise.
+    ///
+    /// Prefer [`Chain::try_parse_str`] for new code — it surfaces
+    /// the unknown-input case and lets the caller fail closed.
     pub fn parse_str(s: &str) -> Self {
+        match Self::try_parse_str(s) {
+            Some(c) => c,
+            None => {
+                tracing::error!(
+                    input = s,
+                    "Chain::parse_str received unknown chain string — defaulting to \
+                     Ethereum. This is a bug: an API typo, a DB row with an \
+                     unexpected value, or a chain added to data before the code \
+                     was updated. New code should use try_parse_str to fail \
+                     closed instead of silently routing through the ETH \
+                     signing/broadcasting path."
+                );
+                Chain::Ethereum
+            }
+        }
+    }
+
+    /// Fallible parse. Returns `None` for any input that isn't a
+    /// known chain alias. Prefer this over `parse_str` at any
+    /// trust boundary — unknown chains must fail visibly, not
+    /// get silently coerced into Ethereum.
+    pub fn try_parse_str(s: &str) -> Option<Self> {
         match s {
-            "bitcoin" | "btc" => Chain::Bitcoin,
-            "ethereum" | "eth" => Chain::Ethereum,
-            "tron" | "trx" => Chain::Tron,
-            "solana" | "sol" => Chain::Solana,
-            _ => Chain::Ethereum,
+            "bitcoin" | "btc" => Some(Chain::Bitcoin),
+            "ethereum" | "eth" => Some(Chain::Ethereum),
+            "tron" | "trx" => Some(Chain::Tron),
+            "solana" | "sol" => Some(Chain::Solana),
+            _ => None,
         }
     }
 }

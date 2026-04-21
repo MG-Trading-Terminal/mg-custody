@@ -243,7 +243,13 @@ async fn get_network_detail(
     _auth: RequireViewer,
     Path(chain): Path<String>,
 ) -> Result<Json<NetworkInfo>, ApiError> {
-    let chain_parsed = Chain::parse_str(&chain);
+    // User-supplied path segment → reject unknown chains with
+    // 400 rather than coercing to Ethereum via parse_str.
+    let chain_parsed = Chain::try_parse_str(&chain).ok_or_else(|| {
+        ApiError::bad_request(&format!(
+            "Unknown chain '{chain}' — supported: bitcoin, ethereum, tron, solana"
+        ))
+    })?;
     all_networks().into_iter()
         .find(|n| n.chain == chain_parsed)
         .map(Json)
@@ -253,8 +259,12 @@ async fn get_network_detail(
 async fn list_network_tokens(
     _auth: RequireViewer,
     Path(chain): Path<String>,
-) -> Json<Vec<NetworkToken>> {
-    let chain_parsed = Chain::parse_str(&chain);
+) -> Result<Json<Vec<NetworkToken>>, ApiError> {
+    let chain_parsed = Chain::try_parse_str(&chain).ok_or_else(|| {
+        ApiError::bad_request(&format!(
+            "Unknown chain '{chain}' — supported: bitcoin, ethereum, tron, solana"
+        ))
+    })?;
     let tokens = match chain_parsed {
         Chain::Ethereum => vec![
             NetworkToken { symbol: "ETH".into(), name: "Ether".into(), chain: Chain::Ethereum, contract_address: None, decimals: 18, token_type: "native".into() },
@@ -274,7 +284,7 @@ async fn list_network_tokens(
             NetworkToken { symbol: "USDC".into(), name: "USD Coin".into(), chain: Chain::Solana, contract_address: Some("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".into()), decimals: 6, token_type: "SPL".into() },
         ],
     };
-    Json(tokens)
+    Ok(Json(tokens))
 }
 
 fn all_networks() -> Vec<NetworkInfo> {
