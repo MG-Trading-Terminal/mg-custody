@@ -155,8 +155,24 @@ impl ScreeningProvider for ChainalysisProvider {
             .await
             .map_err(|e| anyhow::anyhow!("Chainalysis JSON parse failed: {e}"))?;
 
-        let risk_rating = body["rating"].as_str().unwrap_or("low");
-        let risk_score = body["riskScore"].as_f64().unwrap_or(0.0);
+        // Require at least one of rating / riskScore to be
+        // present. Previously `unwrap_or("low")` + `unwrap_or(0.0)`
+        // silently collapsed any malformed 200 OK payload (rate-
+        // limit HTML body, maintenance page, vendor schema drift,
+        // null-response bug) into RiskLevel::Low — a hidden AML
+        // pass. Bail explicitly so ScreeningService applies its
+        // fallback (Block in production).
+        let risk_rating = body["rating"].as_str();
+        let risk_score_opt = body["riskScore"].as_f64();
+        if risk_rating.is_none() && risk_score_opt.is_none() {
+            anyhow::bail!(
+                "Chainalysis response for {address} ({chain:?}) lacks both \
+                 `rating` and `riskScore` — refusing to treat as Low; \
+                 body={body}"
+            );
+        }
+        let risk_rating = risk_rating.unwrap_or("");
+        let risk_score = risk_score_opt.unwrap_or(0.0);
         let exposures = body["exposures"].as_array()
             .map(|arr| arr.iter()
                 .filter_map(|e| e["category"].as_str().map(String::from))
@@ -206,8 +222,18 @@ impl ScreeningProvider for ChainalysisProvider {
             .json()
             .await
             .map_err(|e| anyhow::anyhow!("Chainalysis JSON parse failed: {e}"))?;
-        let risk_rating = body["rating"].as_str().unwrap_or("low");
-        let risk_score = body["riskScore"].as_f64().unwrap_or(0.0);
+        // Same honest-parse rule as the address path.
+        let risk_rating = body["rating"].as_str();
+        let risk_score_opt = body["riskScore"].as_f64();
+        if risk_rating.is_none() && risk_score_opt.is_none() {
+            anyhow::bail!(
+                "Chainalysis tx response for {tx_hash} ({chain:?}) lacks both \
+                 `rating` and `riskScore` — refusing to treat as Low; \
+                 body={body}"
+            );
+        }
+        let risk_rating = risk_rating.unwrap_or("");
+        let risk_score = risk_score_opt.unwrap_or(0.0);
         let exposures = body["exposures"].as_array()
             .map(|arr| arr.iter()
                 .filter_map(|e| e["category"].as_str().map(String::from))
@@ -308,7 +334,16 @@ impl ScreeningProvider for EllipticProvider {
             .await
             .map_err(|e| anyhow::anyhow!("Elliptic JSON parse failed: {e}"))?;
 
-        let risk_score = body["risk_score"].as_f64().unwrap_or(0.0);
+        // Elliptic's schema is score-only — no rating string.
+        // A missing `risk_score` used to silently default to 0.0
+        // → RiskLevel::Low → AML pass. Refuse the verdict
+        // instead and let ScreeningService's fallback apply.
+        let risk_score = body["risk_score"].as_f64().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Elliptic response for {address} ({chain:?}) lacks \
+                 `risk_score` — refusing to treat as Low; body={body}"
+            )
+        })?;
         let risk_level = score_to_risk_level(risk_score);
 
         let categories: Vec<String> = body["cluster_entities"]
@@ -365,7 +400,12 @@ impl ScreeningProvider for EllipticProvider {
             .json()
             .await
             .map_err(|e| anyhow::anyhow!("Elliptic JSON parse failed: {e}"))?;
-        let risk_score = body["risk_score"].as_f64().unwrap_or(0.0);
+        let risk_score = body["risk_score"].as_f64().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Elliptic tx response for {tx_hash} ({chain:?}) lacks \
+                 `risk_score` — refusing to treat as Low; body={body}"
+            )
+        })?;
 
         Ok(ScreeningResult {
             address: tx_hash.to_string(),
@@ -721,6 +761,53 @@ mod tests {
         let result = service.screen_address("0xdead", Chain::Ethereum).await;
         assert_eq!(result.risk_level, RiskLevel::High);
         assert!(result.categories.contains(&"provider_error".to_string()));
+    }
+
+    #[tokio::test]
+    async fn chainalysis_malformed_200_falls_through_to_block() {
+        // Stand up a tiny hyper server that returns 200 OK with an
+        // empty JSON object `{}` — no `rating`, no `riskScore`. A
+        // vendor schema-drift bug or a cached maintenance page
+        // could trip this. Previous code silently mapped it to
+        // RiskLevel::Low; now it propagates the error through
+        // ScreeningService::screen_address which applies its
+        // Block fallback → RiskLevel::High.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut sock, _)) = listener.accept().await else { break };
+                tokio::spawn(async move {
+                    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                    let mut buf = vec![0u8; 4096];
+                    let _ = sock.read(&mut buf).await;
+                    let body = b"{}";
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                    let _ = sock.write_all(body).await;
+                    let _ = sock.shutdown().await;
+                });
+            }
+        });
+
+        let mut service = ScreeningService::new(ScreeningFallback::Block, 24);
+        service.providers.push(AnyScreeningProvider::Chainalysis(
+            ChainalysisProvider {
+                api_key: "key".into(),
+                base_url: format!("http://{addr}"),
+                client: reqwest::Client::new(),
+            },
+        ));
+        let result = service.screen_address("0xdead", Chain::Ethereum).await;
+        assert_eq!(
+            result.risk_level,
+            RiskLevel::High,
+            "malformed 200 must not become Low via unwrap_or"
+        );
+        assert!(result.should_block());
     }
 
     #[test]
