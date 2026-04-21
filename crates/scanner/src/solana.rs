@@ -323,8 +323,44 @@ impl ChainScanner for SolanaScanner {
                                     .or_else(|| acct["pubkey"].as_str())
                                     .unwrap_or("");
                                 if acct_key == address {
-                                    let pre_bal = pre.get(i).and_then(|v| v.as_u64()).unwrap_or(0);
-                                    let post_bal = post.get(i).and_then(|v| v.as_u64()).unwrap_or(0);
+                                    // Parse both balances HONESTLY. A missing or
+                                    // non-u64 `pre` entry used to default to 0,
+                                    // which made `lamports = post - 0 = full
+                                    // post balance` and silently over-credited
+                                    // the user with the entire account balance
+                                    // instead of just the delta. A missing or
+                                    // non-u64 `post` used to default to 0,
+                                    // which hid the deposit entirely. Neither
+                                    // can happen with a well-formed RPC
+                                    // response — balances arrays are supposed
+                                    // to be u64s indexed parallel to
+                                    // accountKeys — so anything else signals a
+                                    // bug we want to see loudly, not paper
+                                    // over.
+                                    let pre_bal = match pre.get(i).and_then(|v| v.as_u64()) {
+                                        Some(n) => n,
+                                        None => {
+                                            tracing::warn!(
+                                                signature, slot, address,
+                                                "Solana preBalances[{i}] missing or not u64 — \
+                                                 skipping this account (defaulting to 0 would \
+                                                 over-credit)"
+                                            );
+                                            continue;
+                                        }
+                                    };
+                                    let post_bal = match post.get(i).and_then(|v| v.as_u64()) {
+                                        Some(n) => n,
+                                        None => {
+                                            tracing::warn!(
+                                                signature, slot, address,
+                                                "Solana postBalances[{i}] missing or not u64 — \
+                                                 skipping this account (defaulting to 0 would \
+                                                 hide a real deposit)"
+                                            );
+                                            continue;
+                                        }
+                                    };
 
                                     if post_bal > pre_bal {
                                         let lamports = post_bal - pre_bal;
