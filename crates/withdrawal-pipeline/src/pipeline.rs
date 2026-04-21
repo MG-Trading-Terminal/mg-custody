@@ -662,11 +662,31 @@ impl WithdrawalPipeline {
             None => (50_000_000_000u128, 2_000_000_000u128),
         };
 
-        // Nonce
+        // Nonce. Propagate allocation failures — the previous
+        // `unwrap_or(0)` silently substituted zero, which for a
+        // funded hot-wallet address is already spent. The tx
+        // would then sign with nonce=0, broadcast, be rejected
+        // by the chain ("nonce too low"), and the withdrawal
+        // would end up in an opaque Failed state with an error
+        // that never pointed at the real cause (a transient DB
+        // hiccup or the one-shot reconciliation RPC). Defer
+        // signing to the next tick instead; NonceManager's
+        // per-address lock means the retry is cheap and safe.
         let nonce = match &self.nonce_manager {
             Some(nm) => {
                 let addr = custody_signing::ethereum::eth_address(seed, 0)?;
-                nm.next_nonce(&format!("{addr:#x}")).await.unwrap_or(0)
+                match nm.next_nonce(&format!("{addr:#x}")).await {
+                    Ok(n) => n,
+                    Err(e) => {
+                        tracing::warn!(
+                            id = %w.id,
+                            error = %e,
+                            "ETH nonce allocation failed — deferring signing \
+                             to next tick rather than broadcasting at nonce=0"
+                        );
+                        return Ok(());
+                    }
+                }
             }
             None => 0,
         };
