@@ -207,8 +207,41 @@ impl EthereumScanner {
                         continue;
                     }
                 };
-                let block_number = log.block_number.unwrap_or(0);
-                let tx_hash = log.transaction_hash.unwrap_or_default();
+                // A mined ERC-20 Transfer log MUST carry both a
+                // block_number and a transaction_hash — anything
+                // else is a pending log the RPC shouldn't have
+                // returned. Previously these were `unwrap_or(0)`
+                // / `unwrap_or_default()`, which caused two
+                // silent bugs:
+                //   - block_number=0 broke confirmation
+                //     tracking: `current - 0 = current`, so the
+                //     deposit looked instantly confirmed and
+                //     would credit with a massive confirmation
+                //     count.
+                //   - tx_hash=zero-bytes collided with every
+                //     other broken row; the dedup check
+                //     (`find_deposit_by_tx_hash`) kept the first
+                //     and silently dropped the rest, so real
+                //     deposits in the same batch would
+                //     disappear.
+                // Skip + loud WARN so the operator sees the RPC
+                // anomaly and can resume from a healthy node.
+                let Some(block_number) = log.block_number else {
+                    tracing::warn!(
+                        contract = %contract, to = %to_hex,
+                        "ERC-20 log without block_number — skipping; \
+                         RPC anomaly, a real deposit may be missing"
+                    );
+                    continue;
+                };
+                let Some(tx_hash) = log.transaction_hash else {
+                    tracing::warn!(
+                        contract = %contract, to = %to_hex, block_number,
+                        "ERC-20 log without transaction_hash — skipping; \
+                         zero-hash would collide in dedup"
+                    );
+                    continue;
+                };
                 let log_index = log.log_index.map(|i| i as u32);
 
                 let deposit = Deposit {

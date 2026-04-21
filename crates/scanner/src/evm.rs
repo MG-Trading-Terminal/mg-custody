@@ -248,8 +248,28 @@ impl EvmScanner {
                         continue;
                     }
                 };
-                let block_number = log.block_number.unwrap_or(0);
-                let tx_hash = log.transaction_hash.unwrap_or_default();
+                // Same guard as ethereum.rs — a mined log must
+                // carry block_number and transaction_hash, or
+                // we get silent over-credits (block=0 → instant
+                // "confirmed") and silent misses (zero-hash
+                // collides in dedup). Skip with WARN.
+                let Some(block_number) = log.block_number else {
+                    tracing::warn!(
+                        chain = %self.chain_name,
+                        contract = %contract, to = %to_hex,
+                        "ERC-20 log without block_number — skipping; RPC anomaly"
+                    );
+                    continue;
+                };
+                let Some(tx_hash) = log.transaction_hash else {
+                    tracing::warn!(
+                        chain = %self.chain_name,
+                        contract = %contract, to = %to_hex, block_number,
+                        "ERC-20 log without transaction_hash — skipping; \
+                         zero-hash would collide in dedup"
+                    );
+                    continue;
+                };
                 let log_index = log.log_index.map(|i| i as u32);
 
                 let deposit = Deposit {

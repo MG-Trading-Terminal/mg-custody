@@ -173,7 +173,25 @@ impl ConfirmationTracker {
                 Ok(h) => h,
                 Err(_) => continue, // RPC down, skip this chain
             };
-            let block_height = withdrawal.block_height.unwrap_or(0);
+            // If the withdrawal row has no block_height yet, the
+            // broadcaster hasn't persisted the mined location —
+            // either the tx is still pending, or a DB write is
+            // mid-flight. Previously we used `unwrap_or(0)`,
+            // which made `confirmations = current_height - 0 =
+            // current_height` (a huge number), promoted the row
+            // straight to Finalized, and fired a
+            // withdrawal_confirmed webhook for a tx whose real
+            // on-chain position we didn't know. Skip this tick
+            // and let the next one pick up the real value.
+            let Some(block_height) = withdrawal.block_height else {
+                tracing::debug!(
+                    withdrawal_id = %withdrawal.id,
+                    chain = ?withdrawal.chain,
+                    "Confirming withdrawal without block_height — skipping \
+                     tick; broadcaster hasn't persisted the mined location"
+                );
+                continue;
+            };
             let confirmations = current_height.saturating_sub(block_height);
             let required = withdrawal.chain.required_confirmations();
 

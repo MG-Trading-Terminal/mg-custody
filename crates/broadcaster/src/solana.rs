@@ -77,13 +77,45 @@ impl Broadcaster for SolanaBroadcaster {
             return Ok(None); // not yet confirmed
         }
 
-        let slot = result["slot"].as_u64().unwrap_or(0);
+        // Same class of bug as the ETH path: if `slot` is
+        // missing from a non-null getTransaction result, that's
+        // a malformed RPC payload and we must NOT treat it as
+        // `slot = 0` (which would make confirmations = current -
+        // 0 = massive, triggering premature finalization and a
+        // withdrawal_confirmed webhook for a tx whose actual
+        // position we don't know). Treat as "not yet visible";
+        // the next tick will retry when the RPC returns a
+        // complete response.
+        let Some(slot) = result["slot"].as_u64() else {
+            tracing::warn!(
+                tx = %tx_hash,
+                "Solana getTransaction returned result without `slot` — \
+                 treating as not yet visible rather than defaulting to 0"
+            );
+            return Ok(None);
+        };
         let err = &result["meta"]["err"];
         let success = err.is_null();
 
-        // Get current slot for confirmation count
-        let current = self.rpc("getSlot", serde_json::json!([{"commitment": self.commitment}])).await?
-            .as_u64().unwrap_or(0);
+        // Current slot lookup must also be honest. A failing
+        // getSlot used to default to `current = 0`, which made
+        // `confirmations = saturating_sub(0, slot) = 0` — the
+        // withdrawal stayed in Confirming forever even after
+        // it had confirmed, because we pretended the chain had
+        // rewound to slot 0. Propagate the error so the
+        // pipeline retries on the next tick.
+        let current_raw = self
+            .rpc(
+                "getSlot",
+                serde_json::json!([{"commitment": self.commitment}]),
+            )
+            .await?;
+        let current = current_raw.as_u64().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Solana getSlot returned non-numeric value: {current_raw} — \
+                 cannot compute confirmations"
+            )
+        })?;
 
         Ok(Some(TxStatus {
             block_number: slot,

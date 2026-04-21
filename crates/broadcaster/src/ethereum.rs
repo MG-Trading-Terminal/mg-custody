@@ -64,7 +64,25 @@ impl Broadcaster for EthereumBroadcaster {
 
         match receipt {
             Some(receipt) => {
-                let block_number = receipt.block_number.unwrap_or(0);
+                // A receipt with no `block_number` is a pending
+                // receipt — the RPC found a tx record but it's
+                // not been mined into a block yet. Previously
+                // this was `unwrap_or(0)`, which made
+                // `confirmations = current - 0 = current` (a
+                // huge number) and promoted the withdrawal
+                // straight to Finalized on the next pipeline
+                // tick. The `withdrawal_confirmed` webhook then
+                // told the exchange a credit had happened for a
+                // tx that wasn't actually on-chain yet. Treat
+                // "has receipt, no block number" as "not yet
+                // mined" and let the next tick retry.
+                let Some(block_number) = receipt.block_number else {
+                    tracing::debug!(
+                        tx = %tx_hash,
+                        "ETH receipt without block_number — treating as not yet mined"
+                    );
+                    return Ok(None);
+                };
                 let current = self.provider.get_block_number().await?;
                 let confirmations = current.saturating_sub(block_number);
                 let success = receipt.status();
