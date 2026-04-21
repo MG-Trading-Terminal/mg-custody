@@ -11,7 +11,7 @@ use custody_common::Chain;
 use ed25519_dalek::{Signer, SigningKey};
 use k256::ecdsa::signature::hazmat::PrehashSigner;
 use sha3::{Digest as Sha3Digest, Keccak256};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 /// Sign a 32-byte hash with secp256k1 (ETH/BTC/TRX).
 ///
@@ -33,8 +33,14 @@ pub fn sign_raw_secp256k1(
     let xprv = XPrv::derive_from_path(seed, &derivation_path)
         .context("BIP-32 key derivation failed")?;
 
-    let mut privkey_bytes = xprv.to_bytes();
-    let signing_key = k256::ecdsa::SigningKey::from_bytes((&privkey_bytes).into())
+    // Wrap in Zeroizing so the bytes zero out on drop —
+    // including early-return paths. The explicit
+    // `privkey_bytes.zeroize()` below is kept for clarity and
+    // to zero immediately after use, but if
+    // `SigningKey::from_bytes` ever returns Err the `?` would
+    // have left plain `[u8; 32]` unzeroed in stack memory.
+    let mut privkey_bytes = Zeroizing::new(xprv.to_bytes());
+    let signing_key = k256::ecdsa::SigningKey::from_bytes((&*privkey_bytes).into())
         .context("Invalid secp256k1 private key")?;
     privkey_bytes.zeroize();
 
@@ -92,6 +98,15 @@ pub fn keccak256_hash(data: &[u8]) -> [u8; 32] {
 }
 
 /// Derive Ed25519 signing key via SLIP-0010 at m/44'/501'/{index}'/0'.
+///
+/// Both `secret` and `chain_code` are wrapped in `Zeroizing` so they
+/// zero out when this function returns. Plain `[u8; 32]` has no
+/// Drop impl; previously the 32-byte derived secret (which equals
+/// the Ed25519 private key passed to `SigningKey::from_bytes`) sat
+/// in reclaimed stack memory until another function reused the
+/// slot — recoverable via core dump, debugger attach, or ptrace.
+/// `SigningKey::from_bytes` COPIES the bytes into its own storage,
+/// so zeroing ours doesn't weaken the returned key.
 fn derive_ed25519_key(seed: &[u8; 64], index: u32) -> Result<SigningKey> {
     use hmac::{Hmac, Mac};
     type HmacSha512 = Hmac<sha2::Sha512>;
@@ -99,16 +114,16 @@ fn derive_ed25519_key(seed: &[u8; 64], index: u32) -> Result<SigningKey> {
     let mut mac = HmacSha512::new_from_slice(b"ed25519 seed").unwrap();
     mac.update(seed);
     let result = mac.finalize().into_bytes();
-    let mut secret = [0u8; 32];
-    let mut chain_code = [0u8; 32];
+    let mut secret = Zeroizing::new([0u8; 32]);
+    let mut chain_code = Zeroizing::new([0u8; 32]);
     secret.copy_from_slice(&result[..32]);
     chain_code.copy_from_slice(&result[32..]);
 
     for &child_index in &[44u32, 501, index, 0] {
         let hardened = 0x80000000u32 | child_index;
-        let mut mac = HmacSha512::new_from_slice(&chain_code).unwrap();
+        let mut mac = HmacSha512::new_from_slice(chain_code.as_slice()).unwrap();
         mac.update(&[0x00]);
-        mac.update(&secret);
+        mac.update(secret.as_slice());
         mac.update(&hardened.to_be_bytes());
         let child = mac.finalize().into_bytes();
         secret.copy_from_slice(&child[..32]);
