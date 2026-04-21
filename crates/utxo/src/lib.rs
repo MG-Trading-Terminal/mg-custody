@@ -75,6 +75,20 @@ pub fn select_coins(
     target_sats: u64,
     fee_rate_sat_per_vb: u64,
 ) -> anyhow::Result<CoinSelection> {
+    // Refuse to construct a tx whose recipient output is itself
+    // dust. A P2WPKH output below 546 sats is unspendable by
+    // standard policy — the withdrawal would look "broadcast" at
+    // the custody layer while relays quietly drop it. Fail loudly
+    // at selection time instead of silently producing a tx that
+    // will never confirm.
+    anyhow::ensure!(
+        target_sats >= DUST_LIMIT_SATS,
+        "Withdrawal target {} sats is below dust limit ({}) — \
+         recipient output would be unspendable",
+        target_sats,
+        DUST_LIMIT_SATS,
+    );
+
     // Filter available UTXOs (not locked, not dust)
     let mut available: Vec<&Utxo> = utxos
         .iter()
@@ -172,13 +186,22 @@ fn branch_and_bound(
             .map(|(i, _)| utxos[i].clone())
             .collect();
         let total_input: u64 = inputs.iter().map(|u| u.amount_sats).sum();
-        let fee = calculate_fee(inputs.len(), 1, fee_rate_sat_per_vb);
+        // Implicit fee = everything that isn't in the recipient
+        // output. BnB accepts solutions where
+        // `target + base_fee <= total_input <= target + base_fee + cost_of_change`;
+        // the delta above `target + base_fee` is burned to miners
+        // (cheaper than adding a change output at `cost_of_change`).
+        // Previously we returned only `base_fee` here, which
+        // under-reported the real wire-level fee in metrics and
+        // ledger entries. `total_input - target` is the honest
+        // number and matches what the tx actually pays.
+        let fee_sats = total_input.saturating_sub(target_sats);
         CoinSelection {
             inputs,
             total_input_sats: total_input,
             target_sats,
-            fee_sats: fee,
-            change_sats: 0, // BnB finds exact match
+            fee_sats,
+            change_sats: 0, // BnB finds exact match — no change output
         }
     })
 }
@@ -381,5 +404,36 @@ mod tests {
         let result = select_coins(&utxos, 50_000, 10).unwrap();
         // Either BnB found a match or greedy picked the largest
         assert!(result.total_input_sats >= 50_000 + result.fee_sats);
+    }
+
+    #[test]
+    fn rejects_dust_target() {
+        // Recipient output below dust → unspendable; selection refused.
+        let utxos = vec![make_utxo("tx1", 0, 100_000)];
+        let err = select_coins(&utxos, 500, 10).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("dust"),
+            "error should name the dust floor: {msg}"
+        );
+    }
+
+    #[test]
+    fn bnb_reports_fee_honestly() {
+        // Build a UTXO whose value forces a BnB exact-match win:
+        // one 60_000-sat input, target 50_000, fee rate 10 sat/vB.
+        // Base fee(1 in, 1 out) = 110 vB * 10 = 1,100.
+        // Waste = 60_000 - 50_000 - 1,100 = 8,900 (absorbed as fee,
+        // since cost_of_change = 31 * 10 = 310 — actually waste >
+        // cost_of_change here, so BnB won't accept; use a tighter
+        // UTXO). Use 51_500 sats so waste = 400 > 310? No — we
+        // want waste <= 310. 51_000 → waste = 51_000-50_000-1_100 =
+        // -100 (insufficient). 51_400 → waste = 300 ≤ 310. ✓
+        let utxos = vec![make_utxo("tight", 0, 51_400)];
+        let result = select_coins(&utxos, 50_000, 10).unwrap();
+        // Honest fee = total_input - target (miner gets all non-target sats).
+        assert_eq!(result.fee_sats, 51_400 - 50_000);
+        assert_eq!(result.change_sats, 0);
+        assert_eq!(result.total_input_sats, 51_400);
     }
 }

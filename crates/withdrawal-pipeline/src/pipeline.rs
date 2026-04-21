@@ -184,7 +184,16 @@ impl WithdrawalPipeline {
 
     pub async fn tick(&self) -> Result<()> {
         // Check emergency freeze before processing any withdrawals.
-        if self.frozen.as_ref().map(|f| f.is_frozen()).unwrap_or(false) {
+        //
+        // Defence-in-depth: the per-stage loops below ALSO re-check
+        // `is_frozen()` on every iteration. An operator who flips
+        // the freeze mid-tick expects the NEXT row to be skipped,
+        // not to wait for the current batch (which could be dozens
+        // of withdrawals totalling $$$) to drain through sign +
+        // broadcast. The tick-level guard short-circuits the common
+        // case where the freeze was already set before the tick
+        // started; the loop-level guard covers the live-flip case.
+        if self.is_frozen() {
             tracing::warn!("Pipeline tick skipped — system is frozen");
             return Ok(());
         }
@@ -193,6 +202,19 @@ impl WithdrawalPipeline {
         self.process_signed().await?;
         self.process_broadcast().await?;
         Ok(())
+    }
+
+    /// Snapshot of the emergency freeze flag.
+    ///
+    /// Called at the top of every per-withdrawal loop iteration so
+    /// a freeze flip takes effect on the next row, not after the
+    /// current batch finishes. Returns `false` when no flag is
+    /// wired (emergency control is opt-in via `with_freeze_flag`).
+    fn is_frozen(&self) -> bool {
+        self.frozen
+            .as_ref()
+            .map(|f| f.is_frozen())
+            .unwrap_or(false)
     }
 
     pub async fn run(&self, interval: Duration) -> Result<()> {
@@ -210,6 +232,12 @@ impl WithdrawalPipeline {
         let daily_used = self.db.daily_outflow().await.unwrap_or(Decimal::ZERO);
 
         for w in self.db.withdrawals_by_status(WithdrawalStatus::Received).await? {
+            // Re-check freeze per row — operator flip mid-tick must
+            // halt on the NEXT withdrawal, not after the batch drains.
+            if self.is_frozen() {
+                tracing::warn!(id = %w.id, "Freeze flipped mid-tick — halting received-stage loop");
+                return Ok(());
+            }
             match validation::validate_withdrawal(&w) {
                 Ok(()) => {
                     // Whitelist check — opt-in: if no whitelist rows exist for the chain,
@@ -268,6 +296,15 @@ impl WithdrawalPipeline {
 
     async fn process_validated(&self) -> Result<()> {
         for w in self.db.withdrawals_by_status(WithdrawalStatus::Validated).await? {
+            // Re-check freeze per row — signing is the most
+            // irreversible stage (after signing the private key
+            // has produced a valid tx; cancelling requires replace-
+            // by-fee on BTC or nonce-churn on EVM). Halt BEFORE
+            // we invoke the HSM / seed.
+            if self.is_frozen() {
+                tracing::warn!(id = %w.id, "Freeze flipped mid-tick — halting validated-stage loop");
+                return Ok(());
+            }
             // Dependency gate. When a withdrawal is part of a
             // multi-step flow (Lido unstake, Uniswap approve+swap,
             // …) we refuse to sign it until its predecessor is
@@ -977,6 +1014,15 @@ impl WithdrawalPipeline {
 
     async fn process_signed(&self) -> Result<()> {
         for w in self.db.withdrawals_by_status(WithdrawalStatus::Signed).await? {
+            // Re-check freeze per row — Signed → Broadcast is the
+            // point of no return (signed bytes hit the mempool and
+            // the tx is irreversible). If an operator freezes while
+            // a batch of signed rows is queued, we must NOT keep
+            // pushing them onto the network.
+            if self.is_frozen() {
+                tracing::warn!(id = %w.id, "Freeze flipped mid-tick — halting signed-stage loop");
+                return Ok(());
+            }
             let tx_bytes = match self.db.get_signed_tx_bytes(w.id).await? {
                 Some(b) => b,
                 None => { tracing::error!(id = %w.id, "No signed tx bytes"); continue; }
@@ -1026,6 +1072,18 @@ impl WithdrawalPipeline {
 
     async fn process_broadcast(&self) -> Result<()> {
         for w in self.db.withdrawals_by_status(WithdrawalStatus::Broadcast).await? {
+            // Re-check freeze per row. At this stage the tx is
+            // already on-chain so halting doesn't stop funds
+            // movement — it only pauses confirmation tracking +
+            // webhook firing. That is intentional: a freeze means
+            // "quiesce custody activity pending investigation",
+            // and emitting `withdrawal_confirmed` webhooks to
+            // downstream systems while we're in that state risks
+            // cascading decisions on top of suspected compromise.
+            if self.is_frozen() {
+                tracing::warn!(id = %w.id, "Freeze flipped mid-tick — halting broadcast-stage loop");
+                return Ok(());
+            }
             let Some(ref tx_hash) = w.tx_hash else { continue };
 
             // Get tx_status from the appropriate broadcaster
