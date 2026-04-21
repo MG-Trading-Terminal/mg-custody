@@ -37,10 +37,31 @@ impl Broadcaster for SolanaBroadcaster {
 
     async fn broadcast(&self, signed_tx: &[u8]) -> Result<String> {
         let encoded = bs58::encode(signed_tx).into_string();
-        let sig = self.rpc("sendTransaction", serde_json::json!([
+        let sig_result = self.rpc("sendTransaction", serde_json::json!([
             encoded,
             {"encoding": "base58", "skipPreflight": false, "preflightCommitment": self.commitment}
-        ])).await?;
+        ])).await;
+
+        // Detect blockhash expiry loudly. A tx signed more than
+        // ~90 seconds before submission lands with an expired
+        // blockhash, the RPC rejects it, and without the loud log
+        // the operator sees a generic "Solana RPC error" in logs
+        // that doesn't point at "re-sign with a fresh blockhash".
+        // `is_blockhash_expired` was already defined but never
+        // called — finally wiring it up.
+        if let Err(ref e) = sig_result
+            && is_blockhash_expired(&e.to_string())
+        {
+            tracing::error!(
+                error = %e,
+                "Solana broadcast rejected due to expired blockhash — \
+                 caller must re-sign with getLatestBlockhash() and retry. \
+                 A signed tx has a ~90s TTL; anything slower than that \
+                 needs to be built again, not resubmitted."
+            );
+        }
+
+        let sig = sig_result?;
         let hash = sig.as_str().unwrap_or("").to_string();
         tracing::info!(sig = %hash, "Solana tx broadcast");
         Ok(hash)

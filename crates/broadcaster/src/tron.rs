@@ -46,7 +46,37 @@ impl Broadcaster for TronBroadcaster {
 
         if resp["blockNumber"].is_number() {
             let block = resp["blockNumber"].as_u64().unwrap_or(0);
-            let receipt_status = resp["receipt"]["result"].as_str().unwrap_or("SUCCESS");
+            // Tron receipt.result semantics:
+            //   "SUCCESS"       — tx executed OK
+            //   "REVERT"        — EVM/contract revert
+            //   "OUT_OF_ENERGY" — ran out of Energy mid-execution
+            //   "BAD_JUMP_DESTINATION" / others — contract bugs
+            //   null / missing  — tx not yet processed; treat as
+            //                     pending rather than defaulting
+            //                     to SUCCESS (previous code's
+            //                     behaviour, which masked genuine
+            //                     contract failures until someone
+            //                     went looking)
+            let receipt_result = resp["receipt"]["result"].as_str();
+            let success = match receipt_result {
+                Some("SUCCESS") => true,
+                Some(other) => {
+                    tracing::warn!(
+                        txid = %tx_hash,
+                        result = %other,
+                        "Tron tx failed on-chain (receipt.result != SUCCESS)"
+                    );
+                    false
+                }
+                None => {
+                    // Block assigned but no receipt yet — rare race
+                    // window between inclusion and receipt-indexing
+                    // on the node. Return pending so the caller
+                    // keeps polling rather than prematurely marking
+                    // success.
+                    return Ok(None);
+                }
+            };
 
             // Confirmations = current head - tx block. Previously
             // hardcoded 0 with a "need to compute" comment, which
@@ -68,7 +98,7 @@ impl Broadcaster for TronBroadcaster {
             Ok(Some(TxStatus {
                 block_number: block,
                 confirmations,
-                success: receipt_status == "SUCCESS",
+                success,
             }))
         } else {
             Ok(None)

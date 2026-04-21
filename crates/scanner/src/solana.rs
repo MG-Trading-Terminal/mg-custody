@@ -286,9 +286,35 @@ impl ChainScanner for SolanaScanner {
                                 let Some(token) = self.spl_tokens.iter().find(|t| t.mint == mint) else { continue; };
 
                                 let post_amount_str = post_entry["uiTokenAmount"]["amount"].as_str().unwrap_or("0");
-                                let post_amount: u128 = post_amount_str.parse().unwrap_or(0);
+                                let post_amount: u128 = match post_amount_str.parse() {
+                                    Ok(n) => n,
+                                    Err(e) => {
+                                        // Silent `.unwrap_or(0)` here
+                                        // used to drop the deposit
+                                        // entirely on any parse
+                                        // error — a malformed RPC
+                                        // payload looked identical to
+                                        // "no transfer happened". Now
+                                        // we log and skip this deposit
+                                        // so the gap is visible.
+                                        tracing::warn!(
+                                            raw = %post_amount_str,
+                                            error = %e,
+                                            mint,
+                                            owner,
+                                            signature,
+                                            "Solana SPL post-balance amount unparseable — \
+                                             skipping this deposit"
+                                        );
+                                        continue;
+                                    }
+                                };
 
-                                // Find pre-balance for same account index
+                                // Find pre-balance for same account index.
+                                // `.ok()` on the parse step falls back to 0
+                                // which is the right default for "no pre
+                                // balance row existed yet" (a freshly-
+                                // created token account).
                                 let pre_amount: u128 = pre_tokens.iter()
                                     .find(|e| e["accountIndex"].as_u64() == Some(account_index))
                                     .and_then(|e| e["uiTokenAmount"]["amount"].as_str())

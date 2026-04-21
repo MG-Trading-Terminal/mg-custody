@@ -20,10 +20,34 @@ pub type BlockHeightFn = Arc<
     dyn Fn() -> Pin<Box<dyn Future<Output = Result<u64>> + Send>> + Send + Sync,
 >;
 
+/// Function type for looking up whether a tx hash succeeded on chain.
+/// `Ok(Some(true))` = tx included and receipt reports success;
+/// `Ok(Some(false))` = tx included but reverted / logic-failed;
+/// `Ok(None)` = not yet visible on chain (treat as "keep waiting");
+/// `Err(_)` = RPC down / transport issue (retry next tick).
+///
+/// The EVM revert case is what this hook exists for: previously the
+/// confirmation tracker only checked block-count and flipped to
+/// Finalized + fired `withdrawal_confirmed` for every tx that reached
+/// `required_confirmations`. A reverted ERC-20 transfer (blacklisted
+/// recipient, paused token, failing hook) still accrues confirmations
+/// — so the custody service told the exchange the withdrawal landed
+/// while the token never moved. Classic silent-failure pattern.
+pub type TxSuccessFn = Arc<
+    dyn Fn(String) -> Pin<Box<dyn Future<Output = Result<Option<bool>>> + Send>>
+        + Send
+        + Sync,
+>;
+
 /// Tracks confirmations for deposits and withdrawals across all chains.
 pub struct ConfirmationTracker {
     db: CustodyDb,
     block_height_fns: HashMap<Chain, BlockHeightFn>,
+    /// Per-chain hook to check whether a tx succeeded. Optional —
+    /// chains without a hook fall back to the block-count-only path
+    /// (same as before). Wiring this in main.rs for ETH is the
+    /// minimum honest position; other chains can follow.
+    tx_success_fns: HashMap<Chain, TxSuccessFn>,
     webhook_sender: Arc<WebhookSender>,
 }
 
@@ -36,8 +60,16 @@ impl ConfirmationTracker {
         Self {
             db,
             block_height_fns,
+            tx_success_fns: HashMap::new(),
             webhook_sender,
         }
+    }
+
+    /// Attach a per-chain tx-success hook. See `TxSuccessFn` docs for
+    /// the semantics this closure must respect.
+    pub fn with_tx_success_fn(mut self, chain: Chain, f: TxSuccessFn) -> Self {
+        self.tx_success_fns.insert(chain, f);
+        self
     }
 
     /// Run one tick: check all pending deposits/withdrawals and update confirmations.
@@ -146,6 +178,56 @@ impl ConfirmationTracker {
             let required = withdrawal.chain.required_confirmations();
 
             if confirmations >= required {
+                // Before marking Finalized: if a tx-success hook is
+                // wired for this chain, ask on-chain whether the tx
+                // actually succeeded. A reverted ERC-20 transfer
+                // still accumulates block confirmations but the
+                // token never moved; flipping to Finalized + sending
+                // `withdrawal_confirmed` would tell the exchange a
+                // credit happened that didn't.
+                let tx_hash = withdrawal.tx_hash.clone().unwrap_or_default();
+                if let Some(tx_success) = self.tx_success_fns.get(&withdrawal.chain)
+                    && !tx_hash.is_empty()
+                {
+                    match tx_success(tx_hash.clone()).await {
+                        Ok(Some(false)) => {
+                            tracing::error!(
+                                withdrawal_id = %withdrawal.id,
+                                tx_hash = %tx_hash,
+                                chain = ?withdrawal.chain,
+                                "Withdrawal tx reverted / failed on-chain — \
+                                 marking Failed instead of Finalized; NOT sending \
+                                 withdrawal_confirmed webhook"
+                            );
+                            self.db
+                                .update_withdrawal_status(withdrawal.id, WithdrawalStatus::Failed)
+                                .await?;
+                            continue;
+                        }
+                        Ok(None) => {
+                            // Receipt not yet visible even though
+                            // block_height implies it should be.
+                            // Common during a short reorg; wait
+                            // another tick.
+                            tracing::debug!(
+                                withdrawal_id = %withdrawal.id,
+                                tx_hash = %tx_hash,
+                                "tx receipt not yet visible despite confirmations — skipping tick"
+                            );
+                            continue;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                withdrawal_id = %withdrawal.id,
+                                error = %e,
+                                "tx-success lookup failed; NOT finalising yet, will retry"
+                            );
+                            continue;
+                        }
+                        Ok(Some(true)) => {} // happy path, fall through
+                    }
+                }
+
                 self.db
                     .update_withdrawal_status(withdrawal.id, WithdrawalStatus::Finalized)
                     .await?;
