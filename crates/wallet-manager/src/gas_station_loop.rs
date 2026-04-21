@@ -83,21 +83,69 @@ impl GasStationService {
 
             let mut address_balances: Vec<(String, Chain, Decimal)> = Vec::new();
 
-            if let Some(ref rpc_url) = self.eth_rpc_url {
-                if *chain == Chain::Ethereum {
-                    let provider =
-                        custody_reconciliation::eth_balance::EthBalanceProvider::new(rpc_url);
-                    for addr in addresses.iter().take(20) {
-                        // rate-limit: at most 20 per tick
-                        let balance =
-                            provider.native_balance(addr).await.unwrap_or(Decimal::ZERO);
-                        address_balances.push((addr.clone(), *chain, balance));
+            match chain {
+                Chain::Ethereum => {
+                    if let Some(ref rpc_url) = self.eth_rpc_url {
+                        let provider =
+                            custody_reconciliation::eth_balance::EthBalanceProvider::new(rpc_url);
+                        // Rate-limit: at most 20 per tick. When truncating,
+                        // log once per cycle so operators see the queue depth.
+                        let checked = addresses.len().min(20);
+                        if addresses.len() > 20 {
+                            tracing::warn!(
+                                chain = ?chain,
+                                total = addresses.len(),
+                                checked,
+                                "Gas station rate-limited to 20 addresses per tick — \
+                                 increase tick rate or batch concurrently if queue grows"
+                            );
+                        }
+                        for addr in addresses.iter().take(20) {
+                            let balance = provider
+                                .native_balance(addr)
+                                .await
+                                .unwrap_or(Decimal::ZERO);
+                            address_balances.push((addr.clone(), *chain, balance));
+                        }
+                    } else {
+                        tracing::warn!(
+                            "Gas station: no Ethereum RPC configured — addresses \
+                             will not be gas-funded. Set CUSTODY_CHAINS__ETHEREUM__RPC_URL \
+                             or remove Ethereum from the addresses source."
+                        );
                     }
+                }
+                Chain::Tron => {
+                    // TRC-20 sweeps consume Energy; without TRX balance
+                    // the sweep fails silently in the broadcaster. Surface
+                    // the gap loudly so it doesn't look like gas funding
+                    // "worked" when nothing was checked.
+                    tracing::warn!(
+                        total = addresses.len(),
+                        "Gas station: Tron balance check NOT wired — {} \
+                         TRX-owning address(es) will not be gas-funded this \
+                         tick. TRC-20 sweeps depending on Energy may fail \
+                         silently until the TRX balance provider lands.",
+                        addresses.len()
+                    );
+                }
+                Chain::Solana => {
+                    // Solana accounts need SOL for rent + transaction fees.
+                    // Missing this check = silent drop when rent falls below
+                    // minimum and the account gets garbage-collected.
+                    tracing::warn!(
+                        total = addresses.len(),
+                        "Gas station: Solana balance check NOT wired — {} \
+                         SOL-owning address(es) will not be funded this tick. \
+                         Rent-starved accounts may be garbage-collected.",
+                        addresses.len()
+                    );
+                }
+                Chain::Bitcoin => {
+                    // UTXO chain, no gas station semantics. Skip silently.
                 }
             }
 
-            // For TRX/SOL: would use chain-specific RPC to check balances.
-            // Until those providers are wired, skip non-ETH chains in gas check.
             if address_balances.is_empty() {
                 continue;
             }

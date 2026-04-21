@@ -191,14 +191,27 @@ fn adapt_risk_level(l: custody_compliance::screening::RiskLevel) -> RiskLevel {
 async fn screening_history(
     _auth: RequireViewer,
     Path(address): Path<String>,
-) -> Json<serde_json::Value> {
-    // Return mock screening history
-    Json(serde_json::json!({
-        "address": address,
-        "screenings": [],
-        "last_screened_at": null,
-        "overall_risk": "low",
-    }))
+) -> Result<Json<serde_json::Value>, ApiError> {
+    // Real screening history requires a `screening_results` table
+    // we haven't shipped. Previous behaviour returned an empty mock
+    // array with `overall_risk: "low"` — which is worse than
+    // nothing, because a compliance reviewer looking for whether
+    // an address was screened would see "yes, and it came back
+    // clean" when in reality NO screening of record ever occurred.
+    //
+    // Until the history table lands, 501 with a pointer to the
+    // live screening endpoint is the honest answer.
+    Err(ApiError {
+        error: "not_implemented".into(),
+        message: format!(
+            "Screening history for {address} is not persisted yet. \
+             Call POST /v1/screening/address to run a live check; \
+             the pipeline's screening calls are audit-logged at the \
+             withdrawal level but not indexed by address."
+        ),
+        request_id: Uuid::new_v4().to_string(),
+        status: StatusCode::NOT_IMPLEMENTED,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -262,32 +275,166 @@ async fn discover_token(
     _auth: RequireAdmin,
     Json(req): Json<DiscoverTokenRequest>,
 ) -> Result<Json<DiscoveredToken>, ApiError> {
-    // Simulated — in production would call RPC to get token metadata
-    let (symbol, name, decimals, token_type) = match req.chain {
+    // Real ERC-20 metadata query. The previous implementation
+    // returned hardcoded USDT/USDC by substring-matching the
+    // contract address and 18-decimal "Unknown Token" for
+    // anything else — meaning a scam contract with a name/symbol
+    // matching a real token but wrong decimals would have
+    // `decimals=18` reported, leading to amount miscalculation
+    // that would silently multiply or divide the user's withdrawal
+    // by 10^12. Fund-loss adjacent.
+    match req.chain {
         Chain::Ethereum => {
-            if req.contract_address.to_lowercase().contains("dac17f") {
-                ("USDT", "Tether USD", 6u8, "ERC-20")
-            } else if req.contract_address.to_lowercase().contains("a0b86991") {
-                ("USDC", "USD Coin", 6, "ERC-20")
-            } else {
-                ("UNKNOWN", "Unknown Token", 18, "ERC-20")
-            }
+            let rpc_url = std::env::var("CUSTODY_CHAINS__ETHEREUM__RPC_URL")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| ApiError {
+                    error: "rpc_unavailable".into(),
+                    message: "Token discovery requires CUSTODY_CHAINS__ETHEREUM__RPC_URL. \
+                              Refusing to guess metadata from substring matches — \
+                              wrong decimals would mis-scale every withdrawal against \
+                              this contract."
+                        .into(),
+                    request_id: Uuid::new_v4().to_string(),
+                    status: StatusCode::SERVICE_UNAVAILABLE,
+                })?;
+            let md = erc20_metadata(&rpc_url, &req.contract_address)
+                .await
+                .map_err(|e| ApiError::internal(&format!("token metadata: {e}")))?;
+            Ok(Json(DiscoveredToken {
+                contract_address: req.contract_address,
+                chain: req.chain,
+                symbol: md.symbol,
+                name: md.name,
+                decimals: md.decimals,
+                token_type: "ERC-20".into(),
+                total_supply: md.total_supply,
+                verified: false,
+            }))
         }
-        Chain::Tron => ("TRC20", "TRC-20 Token", 6, "TRC-20"),
-        Chain::Solana => ("SPL", "SPL Token", 6, "SPL"),
-        _ => return Err(ApiError::bad_request("Token discovery not supported for this chain")),
+        Chain::Tron | Chain::Solana => {
+            // TRC-20 / SPL metadata would need chain-specific
+            // queries (/wallet/triggerconstantcontract + rent_exempt
+            // math for SPL). Until wired, honest 501 beats guessing.
+            Err(ApiError {
+                error: "not_implemented".into(),
+                message: format!(
+                    "Token discovery not yet wired for {:?}. The chain-specific metadata \
+                     query (TRC-20 triggerconstantcontract / SPL Mint account parse) \
+                     is a follow-up.",
+                    req.chain
+                ),
+                request_id: Uuid::new_v4().to_string(),
+                status: StatusCode::NOT_IMPLEMENTED,
+            })
+        }
+        _ => Err(ApiError::bad_request(
+            "Token discovery is only defined for ERC-20 / TRC-20 / SPL chains",
+        )),
+    }
+}
+
+/// Minimal ERC-20 metadata struct returned by `erc20_metadata`.
+struct Erc20Metadata {
+    name: String,
+    symbol: String,
+    decimals: u8,
+    total_supply: Option<String>,
+}
+
+/// Three standard ERC-20 calls over JSON-RPC `eth_call`:
+///   name()         0x06fdde03
+///   symbol()       0x95d89b41
+///   decimals()     0x313ce567
+///   totalSupply()  0x18160ddd
+///
+/// `name` and `symbol` decode as dynamic strings; `decimals` is
+/// uint8; `totalSupply` is uint256 (returned as a decimal string
+/// without scaling, since we don't know how the caller will use it).
+async fn erc20_metadata(rpc_url: &str, contract: &str) -> anyhow::Result<Erc20Metadata> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()?;
+    let call = |data: &str| -> serde_json::Value {
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "eth_call",
+            "params": [{"to": contract, "data": data}, "latest"],
+        })
+    };
+    async fn fetch_hex(
+        client: &reqwest::Client,
+        url: &str,
+        body: serde_json::Value,
+    ) -> anyhow::Result<String> {
+        let r: serde_json::Value = client.post(url).json(&body).send().await?.json().await?;
+        if let Some(err) = r.get("error").filter(|e| !e.is_null()) {
+            anyhow::bail!("eth_call RPC error: {err}");
+        }
+        Ok(r["result"].as_str().unwrap_or("0x").to_string())
+    }
+    let name_hex = fetch_hex(&client, rpc_url, call("0x06fdde03")).await?;
+    let symbol_hex = fetch_hex(&client, rpc_url, call("0x95d89b41")).await?;
+    let decimals_hex = fetch_hex(&client, rpc_url, call("0x313ce567")).await?;
+    let total_supply_hex = fetch_hex(&client, rpc_url, call("0x18160ddd")).await?;
+
+    // uint8 decimals: last byte of the 32-byte word.
+    let decimals_raw = decimals_hex.trim_start_matches("0x");
+    let decimals = if decimals_raw.len() >= 2 {
+        u8::from_str_radix(&decimals_raw[decimals_raw.len() - 2..], 16).unwrap_or(0)
+    } else {
+        0
     };
 
-    Ok(Json(DiscoveredToken {
-        contract_address: req.contract_address,
-        chain: req.chain,
-        symbol: symbol.into(),
-        name: name.into(),
+    // totalSupply is a u256 — return as base-10 string so callers
+    // can format/scale however they need. We trim leading zeros
+    // and handle empty → None.
+    let total_supply = {
+        let raw = total_supply_hex.trim_start_matches("0x");
+        if raw.is_empty() || raw.chars().all(|c| c == '0') {
+            None
+        } else {
+            // Convert hex → decimal string. u128 is enough for any
+            // realistic token supply (2^128 ≈ 3.4e38; max realistic
+            // total is ~1e18 even for tokens with 6 decimals).
+            u128::from_str_radix(raw, 16).ok().map(|v| v.to_string())
+        }
+    };
+
+    Ok(Erc20Metadata {
+        name: decode_abi_string(&name_hex),
+        symbol: decode_abi_string(&symbol_hex),
         decimals,
-        token_type: token_type.into(),
-        total_supply: None,
-        verified: false,
-    }))
+        total_supply,
+    })
+}
+
+/// Decode an ABI-encoded dynamic string returned by eth_call.
+/// Layout: 0x + 32-byte offset (always 0x20) + 32-byte length +
+/// UTF-8 bytes padded to 32. We don't validate the offset because
+/// every ERC-20 I've looked at returns 0x20; a non-standard layout
+/// returns garbage which is better than panicking.
+fn decode_abi_string(hex_str: &str) -> String {
+    let hex = hex_str.trim_start_matches("0x");
+    if hex.len() < 128 {
+        return String::new();
+    }
+    // Length at bytes 32..64 (hex chars 64..128).
+    let len = u64::from_str_radix(&hex[64..128], 16).unwrap_or(0) as usize;
+    if len == 0 {
+        return String::new();
+    }
+    let start = 128;
+    let end = start + (len * 2);
+    if end > hex.len() {
+        return String::new();
+    }
+    let raw = match hex::decode(&hex[start..end]) {
+        Ok(b) => b,
+        Err(_) => return String::new(),
+    };
+    String::from_utf8(raw).unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------
