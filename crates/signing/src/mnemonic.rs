@@ -20,9 +20,15 @@ use zeroize::Zeroize;
 /// The seed is derived using PBKDF2-HMAC-SHA512 with 2048 iterations
 /// (BIP-39 standard, passphrase = empty string).
 pub fn generate_mnemonic() -> Result<(String, [u8; 64])> {
-    // Generate 32 bytes of entropy → 24 words
+    // 32 bytes of entropy drawn straight from `OsRng`. This is
+    // the master secret the entire custody tree derives from —
+    // the ENTIRE security of the wallet rests on these 256 bits
+    // being unguessable. `thread_rng()` would work, but in a
+    // security audit the reviewer has to then reason about
+    // thread-local caching and reseed cadence. `OsRng` makes
+    // the "straight from the kernel" property explicit.
     let mut entropy = [0u8; 32];
-    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut entropy);
+    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut entropy);
 
     let mnemonic = Mnemonic::from_entropy(&entropy)
         .context("Failed to generate 24-word mnemonic")?;

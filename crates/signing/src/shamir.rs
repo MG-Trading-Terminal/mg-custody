@@ -100,7 +100,13 @@ pub fn split(secret: &[u8], k: u8, n: u8) -> Result<Vec<Share>> {
     ensure!(n >= k, "Share count {n} must be >= threshold {k}");
     ensure!(!secret.is_empty(), "Secret must not be empty");
 
-    let mut rng = rand::thread_rng();
+    // OS CSPRNG for the polynomial coefficients. Shamir's
+    // information-theoretic security depends on each
+    // coefficient being UNIFORMLY random — any bias in the RNG
+    // weakens the "k-1 shares reveal nothing" property. `OsRng`
+    // is the explicit choice for secret-splitting, same as the
+    // mnemonic-entropy path.
+    let mut rng = rand::rngs::OsRng;
 
     // For each byte of the secret, create a random polynomial of degree k-1
     // where the constant term is the secret byte.

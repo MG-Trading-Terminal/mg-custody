@@ -10,10 +10,15 @@ use custody_signing::{encrypt_seed, decrypt_seed, Password};
 
 /// Generate a new random seed, encrypt it, and save to file.
 pub fn generate_seed(output_path: &str, password: &str) -> Result<()> {
-    // Generate 64 bytes of cryptographically secure random data
+    // 64 bytes of seed material straight from `OsRng`. This is
+    // the "generate" CLI — run once per installation to produce
+    // the root key all chains derive from. `OsRng` makes the
+    // kernel-entropy path explicit; any operator auditing this
+    // tool can confirm in one grep that the seed is NOT coming
+    // from a thread-local reseeded stream.
     let mut seed = [0u8; 64];
     use rand::RngCore;
-    rand::thread_rng().fill_bytes(&mut seed);
+    rand::rngs::OsRng.fill_bytes(&mut seed);
 
     // Encrypt with AES-256-GCM
     let pw = Password::from_str(password);

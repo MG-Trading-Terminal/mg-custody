@@ -98,10 +98,17 @@ pub fn hash_token(raw_token: &str) -> String {
 }
 
 /// Generate a cryptographically random session token (32 bytes, hex-encoded = 64 chars).
+///
+/// Draws from `OsRng` — the kernel CSPRNG — not `thread_rng()`.
+/// A predictable session token is equivalent to a credential
+/// bypass: an attacker who can guess even a small fraction of
+/// the token space authenticates as the victim. `OsRng` makes
+/// the security-critical entropy source explicit and avoids any
+/// reasoning about thread-local reseed behaviour.
 pub fn generate_token() -> String {
     use rand::RngCore;
     let mut bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
     hex::encode(bytes)
 }
 

@@ -73,7 +73,10 @@ pub fn decrypt_secret(key: &[u8; 32], stored: &str) -> anyhow::Result<String> {
 /// Returns `(raw_codes, hashed_codes)`. Store the hashes; show raw_codes once.
 pub fn generate_backup_codes() -> (Vec<String>, Vec<String>) {
     const CHARSET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/I/1 ambiguous chars
-    let mut rng = rand::thread_rng();
+    // OS CSPRNG — backup codes are a 2FA fallback credential;
+    // predictability = account takeover. Same reasoning as the
+    // session-token path.
+    let mut rng = rand::rngs::OsRng;
     let raw: Vec<String> = (0..BACKUP_CODE_COUNT)
         .map(|_| {
             let mut code = String::with_capacity(BACKUP_CODE_LENGTH);
@@ -101,9 +104,14 @@ pub fn hash_backup_code(code: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// Generate a pending-2FA token (raw hex, 32 bytes).
+///
+/// Drawn from `OsRng`. A pending-2FA token bypasses the
+/// password — guessing one skips straight to 2FA challenge,
+/// which is at worst a 6-digit brute force. Do not give an
+/// attacker any RNG-side headstart.
 pub fn generate_pending_token() -> String {
     let mut bytes = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
     hex::encode(bytes)
 }
 

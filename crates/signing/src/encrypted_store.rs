@@ -68,10 +68,20 @@ fn derive_key(password: &Password, salt: &[u8]) -> Result<DerivedKey> {
 /// Returns the encrypted payload (125 bytes) containing version, salt, nonce,
 /// and ciphertext+tag. A fresh random salt and nonce are generated each time.
 pub fn encrypt_seed(seed: &[u8; SEED_LEN], password: &Password) -> Result<Vec<u8>> {
+    // OS CSPRNG, not `thread_rng()`. AES-GCM nonce reuse under
+    // the same key leaks plaintext XOR — any path that could
+    // repeat a 12-byte nonce is catastrophic, so we pull directly
+    // from `OsRng` and sidestep the thread-local reseed cache
+    // entirely. Same rationale for salt: a grep-auditor looking
+    // for key-material entropy sources should find `OsRng` here
+    // immediately rather than have to reason about whether
+    // `thread_rng()` is currently wired to OS entropy in the
+    // version of `rand` we've pinned.
     let mut salt = [0u8; SALT_LEN];
     let mut nonce_bytes = [0u8; NONCE_LEN];
-    rand::thread_rng().fill_bytes(&mut salt);
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let mut os_rng = rand::rngs::OsRng;
+    os_rng.fill_bytes(&mut salt);
+    os_rng.fill_bytes(&mut nonce_bytes);
 
     let mut key = derive_key(password, &salt)?;
 
