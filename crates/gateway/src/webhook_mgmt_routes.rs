@@ -683,22 +683,40 @@ async fn force_complete_withdrawal(
         }
     }
 
+    // Write the audit row FIRST, and require it to succeed. An
+    // override operation is Owner-tier — it bypasses the normal
+    // lifecycle machinery — so the one non-negotiable thing we
+    // keep about it is the audit trail. The previous sequence
+    // was flip-status → `let _ = insert_audit_entry(...)` (fire-
+    // and-forget). If the audit insert failed (DB hiccup, hash-
+    // chain contention, disk pressure), the withdrawal was
+    // already Finalized and no record named the operator who
+    // did it. For a Tier-4 $500K+ manual override that is the
+    // exact opposite of what compliance + incident response
+    // need. Fail the whole request if the audit can't land; the
+    // operator retries when the DB is healthy.
+    state
+        .db
+        .insert_audit_entry(&AuditEntry {
+            id: Uuid::new_v4(),
+            timestamp: Utc::now(),
+            operation: AuditOperation::WithdrawalOverride,
+            actor: auth.0.email.clone(),
+            chain: Some(w.chain),
+            derivation_path: None,
+            details: Some(format!(
+                "action=force_complete withdrawal_id={id} previous_status={prev} reason={}",
+                req.reason
+            )),
+            prev_hash: None,
+        })
+        .await
+        .map_err(|e| ApiError::internal(&format!(
+            "audit log write failed — refusing to perform override without trail: {e}"
+        )))?;
+
     state.db.update_withdrawal_status(id, WithdrawalStatus::Finalized).await
         .map_err(|e| ApiError::internal(&e.to_string()))?;
-
-    let _ = state.db.insert_audit_entry(&AuditEntry {
-        id: Uuid::new_v4(),
-        timestamp: Utc::now(),
-        operation: AuditOperation::WithdrawalOverride,
-        actor: auth.0.email.clone(),
-        chain: Some(w.chain),
-        derivation_path: None,
-        details: Some(format!(
-            "action=force_complete withdrawal_id={id} previous_status={prev} reason={}",
-            req.reason
-        )),
-        prev_hash: None,
-    }).await;
 
     tracing::warn!(
         withdrawal_id = %id,
@@ -744,22 +762,31 @@ async fn force_cancel_withdrawal(
         }
     }
 
+    // Audit first — see force_complete_withdrawal for the full
+    // rationale. The override proceeds only after the trail is
+    // written.
+    state
+        .db
+        .insert_audit_entry(&AuditEntry {
+            id: Uuid::new_v4(),
+            timestamp: Utc::now(),
+            operation: AuditOperation::WithdrawalOverride,
+            actor: auth.0.email.clone(),
+            chain: Some(w.chain),
+            derivation_path: None,
+            details: Some(format!(
+                "action=force_cancel withdrawal_id={id} previous_status={prev} reason={}",
+                req.reason
+            )),
+            prev_hash: None,
+        })
+        .await
+        .map_err(|e| ApiError::internal(&format!(
+            "audit log write failed — refusing to perform override without trail: {e}"
+        )))?;
+
     state.db.update_withdrawal_status(id, WithdrawalStatus::Failed).await
         .map_err(|e| ApiError::internal(&e.to_string()))?;
-
-    let _ = state.db.insert_audit_entry(&AuditEntry {
-        id: Uuid::new_v4(),
-        timestamp: Utc::now(),
-        operation: AuditOperation::WithdrawalOverride,
-        actor: auth.0.email.clone(),
-        chain: Some(w.chain),
-        derivation_path: None,
-        details: Some(format!(
-            "action=force_cancel withdrawal_id={id} previous_status={prev} reason={}",
-            req.reason
-        )),
-        prev_hash: None,
-    }).await;
 
     tracing::warn!(
         withdrawal_id = %id,
