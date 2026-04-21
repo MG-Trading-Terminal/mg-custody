@@ -305,6 +305,34 @@ impl CustodyDb {
         Ok(())
     }
 
+    /// Read the most recent freeze-transition from the audit log.
+    ///
+    /// Returns `true` when the latest `EmergencyFreeze` /
+    /// `EmergencyUnfreeze` row is a freeze, `false` otherwise
+    /// (including the "no row at all" case — fresh install).
+    ///
+    /// The withdrawal-pipeline's `FreezeFlag` is an in-memory
+    /// `AtomicBool`; without this query a process restart silently
+    /// clears a freeze set by an operator, which is exactly the
+    /// scenario a freeze is meant to survive (suspected key
+    /// compromise, active exploit, forensic hold). Startup reads
+    /// this value and hydrates the flag; the freeze/unfreeze
+    /// handlers persist the new state via `insert_audit_entry`
+    /// BEFORE flipping the in-memory flag so a crash during the
+    /// transition leaves the DB as the authoritative record.
+    pub async fn latest_freeze_state(&self) -> anyhow::Result<bool> {
+        // Serialized form matches how the handlers write the
+        // operation (serde rename_all = snake_case on AuditOperation).
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT operation FROM audit_log
+             WHERE operation IN ('\"emergency_freeze\"', '\"emergency_unfreeze\"')
+             ORDER BY timestamp DESC LIMIT 1"
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(matches!(row, Some((ref op,)) if op == "\"emergency_freeze\""))
+    }
+
     /// Get recent audit entries (for admin review).
     pub async fn recent_audit_entries(&self, limit: u32) -> anyhow::Result<Vec<AuditEntry>> {
         let rows: Vec<(Uuid, chrono::DateTime<Utc>, String, String, Option<String>, Option<String>, Option<String>, Option<String>)> =

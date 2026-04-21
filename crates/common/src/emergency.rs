@@ -1,12 +1,26 @@
 //! Emergency freeze management.
 //!
-//! An `AtomicBool` flag (`FreezeFlag`) is stored in `AppState` and checked by the
-//! withdrawal pipeline before processing any withdrawal.  Freeze/unfreeze transitions
-//! are written to the audit trail.
+//! An `AtomicBool` flag (`FreezeFlag`) is stored in `AppState` and
+//! checked at the start of every per-withdrawal iteration in the
+//! pipeline (Received / Validated / Signed / Broadcast stages).
 //!
-//! The in-memory flag is authoritative during a running process.  On restart the flag
-//! is initialised to `false` (unfrozen); if a persistent freeze is required the
-//! operator must re-freeze via the API.
+//! Persistence: the audit_log is the system of record. The
+//! freeze/unfreeze endpoints write the audit row BEFORE flipping
+//! the in-memory flag, and startup hydrates the flag from the
+//! most recent `EmergencyFreeze` / `EmergencyUnfreeze` row via
+//! `CustodyDb::latest_freeze_state()`. That ordering means:
+//!
+//!   - A crash between audit-write and in-memory-flip leaves the
+//!     DB as the authoritative record; the next startup re-
+//!     hydrates the intended state.
+//!   - A deploy / pod restart / OOM cannot silently clear a
+//!     freeze set at 02:00 in response to a suspected compromise.
+//!
+//! If `latest_freeze_state()` itself errors on startup, the server
+//! boots FROZEN fail-safe — an operator must explicitly unfreeze
+//! once DB health is verified. Better to halt outflows on a
+//! transient DB read error than drain funds under an unknown
+//! state.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

@@ -281,9 +281,43 @@ async fn main() -> anyhow::Result<()> {
     let sanctions_checker = Arc::new(custody_compliance::ofac::ofac_checker_with_known_addresses());
     tracing::info!(addresses = sanctions_checker.total_addresses(), "OFAC sanctions checker loaded");
 
-    // ─── Emergency freeze flag (unfrozen on startup) ─────────────────
-    // Shared between AppState (API handlers) and the pipeline (background task).
+    // ─── Emergency freeze flag ────────────────────────────────────────
+    // Shared between AppState (API handlers) and the pipeline
+    // (background task).
+    //
+    // Hydrate from the DB: the last EmergencyFreeze /
+    // EmergencyUnfreeze row in audit_log is authoritative. Without
+    // this read, an operator freezing the system at 02:00 in
+    // response to a suspected compromise would see the flag
+    // silently clear on the next deploy / pod restart / OOM, and
+    // the next withdrawal batch would drain — which is precisely
+    // the failure mode a freeze exists to prevent. CLAUDE.md
+    // (§Circuit Breaker) requires this class of state to be
+    // persisted, not in-memory only.
+    let initial_frozen = db.latest_freeze_state().await.unwrap_or_else(|e| {
+        // Fail-safe: if the audit-log query errors on startup
+        // we cannot trust the "unfrozen" default. Log loudly and
+        // boot frozen — an operator can explicitly unfreeze via
+        // the API once they've confirmed the DB is healthy.
+        tracing::error!(
+            error = %e,
+            "Failed to read latest freeze state from audit_log — \
+             booting FROZEN fail-safe; operator must unfreeze \
+             explicitly after verifying DB health"
+        );
+        true
+    });
     let freeze_flag = custody_common::emergency::FreezeFlag::new();
+    if initial_frozen {
+        freeze_flag.freeze();
+        tracing::warn!(
+            "Emergency freeze ACTIVE at startup — hydrated from audit_log. \
+             Outbound operations are halted until an operator calls \
+             POST /v1/admin/emergency/unfreeze"
+        );
+    } else {
+        tracing::info!("Emergency freeze inactive at startup");
+    }
 
     // Travel Rule provider (moved up so the pipeline builder can
     // claim it before being finalized into Arc<_>). Creation stays

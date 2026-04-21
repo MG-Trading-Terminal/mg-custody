@@ -551,24 +551,39 @@ fn memory_mb() -> u64 {
 // ---------------------------------------------------------------------------
 
 /// Freeze all outbound operations immediately.
+///
+/// Persistence ordering: write the audit-log row FIRST, then
+/// flip the in-memory flag. If we flipped in-memory first and
+/// crashed before the audit insert, the state would be lost on
+/// restart (startup hydrates from audit_log). Writing audit
+/// first means a crash between the two steps leaves the DB as
+/// "frozen" — the startup path will re-hydrate that correctly
+/// and callers get an error response, which is the right
+/// fail-safe direction.
 async fn emergency_freeze(
     auth: RequireOwner,
     State(state): State<AppState>,
     Json(req): Json<FreezeRequest>,
 ) -> Result<Json<FreezeResponse>, ApiError> {
-    let transitioned = state.frozen.freeze();
+    state
+        .db
+        .insert_audit_entry(&AuditEntry {
+            id: Uuid::new_v4(),
+            timestamp: Utc::now(),
+            operation: AuditOperation::EmergencyFreeze,
+            actor: auth.0.email.clone(),
+            chain: None,
+            derivation_path: None,
+            details: Some(format!("reason={}", req.reason)),
+            prev_hash: None,
+        })
+        .await
+        .map_err(|e| ApiError::internal(&format!(
+            "Failed to persist freeze audit entry — refusing to flip \
+             in-memory flag; freeze state must be DB-authoritative: {e}"
+        )))?;
 
-    // Write to audit trail
-    let _ = state.db.insert_audit_entry(&AuditEntry {
-        id: Uuid::new_v4(),
-        timestamp: Utc::now(),
-        operation: AuditOperation::EmergencyFreeze,
-        actor: auth.0.email.clone(),
-        chain: None,
-        derivation_path: None,
-        details: Some(format!("reason={}", req.reason)),
-        prev_hash: None,
-    }).await;
+    let transitioned = state.frozen.freeze();
 
     tracing::warn!(
         actor = %auth.0.email,
@@ -586,23 +601,35 @@ async fn emergency_freeze(
 }
 
 /// Unfreeze — resume all operations.
+///
+/// Same ordering as freeze: audit-log first, in-memory second.
+/// Unfreeze is the LESS dangerous direction (failure leaves
+/// the system frozen, which is fail-safe), but we still want
+/// the audit trail to reflect reality, so we persist first.
 async fn emergency_unfreeze(
     auth: RequireOwner,
     State(state): State<AppState>,
     Json(req): Json<FreezeRequest>,
 ) -> Result<Json<FreezeResponse>, ApiError> {
-    let transitioned = state.frozen.unfreeze();
+    state
+        .db
+        .insert_audit_entry(&AuditEntry {
+            id: Uuid::new_v4(),
+            timestamp: Utc::now(),
+            operation: AuditOperation::EmergencyUnfreeze,
+            actor: auth.0.email.clone(),
+            chain: None,
+            derivation_path: None,
+            details: Some(format!("reason={}", req.reason)),
+            prev_hash: None,
+        })
+        .await
+        .map_err(|e| ApiError::internal(&format!(
+            "Failed to persist unfreeze audit entry — leaving system \
+             frozen; operator should verify DB health and retry: {e}"
+        )))?;
 
-    let _ = state.db.insert_audit_entry(&AuditEntry {
-        id: Uuid::new_v4(),
-        timestamp: Utc::now(),
-        operation: AuditOperation::EmergencyUnfreeze,
-        actor: auth.0.email.clone(),
-        chain: None,
-        derivation_path: None,
-        details: Some(format!("reason={}", req.reason)),
-        prev_hash: None,
-    }).await;
+    let transitioned = state.frozen.unfreeze();
 
     tracing::info!(
         actor = %auth.0.email,
