@@ -120,7 +120,23 @@ impl TokenRegistry {
                 .unwrap_or("")
                 .to_string();
 
-            let chain = Chain::parse_str(&chain_name);
+            // Use try_parse_str so a token file named for a chain
+            // we don't support (e.g. `polygon.toml`) is SKIPPED
+            // instead of being silently assigned to Ethereum by
+            // the infallible parse_str fallback. Previously a
+            // `polygon.toml` file would register every token in
+            // it as an Ethereum ERC-20 — invisible drift until
+            // someone tried to withdraw one and hit "unknown
+            // token" deep in the pipeline.
+            let Some(chain) = Chain::try_parse_str(&chain_name) else {
+                tracing::warn!(
+                    path = %path.display(),
+                    chain_name,
+                    "Token TOML file chain name isn't a supported chain — \
+                     skipping (supported: bitcoin, ethereum, tron, solana)"
+                );
+                continue;
+            };
 
             let content = match std::fs::read_to_string(&path) {
                 Ok(c) => c,
