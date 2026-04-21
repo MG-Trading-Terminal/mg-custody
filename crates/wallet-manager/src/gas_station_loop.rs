@@ -101,11 +101,31 @@ impl GasStationService {
                             );
                         }
                         for addr in addresses.iter().take(20) {
-                            let balance = provider
-                                .native_balance(addr)
-                                .await
-                                .unwrap_or(Decimal::ZERO);
-                            address_balances.push((addr.clone(), *chain, balance));
+                            // Skip on RPC error. Previously an
+                            // `unwrap_or(Decimal::ZERO)` reported the
+                            // balance as 0 whenever the RPC hiccupped,
+                            // which passed the below-threshold gate and
+                            // triggered a gas_cap refill — overfunding
+                            // an address that may already have been at
+                            // cap. Under a batch RPC outage every one
+                            // of the 20-per-tick addresses got funded
+                            // unnecessarily, silently burning hot
+                            // wallet ETH with no visible trigger.
+                            match provider.native_balance(addr).await {
+                                Ok(balance) => {
+                                    address_balances.push((addr.clone(), *chain, balance));
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        chain = ?chain,
+                                        addr,
+                                        error = %e,
+                                        "Gas station: ETH balance query failed — \
+                                         skipping this address (defaulting to 0 \
+                                         would overfund)"
+                                    );
+                                }
+                            }
                         }
                     } else {
                         tracing::warn!(
