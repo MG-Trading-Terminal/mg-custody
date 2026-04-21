@@ -991,8 +991,16 @@ async fn create_address(
     // user deposits, the scanner is dark, the deposit is lost.
     require_chain_ready(&state.readiness, req.chain)?;
 
+    // Canonicalize asset code — same rationale as
+    // submit_withdrawal. `get_or_create` is idempotent on
+    // (user_id, asset, chain); without normalization a caller
+    // who alternates case between sessions would get TWO
+    // addresses for the same effective asset, both live, both
+    // receiving deposits. Dedup at the case boundary.
+    let asset_normalized = Asset::new(req.asset.as_str().to_ascii_uppercase());
+
     let address = state.address_allocator
-        .get_or_create(&state.seed, req.user_id, &req.asset, req.chain)
+        .get_or_create(&state.seed, req.user_id, &asset_normalized, req.chain)
         .await
         .map_err(|e| {
             tracing::error!(rid = %rid, error = %e, "Address creation failed");
@@ -1051,12 +1059,25 @@ async fn submit_withdrawal(
     )
     .map_err(|e| ApiError::bad_request(&e))?;
 
+    // Canonicalize asset code to uppercase. The rest of the
+    // custody stack (ledger keys `hot:ETH`, reconciliation,
+    // sweep scheduler, wallet-balance API) uses the uppercase
+    // symbol as the single source of truth. Accepting
+    // mixed-case input from callers and storing it as-is used
+    // to trap funds in a parallel-universe account that no
+    // other component queried — a deposit submitted as "eth"
+    // wrote ledger entries to `hot:eth`, which reconciliation
+    // (`hot:ETH`), sweep, and balance endpoints all missed.
+    // Normalize once here at the API boundary so every downstream
+    // writer + reader sees the same key.
+    let asset_normalized = Asset::new(req.asset.as_str().to_ascii_uppercase());
+
     let withdrawal = Withdrawal {
         id: Uuid::new_v4(),
         exchange_withdrawal_id: req.withdrawal_id,
         user_id: req.user_id,
         vault_id: req.vault_id,
-        asset: req.asset.clone(), chain: req.chain,
+        asset: asset_normalized, chain: req.chain,
         destination_address: validated_addr.normalized, amount: req.amount,
         fee: None, status: WithdrawalStatus::Received,
         wallet_tier: WalletTier::Hot,
@@ -1325,12 +1346,19 @@ async fn get_wallet_balance(
     State(state): State<AppState>,
     Path(asset): Path<String>,
 ) -> Result<Json<WalletBalanceResponse>, ApiError> {
-    let hot = state.db.account_balance(&format!("hot:{asset}"), &asset).await.unwrap_or(rust_decimal::Decimal::ZERO);
-    let warm = state.db.account_balance(&format!("warm:{asset}"), &asset).await.unwrap_or(rust_decimal::Decimal::ZERO);
-    let cold = state.db.account_balance(&format!("cold:{asset}"), &asset).await.unwrap_or(rust_decimal::Decimal::ZERO);
+    // Normalize asset code to uppercase for the ledger lookup.
+    // The pipeline writes entries under the canonical uppercase
+    // symbol ("hot:ETH"); a caller who hit `/v1/wallets/eth`
+    // used to get a silent zero balance because the lowercase
+    // lookup missed every row. Normalizing here removes the
+    // case trap without widening the public API.
+    let asset_upper = asset.to_ascii_uppercase();
+    let hot = state.db.account_balance(&format!("hot:{asset_upper}"), &asset_upper).await.unwrap_or(rust_decimal::Decimal::ZERO);
+    let warm = state.db.account_balance(&format!("warm:{asset_upper}"), &asset_upper).await.unwrap_or(rust_decimal::Decimal::ZERO);
+    let cold = state.db.account_balance(&format!("cold:{asset_upper}"), &asset_upper).await.unwrap_or(rust_decimal::Decimal::ZERO);
 
     Ok(Json(WalletBalanceResponse {
-        asset: Asset::new(&asset),
+        asset: Asset::new(&asset_upper),
         hot_balance: hot, warm_balance: warm, total_managed: hot + warm + cold,
     }))
 }
