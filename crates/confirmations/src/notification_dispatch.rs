@@ -14,8 +14,11 @@
 //!
 //! Slack: posts to an incoming-webhook URL using Slack's `text` field format.
 
+use std::sync::Arc;
+
 use anyhow::Result;
 use chrono::Utc;
+use custody_common::email::{EmailMessage, EmailSender};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use serde_json::{Value, json};
@@ -59,6 +62,14 @@ pub struct NotificationDispatcher {
     hmac_secret: Vec<u8>,
     /// Maximum delivery attempts per event per channel before giving up.
     max_attempts: u32,
+    /// Outbound email transport. When `Some`, `send_email_notification`
+    /// dispatches via lettre (real SMTP / console / noop per operator
+    /// config). When `None`, we keep the previous log-only fallback
+    /// but emit a `warn!` rather than `info!` so a missing transport
+    /// is loud enough for operators to notice — critical alerts
+    /// dropping to logs is exactly the silent-failure pattern we're
+    /// closing elsewhere.
+    email_sender: Option<Arc<EmailSender>>,
 }
 
 impl NotificationDispatcher {
@@ -72,7 +83,15 @@ impl NotificationDispatcher {
             client: reqwest::Client::new(),
             hmac_secret,
             max_attempts,
+            email_sender: None,
         }
+    }
+
+    /// Attach a real email transport. Required to actually deliver
+    /// email notifications; without it, the dispatcher logs and warns.
+    pub fn with_email_sender(mut self, sender: Arc<EmailSender>) -> Self {
+        self.email_sender = Some(sender);
+        self
     }
 
     // -----------------------------------------------------------------------
@@ -99,6 +118,7 @@ impl NotificationDispatcher {
                 }
                 ChannelType::Email => {
                     self.send_email_notification(&channel.endpoint, event_type, &payload)
+                        .await
                 }
                 ChannelType::Slack => {
                     self.send_slack_notification_with_retry(&channel.endpoint, &payload)
@@ -180,15 +200,18 @@ impl NotificationDispatcher {
     }
 
     // -----------------------------------------------------------------------
-    // Email (stub — no SMTP dependency)
+    // Email (real SMTP via custody_common::email::EmailSender)
     // -----------------------------------------------------------------------
 
-    /// Format an email notification and emit it via `tracing`.
+    /// Deliver an email notification through the configured
+    /// `EmailSender` (lettre SMTP / dev console / test noop —
+    /// whichever the operator wired at boot).
     ///
-    /// No SMTP library is linked.  Operators can consume these log lines with a
-    /// log-shipping pipeline (Loki → Alertmanager, etc.) or replace this method
-    /// with a real `lettre` integration when the dependency is added.
-    pub fn send_email_notification(
+    /// When no sender is attached, we log-and-warn instead of
+    /// log-and-info so a missing transport is visible. Critical
+    /// alerts like "withdrawal_failed" silently reaching no one
+    /// is the exact pattern this crate's honesty pass targets.
+    pub async fn send_email_notification(
         &self,
         to: &str,
         event_type: &str,
@@ -197,13 +220,28 @@ impl NotificationDispatcher {
         let subject = email_subject(event_type, payload);
         let body = email_body(event_type, payload);
 
-        tracing::info!(
-            to,
-            subject,
-            body = %body,
-            "email dispatch: to={to}, subject={subject}, body={body}",
-        );
+        let Some(sender) = self.email_sender.as_ref() else {
+            tracing::warn!(
+                to,
+                event_type,
+                subject = %subject,
+                "Email notification dropped — no EmailSender attached. \
+                 Configure CUSTODY_EMAIL__MODE=smtp + CUSTODY_EMAIL__SMTP_* \
+                 and call NotificationDispatcher::with_email_sender at boot."
+            );
+            return Ok(());
+        };
 
+        let msg = EmailMessage {
+            to: to.to_string(),
+            subject,
+            body_text: body,
+            body_html: None,
+        };
+        sender
+            .send(msg)
+            .await
+            .map_err(|e| anyhow::anyhow!("email send: {e}"))?;
         Ok(())
     }
 
@@ -570,18 +608,35 @@ mod tests {
         assert_eq!(backoff_delay(20), 300);
     }
 
-    // --- Email dispatch logging (synchronous path) ---
+    // --- Email dispatch (log-and-warn fallback when no sender wired) ---
 
-    #[test]
-    fn send_email_notification_succeeds() {
+    #[tokio::test]
+    async fn send_email_notification_without_sender_succeeds_with_warn() {
+        // Without an EmailSender attached, the handler logs a warn
+        // and returns Ok — we don't want to block dispatch to the
+        // other channels on a missing transport.
         let dispatcher = make_dispatcher(vec![]);
         let payload = json!({"asset": "BTC", "amount": "1.0", "chain": "bitcoin"});
-        // Should not panic; actual logging is side-effectful
-        let result = dispatcher.send_email_notification(
-            "ops@example.com",
-            "deposit_confirmed",
-            &payload,
+        let result = dispatcher
+            .send_email_notification("ops@example.com", "deposit_confirmed", &payload)
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn send_email_notification_with_noop_sender_delivers_ok() {
+        // With a real sender (noop transport), the path should take
+        // the actual delivery branch instead of the warn-and-drop
+        // fallback. Noop returns Ok so we can verify end-to-end
+        // without a live SMTP relay.
+        use custody_common::email::EmailSender;
+        let dispatcher = make_dispatcher(vec![]).with_email_sender(
+            std::sync::Arc::new(EmailSender::noop()),
         );
+        let payload = json!({"asset": "BTC", "amount": "1.0", "chain": "bitcoin"});
+        let result = dispatcher
+            .send_email_notification("ops@example.com", "deposit_confirmed", &payload)
+            .await;
         assert!(result.is_ok());
     }
 }
