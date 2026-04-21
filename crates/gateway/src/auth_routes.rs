@@ -299,14 +299,42 @@ async fn logout_current(
                 .and_then(|s| s.strip_prefix("Bearer ").map(|t| t.to_string()))
         });
 
+    // Revoke the row even when we can't — log the failure. A
+    // silent `let _ = ...` here used to promise the caller
+    // `status: "logged_out"` while the DB row kept the token
+    // live until its 8h expiry. If the user hit logout in
+    // response to a suspected cookie leak, that gap is exactly
+    // what they're trying to close. We still clear the client
+    // cookie (cookie clear is browser-atomic, does not depend
+    // on the DB) but we surface the DB outcome so the UI can
+    // warn + the operator can see it in logs.
+    let mut server_revoked: Option<bool> = None;
     if let Some(tok) = token {
         let token_hash = sessions::hash_token(&tok);
-        let _ = state.db.revoke_session(&token_hash).await;
+        match state.db.revoke_session(&token_hash).await {
+            Ok(was_active) => server_revoked = Some(was_active),
+            Err(e) => {
+                tracing::error!(
+                    error = %e,
+                    "Logout: server-side session revoke failed — client cookie \
+                     cleared but the token row remains in the DB until the \
+                     cleanup task or expiry reaps it. If this logout was \
+                     triggered by suspected credential leak, rotate \
+                     CUSTODY_HMAC_SECRET or revoke all sessions for the \
+                     user via the admin endpoint."
+                );
+                server_revoked = None;
+            }
+        }
     }
 
     let cookie_val = HeaderValue::from_str(&crate::session_cookie::build_clear_cookie())
         .map_err(|e| ApiError::internal(&format!("cookie header: {e}")))?;
-    let mut resp = Json(serde_json::json!({"status": "logged_out"})).into_response();
+    let mut resp = Json(serde_json::json!({
+        "status": "logged_out",
+        "server_revoked": server_revoked,
+    }))
+    .into_response();
     resp.headers_mut().append(header::SET_COOKIE, cookie_val);
     Ok(resp)
 }

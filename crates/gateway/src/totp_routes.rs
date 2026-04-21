@@ -291,13 +291,47 @@ async fn disable_totp(
         .await
         .map_err(|e| ApiError::internal(&e.to_string()))?;
 
-    // Revoke all active sessions (force re-login after 2FA change)
-    let _ = state.db.revoke_user_sessions(user_id).await;
+    // Revoke all active sessions (force re-login after 2FA
+    // change). The response body literally promises "All
+    // sessions have been revoked" so the error can't be
+    // swallowed — an operator or attacker with a still-live
+    // cookie would keep full access after being told the
+    // opposite. Fail the whole request if revocation fails;
+    // the caller sees an internal error and the TOTP row is
+    // already deleted, so the next disable attempt is idempotent
+    // (delete_totp returns false) — worst case the operator
+    // retries once the DB recovers, but no session stays live
+    // past the promise we made in the success body.
+    let revoked = state
+        .db
+        .revoke_user_sessions(user_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                user_id = %user_id,
+                error = %e,
+                "TOTP delete OK but session revocation failed — \
+                 refusing to return success so the caller isn't \
+                 lied to about active sessions"
+            );
+            ApiError::internal(&format!(
+                "TOTP disabled but session revocation failed: {e}. \
+                 Existing sessions may still be live — operator should \
+                 verify and re-run session-revoke before trusting the \
+                 account as post-2FA-change."
+            ))
+        })?;
 
-    tracing::info!(user_id = %user_id, by_admin = is_admin, "TOTP disabled");
+    tracing::info!(
+        user_id = %user_id,
+        by_admin = is_admin,
+        revoked_sessions = revoked,
+        "TOTP disabled"
+    );
 
     Ok(Json(serde_json::json!({
         "disabled": true,
+        "revoked_sessions": revoked,
         "message": "TOTP disabled. All sessions have been revoked — please log in again."
     })))
 }
