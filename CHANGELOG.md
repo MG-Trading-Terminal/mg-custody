@@ -5,6 +5,110 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Honesty audit pass (2026-04-15 → 2026-04-25)
+
+A focused sweep on silent-failure classes — code that passed every
+test but lied to its caller about the outcome. Full follow-up
+backlog in `AUDIT_DEFERRED.md`. 30+ commits, no schema breaks
+beyond migration `040_totp_last_used_counter.sql`.
+
+**Critical (loss-of-funds / auth bypass)**
+- `ab0d08b` — multi-approver quorum bypass: `approve_withdrawal`
+  trusted `body.approver` instead of `auth.0.email`. One signer
+  could meet a 2-of-N / 3-of-N quorum solo by submitting
+  different claimed names.
+- `d294a1e` — Tron TRC-20 silent miscredit: `sign_trx` always
+  built a native TRX `TransferContract`, so a USDT withdrawal
+  signed `amount` SUN of TRX (~$6 instead of $100). Now refused
+  at signing.
+- `e55c855` — RBAC marker gate: `rbac_auth` used to grant Admin
+  to any unauthenticated request, trusting an invariant about
+  `hmac_auth` running upstream. The marker (HmacVerified)
+  proves the chain ran; absence → 401.
+- `f0a2be2` — HMAC timing oracle: `verify_signature` used
+  `String == String` for tag compare (byte-by-byte leak). Now
+  `hmac::Mac::verify_slice`.
+
+**Silent-failure correctness**
+- `66d213a` — emergency freeze re-checked per-row, not just
+  per-tick (operator flip mid-batch now halts on the next row).
+- `4fa34ca` — emergency freeze persisted across restarts via
+  audit_log query; boot frozen on read failure.
+- `c20c21e` — TOTP replay defence: `last_used_counter` column
+  + atomic CAS update.
+- `a7d345e` — FIDO2 enforces rpIdHash + UP flag (WebAuthn
+  §7.2 steps 14-15 had been skipped).
+- `52903d1` — webhook HMAC signed full URL while inbound
+  verifier expected path → every outbound webhook silently
+  rejected by the exchange.
+- `862a91f` — reconciliation read `hot:eth` (lowercase) but
+  pipeline wrote `hot:ETH` → permanent 100% discrepancy alert
+  on every tick → alert fatigue → real divergence invisible.
+- `a4dca8c` — sweep scheduler same case bug → tiering 5/15/80
+  hot/warm/cold dead since landing.
+- `455a4ba` — asset case canonicalised at the public API
+  boundary (`get_wallet_balance`, `submit_withdrawal`,
+  `create_address`) so callers can't trap funds in a
+  parallel-universe ledger account.
+- `c9d5ed1` — ETH fee estimator: `base_fee=0` fallback would
+  sign a stuck-forever tx; now bails. Gas-cap check uses the
+  estimate already in hand instead of a second RPC.
+- `22585d5` — broadcaster + tracker: `unwrap_or(0)` on
+  block_number / slot caused premature finalization of
+  unmined transactions.
+- `5e9775a` — tracker now credits ledger BEFORE flipping to
+  Confirmed (was fire-and-forget; failed credit + sent webhook
+  meant exchange credited a user the custody side couldn't
+  back).
+
+**Key-material hygiene**
+- `873c7c8` — `OsRng` everywhere a private key, AES-GCM nonce,
+  Shamir share, or session token gets generated (was
+  `thread_rng()`).
+- `94b32b3` — `Zeroizing` on Ed25519 SLIP-0010 derived key
+  + secp256k1 BIP-32 bytes (panic-safe drop).
+- `25e17cf` — signer-service IPC: per-connection seed copy
+  zeroes on task drop. Unsupported `GetPublicKey` chain now
+  returns Error instead of fake-Success-with-empty-pubkey.
+- `f935a2f` — MPC transport: constant-time HMAC verify, MAC
+  also covers `to_party` (broadcast → unicast redirect would
+  have verified) and `timestamp`.
+
+**Compliance + screening**
+- `7a14747` — Chainalysis/Elliptic 200 OK with missing
+  `rating` / `risk_score` used to silently become Low. Now
+  bails so `ScreeningService` applies its Block fallback.
+- `bfc2b99` — policy engine fed real `DestinationType`
+  (whitelist lookup) instead of hardcoded `Any`. Rules with
+  `destination_type: Some(Whitelisted)` now actually fire.
+
+**Validation / wire-format**
+- `e149ac6` — withdrawal address validators decode + verify
+  checksums (bech32 / base58check / base58) instead of
+  prefix-only — typos silently burned funds before.
+- `770015a`, `63282bb` — Solana SPL + native balance parsing
+  refuses malformed RPC payloads instead of defaulting pre/post
+  to 0 (which over-credited or hid deposits).
+- `3912a12` — BTC + Tron broadcasters refuse empty txid on
+  `result=true` (tx accepted, txid lost forever).
+
+**Other**
+- `f420da6` — pipeline never signs at `nonce=0` on RPC error.
+- `db5dcb8` — session revocation failures surfaced (logout +
+  TOTP disable).
+- `116af88` — Owner-tier override endpoints write audit BEFORE
+  flipping withdrawal status.
+- `8cabd76` — audit log inserts serialised via PG advisory
+  lock; concurrent inserts no longer branch the chain.
+- `4ba7e4c` — `Chain::parse_str` ERROR-logs on unknown input;
+  added `Chain::try_parse_str` for fail-closed callers.
+- `9bd4ff4` — token registry skips TOML files with unknown
+  chain names instead of registering tokens as Ethereum.
+- `6c7fbdc`, `116af88` — approver_email + override actor pulled
+  from session, not body.
+
+**Deferred items** are tracked in `AUDIT_DEFERRED.md`.
+
 ### Fixed (2026-04-16) — Sprint P1: Production Hardening
 
 - **SECURITY: Price oracle zero-price guard** — `fetch_coingecko_prices()` now rejects zero/negative/NaN/Inf prices. Previously `from_f64_retain().unwrap_or(ZERO)` could silently set price to $0, making the circuit breaker see $0 for any withdrawal and bypassing outflow limits.
