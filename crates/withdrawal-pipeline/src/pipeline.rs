@@ -908,43 +908,23 @@ impl WithdrawalPipeline {
     }
 
     /// Sign a Tron withdrawal.
+    ///
+    /// Two wire formats:
+    /// - Native TRX → `TransferContract` + `amount_sun`
+    ///   (`prepare/sign_trx_transfer`).
+    /// - TRC-20 (USDT, USDC, …) → `TriggerSmartContract` with
+    ///   ABI-encoded `transfer(to, amount)` calldata
+    ///   (`prepare/sign_trc20_transfer`). Amount is in token base
+    ///   units (`human × 10^decimals`); `fee_limit_sun` is set
+    ///   from `trc20_fee_limit_sun` (default ≈ 30 TRX, well above
+    ///   the typical ~12 TRX Energy burn so we don't trip
+    ///   `OUT_OF_ENERGY` on a hot day).
     async fn sign_trx(&self, w: &Withdrawal) -> Result<()> {
-        // Asset gate. `sign_trx` below builds a Tron
-        // TransferContract — a NATIVE TRX transfer — and passes
-        // `amount_sun = trx_to_sun(w.amount)`. For a TRC-20
-        // asset (USDT, USDC) the correct wire format is
-        // TriggerSmartContract with the token contract address
-        // and ABI-encoded `transfer(to, amount)` calldata; the
-        // signing crate has `encode_trc20_transfer_params` but
-        // no full `sign_trc20_transfer` and the pipeline has no
-        // TRC-20 branch. Previous behaviour: a USDT/Tron
-        // withdrawal silently signed a NATIVE TRX transfer of
-        // `amount_sun` — i.e., a "withdraw 100 USDT" request
-        // signed a 100 TRX transfer to the destination. Massive
-        // silent miscredit. Refuse until the TRC-20 path lands.
         let token_registry = custody_common::token_registry::TokenRegistry::with_defaults();
-        if !token_registry.is_native(w.asset.as_str(), w.chain) {
-            let msg = format!(
-                "TRC-20 withdrawal signing is not implemented (asset={}). \
-                 Refusing to sign; native-TRX transfer would miscredit the user.",
-                w.asset.as_str()
-            );
-            tracing::error!(id = %w.id, asset = %w.asset.as_str(), "{msg}");
-            self.db
-                .update_withdrawal_status_with_error(
-                    w.id,
-                    WithdrawalStatus::Failed,
-                    &msg,
-                )
-                .await?;
-            return Ok(());
-        }
-
         let seed = self.seed.as_ref().ok_or_else(|| anyhow::anyhow!("No seed"))?;
-
         let from_hex = custody_signing::tron::tron_address_hex(seed, 0)?;
 
-        // Decode Tron Base58Check address to hex (41-prefixed)
+        // Decode destination Base58Check → 41-prefixed hex.
         let to_hex = if w.destination_address.starts_with('T') {
             let decoded = bs58::decode(&w.destination_address)
                 .with_check(None)
@@ -955,42 +935,160 @@ impl WithdrawalPipeline {
             w.destination_address.clone()
         };
 
-        let amount_sun = custody_scanner::tron::trx_to_sun(w.amount);
         let now = chrono::Utc::now().timestamp_millis() as u64;
-
-        // Fetch latest block for ref_block_bytes and ref_block_hash
         let (ref_block_bytes, ref_block_hash) = self.fetch_tron_block_ref().await
             .unwrap_or(([0x00, 0x00], [0x00; 8]));
 
-        let params = custody_signing::tron::TrxTransferParams {
-            owner_address_hex: from_hex,
-            to_address_hex: to_hex,
-            amount_sun,
-            expiration: now + 60_000,
-            timestamp: now,
-            ref_block_bytes,
-            ref_block_hash,
-        };
-
-        // HSM-aware signing: when a backend is plugged in, we compute
-        // the SHA-256 prehash of the raw protobuf, hand it to the
-        // backend as Chain::Tron, and splice the returned r||s||v
-        // into the Tron wire format. Otherwise the seed path does
-        // the full derive + sign_prehash in-process.
-        let (signature, raw_data) = if let Some(backend) = &self.signing_backend {
-            let (raw_data, prehash) = custody_signing::tron::prepare_trx_transfer(&params);
-            let sig65 = backend
-                .sign(Chain::Tron, &prehash)
-                .map_err(|e| anyhow::anyhow!("HSM sign(Tron) failed: {e}"))?;
-            if sig65.len() != 65 {
-                anyhow::bail!(
+        let (signature, raw_data) = if token_registry.is_native(w.asset.as_str(), w.chain) {
+            let amount_sun = custody_scanner::tron::trx_to_sun(w.amount);
+            let params = custody_signing::tron::TrxTransferParams {
+                owner_address_hex: from_hex.clone(),
+                to_address_hex: to_hex,
+                amount_sun,
+                expiration: now + 60_000,
+                timestamp: now,
+                ref_block_bytes,
+                ref_block_hash,
+            };
+            if let Some(backend) = &self.signing_backend {
+                let (raw_data, prehash) =
+                    custody_signing::tron::prepare_trx_transfer(&params);
+                let sig65 = backend
+                    .sign(Chain::Tron, &prehash)
+                    .map_err(|e| anyhow::anyhow!("HSM sign(Tron) failed: {e}"))?;
+                anyhow::ensure!(
+                    sig65.len() == 65,
                     "HSM returned {} bytes for Tron signature, expected 65",
                     sig65.len()
                 );
+                (sig65, raw_data)
+            } else {
+                custody_signing::tron::sign_trx_transfer(seed, 0, &params)?
             }
-            (sig65, raw_data)
         } else {
-            custody_signing::tron::sign_trx_transfer(seed, 0, &params)?
+            // TRC-20 path: contract + decimals must be known.
+            let Some(contract_b58) =
+                token_registry.contract_address(w.asset.as_str(), w.chain)
+            else {
+                let msg = format!(
+                    "Unknown TRC-20 asset {}: no contract address in registry. \
+                     Refusing to sign.",
+                    w.asset.as_str()
+                );
+                tracing::error!(id = %w.id, asset = %w.asset.as_str(), "{msg}");
+                self.db
+                    .update_withdrawal_status_with_error(
+                        w.id, WithdrawalStatus::Failed, &msg,
+                    ).await?;
+                return Ok(());
+            };
+            let Some(decimals) = token_registry.decimals(w.asset.as_str(), w.chain) else {
+                let msg = format!(
+                    "TRC-20 asset {} has no decimals in registry. Refusing to sign.",
+                    w.asset.as_str()
+                );
+                tracing::error!(id = %w.id, asset = %w.asset.as_str(), "{msg}");
+                self.db
+                    .update_withdrawal_status_with_error(
+                        w.id, WithdrawalStatus::Failed, &msg,
+                    ).await?;
+                return Ok(());
+            };
+
+            let contract_hex = {
+                let decoded = bs58::decode(contract_b58)
+                    .with_check(None)
+                    .into_vec()
+                    .map_err(|e| anyhow::anyhow!("Invalid TRC-20 contract address: {e}"))?;
+                hex::encode(&decoded)
+            };
+
+            let amount_base = decimal_to_token_base_units(w.amount, decimals)
+                .ok_or_else(|| anyhow::anyhow!(
+                    "TRC-20 amount {} × 10^{} overflows u128",
+                    w.amount, decimals
+                ))?;
+
+            // Energy / Bandwidth pre-flight. A TRC-20 transfer
+            // burns ~29k Energy + ~265 Bandwidth. If the source
+            // address has neither the staked resources nor enough
+            // TRX to burn for them at the current rate, the node
+            // accepts the tx but execution halts `OUT_OF_ENERGY`
+            // and the withdrawal sits as Signed/Broadcast forever.
+            // Refuse here with a structured Failed status so an
+            // operator can fund the gas-station address before
+            // re-queueing.
+            //
+            // RPC failures are logged but do not block — if the
+            // Tron node is flaking, refusing every TRC-20 wd
+            // would be worse than the existing best-effort sign +
+            // broadcast (which will surface the failure on the
+            // tx_status receipt).
+            match self.fetch_tron_account_resources(&from_hex).await {
+                Ok(resources) => {
+                    let check =
+                        custody_common::tron_energy::can_afford_trc20_transfer(&resources);
+                    if !check.can_proceed {
+                        let msg = format!(
+                            "Tron source address {} cannot afford TRC-20 transfer: \
+                             energy_avail={}, bandwidth_avail={}, trx_balance_sun={}, \
+                             trx_needed={}. Refusing to sign.",
+                            from_hex,
+                            resources.energy_available(),
+                            resources.bandwidth_available(),
+                            resources.trx_balance_sun,
+                            check.trx_needed,
+                        );
+                        tracing::error!(id = %w.id, asset = %w.asset.as_str(), "{msg}");
+                        self.db
+                            .update_withdrawal_status_with_error(
+                                w.id, WithdrawalStatus::Failed, &msg,
+                            ).await?;
+                        return Ok(());
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        id = %w.id, error = %e,
+                        "Tron resource pre-flight failed — proceeding with sign \
+                         (broadcaster receipt will surface OUT_OF_ENERGY if it happens)"
+                    );
+                }
+            }
+
+            // Default fee_limit ≈ 30 TRX. Energy burn for a TRC-20
+            // `transfer` is ~29k Energy × 420 sun ≈ 12 TRX at the
+            // network's "burn TRX for Energy" rate; we add headroom
+            // for Energy-price drift between scan and inclusion.
+            let fee_limit_sun: u64 = 30_000_000;
+
+            let params = custody_signing::tron::Trc20TransferParams {
+                owner_address_hex: from_hex.clone(),
+                contract_address_hex: contract_hex,
+                to_address_hex: to_hex,
+                amount: amount_base,
+                fee_limit_sun,
+                expiration: now + 60_000,
+                timestamp: now,
+                ref_block_bytes,
+                ref_block_hash,
+            };
+
+            if let Some(backend) = &self.signing_backend {
+                let (raw_data, prehash) =
+                    custody_signing::tron::prepare_trc20_transfer(&params);
+                let sig65 = backend
+                    .sign(Chain::Tron, &prehash)
+                    .map_err(|e| anyhow::anyhow!("HSM sign(Tron/TRC-20) failed: {e}"))?;
+                anyhow::ensure!(
+                    sig65.len() == 65,
+                    "HSM returned {} bytes for Tron TRC-20 signature, expected 65",
+                    sig65.len()
+                );
+                (sig65, raw_data)
+            } else {
+                custody_signing::tron::sign_trc20_transfer(seed, 0, &params)?
+            }
         };
 
         // Store as JSON for Tron broadcaster (expects JSON)
@@ -1002,7 +1100,7 @@ impl WithdrawalPipeline {
         self.db.update_withdrawal_status(w.id, WithdrawalStatus::Signed).await?;
         custody_common::prometheus_metrics::WITHDRAWALS_TOTAL
             .with_label_values(&["tron", "signed"]).inc();
-        tracing::info!(id = %w.id, "TRX withdrawal signed");
+        tracing::info!(id = %w.id, asset = %w.asset.as_str(), "Tron withdrawal signed");
         Ok(())
     }
 
@@ -1034,6 +1132,57 @@ impl WithdrawalPipeline {
         }
 
         Ok((ref_block_bytes, ref_block_hash))
+    }
+
+    /// Fetch the owner's TRX balance + Energy/Bandwidth quotas so
+    /// the TRC-20 path can refuse to sign when the source can't
+    /// possibly cover the on-chain Energy burn. Without this the
+    /// tx is still accepted by the node but execution halts with
+    /// `OUT_OF_ENERGY`, which leaves the withdrawal stuck pending
+    /// while the operator notices manually.
+    ///
+    /// Two RPC calls because the Tron public API splits resources
+    /// (`getaccountresource`) from balance (`getaccount`). Both
+    /// take the 41-prefixed hex address with `visible=false`.
+    async fn fetch_tron_account_resources(
+        &self,
+        address_hex: &str,
+    ) -> Result<custody_common::tron_energy::TronAccountResources> {
+        let api_url = self.trx_api_url.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No Tron API URL configured"))?;
+        let client = reqwest::Client::new();
+
+        let res: serde_json::Value = client
+            .post(format!("{api_url}/wallet/getaccountresource"))
+            .json(&serde_json::json!({ "address": address_hex, "visible": false }))
+            .send().await?
+            .json().await?;
+        let acct: serde_json::Value = client
+            .post(format!("{api_url}/wallet/getaccount"))
+            .json(&serde_json::json!({ "address": address_hex, "visible": false }))
+            .send().await?
+            .json().await?;
+
+        // Tron returns omitted fields when the value is zero —
+        // treat absent as zero rather than bailing, so a brand-new
+        // account (no resources, no balance) still produces a
+        // structured "cannot afford" outcome rather than a fetcher
+        // error that retries forever.
+        let bandwidth_used = res["NetUsed"].as_u64().unwrap_or(0)
+            + res["freeNetUsed"].as_u64().unwrap_or(0);
+        let bandwidth_limit = res["NetLimit"].as_u64().unwrap_or(0)
+            + res["freeNetLimit"].as_u64().unwrap_or(0);
+        let energy_used = res["EnergyUsed"].as_u64().unwrap_or(0);
+        let energy_limit = res["EnergyLimit"].as_u64().unwrap_or(0);
+        let trx_balance_sun = acct["balance"].as_u64().unwrap_or(0);
+
+        Ok(custody_common::tron_energy::TronAccountResources {
+            bandwidth_used,
+            bandwidth_limit,
+            energy_used,
+            energy_limit,
+            trx_balance_sun,
+        })
     }
 
     /// Sign a Solana withdrawal.
@@ -1281,6 +1430,19 @@ impl WithdrawalPipeline {
 /// Cosmos memo, a Solana note, plain user text — is treated as a
 /// pure memo by the caller and the tx takes the vanilla transfer
 /// path.
+/// Convert a `Decimal` human-units amount to `u128` token base
+/// units. Returns `None` on overflow or if the result is negative.
+/// Truncates fractional units beyond `decimals` (defensive — the
+/// API layer is expected to enforce scale already).
+fn decimal_to_token_base_units(amount: Decimal, decimals: u8) -> Option<u128> {
+    use rust_decimal::prelude::ToPrimitive;
+    if amount.is_sign_negative() {
+        return None;
+    }
+    let multiplier = Decimal::from_i128_with_scale(10i128.pow(decimals as u32), 0);
+    (amount * multiplier).trunc().to_u128()
+}
+
 fn parse_hex_calldata(memo: &str) -> Option<Vec<u8>> {
     let hex_part = memo.strip_prefix("0x")?;
     let bytes = hex::decode(hex_part).ok()?;
@@ -1298,6 +1460,24 @@ mod tests {
     #[test]
     fn pipeline_builder() {
         let _limits = (dec!(500000), dec!(10000000), dec!(50000000));
+    }
+
+    #[test]
+    fn decimal_to_token_base_units_usdt_6() {
+        // 100 USDT, 6 decimals → 100_000_000 base units.
+        assert_eq!(
+            decimal_to_token_base_units(dec!(100), 6),
+            Some(100_000_000)
+        );
+        // Fractional under scale rounds via trunc.
+        assert_eq!(
+            decimal_to_token_base_units(dec!(0.5), 6),
+            Some(500_000)
+        );
+        // Negative refused.
+        assert_eq!(decimal_to_token_base_units(dec!(-1), 6), None);
+        // Zero is a valid value.
+        assert_eq!(decimal_to_token_base_units(dec!(0), 6), Some(0));
     }
 
     #[test]

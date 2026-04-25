@@ -5,6 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added — TRC-20 signing + Tron Energy preflight (2026-04-25)
+
+- `signing/tron`: `prepare_trc20_transfer` + `sign_trc20_transfer`
+  build the `TriggerSmartContract` protobuf with mandatory
+  `fee_limit` (field 18) and ABI-encoded `transfer(to,amount)`
+  calldata. Length-delimited fields use full varint encoding
+  (the TRX-only `len() as u8` shortcut breaks past 127 bytes,
+  which TRC-20 wrappers cross). Backend (HSM/MPC) integration
+  via the existing `Chain::Tron` `sign(prehash)` path. Closes
+  AUDIT_DEFERRED P1.1.
+- `withdrawal-pipeline::sign_trx`: branches on
+  `token_registry.is_native(asset, Tron)`. Native uses the
+  existing TRX path; non-native resolves the contract +
+  decimals from the registry, converts the human Decimal
+  amount to `u128` base units, and signs via the new TRC-20
+  helpers. Refusal-with-Failed if the asset has no contract or
+  decimals registered. Default `fee_limit_sun = 30 TRX` (≈
+  2.5× the typical Energy burn).
+- `withdrawal-pipeline::fetch_tron_account_resources`: hits
+  `/wallet/getaccountresource` + `/wallet/getaccount` and
+  returns `TronAccountResources`. Wired as a pre-flight in
+  the TRC-20 branch via
+  `tron_energy::can_afford_trc20_transfer`; refuses to sign
+  when source can neither afford the Energy/Bandwidth from
+  staked resources nor pay TRX to burn for them. RPC failure
+  is logged but non-fatal — better to attempt sign + surface
+  on receipt than to wedge every TRC-20 wd on a flaky node.
+  Closes AUDIT_DEFERRED P1.2.
+- New tests: `sign_real_trc20_transfer` (verifies sig against
+  derived pubkey + ensures calldata selector is present in
+  raw bytes), `prepare_trc20_transfer_matches_sign_path`
+  (HSM prehash ≡ in-process raw_data hash),
+  `decimal_to_token_base_units_usdt_6` (scale + negative
+  rejection).
+
 ### Honesty audit pass (2026-04-15 → 2026-04-25)
 
 A focused sweep on silent-failure classes — code that passed every

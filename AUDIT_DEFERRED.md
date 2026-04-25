@@ -14,41 +14,6 @@
 
 ## Priority 1 — Real functionality not yet implemented (refused at the boundary today)
 
-### TRC-20 signing path
-
-- **Where:** `crates/withdrawal-pipeline/src/pipeline.rs::sign_trx`
-  (gate added in commit `d294a1e`).
-- **Today:** Any Tron withdrawal whose asset isn't native TRX is
-  marked `Failed` with a clear error. The handler only knows how to
-  build a Tron `TransferContract` (native TRX), so a USDT/USDC
-  withdrawal would otherwise miscredit the user (sends `amount` SUN
-  of TRX instead of `amount` USDT).
-- **What's needed:**
-  1. Add `sign_trc20_transfer` to `crates/signing/src/tron.rs` next
-     to `encode_trc20_transfer_params` (the calldata helper already
-     exists). It should build a `TriggerSmartContract` protobuf
-     pointing at the token contract, with calldata = selector +
-     padded address + uint256 amount.
-  2. Add a `prepare_trc20_transfer` parallel to `prepare_trx_transfer`
-     so the HSM/MPC path can hand the prehash to a backend.
-  3. Branch on `token_registry.is_native(asset, Tron)` in
-     `sign_trx`: native → existing path, TRC-20 → new path.
-  4. Energy/Bandwidth check before signing (see next item).
-- **Reference:** Tron protobuf TriggerSmartContract docs.
-
-### Tron Energy / Bandwidth pre-flight
-
-- **Where:** `crates/common/src/tron_energy.rs` already has
-  `can_afford_trc20_transfer` and `TronAccountResources` —
-  but they have **zero non-test callers** (verified via grep).
-- **Today:** Even when TRC-20 signing lands (above), the pipeline
-  has no pre-flight check that the source address has enough
-  Energy/Bandwidth (or burnable TRX). Tx will simply fail
-  `OUT_OF_ENERGY` on chain.
-- **What's needed:** Wire `can_afford_trc20_transfer` into
-  `sign_trx` after the TRC-20 branch is added. Defer the withdrawal
-  if the resource check fails.
-
 ### Bitcoin legacy P2PKH / P2SH signing
 
 - **Where:** `crates/withdrawal-pipeline/src/validation.rs::validate_btc_address`
@@ -273,14 +238,6 @@
 ---
 
 ## Priority 4 — Documentation owed
-
-### Doc: TRC-20 + Tron Energy gap
-
-- `REALITY.md` — table column "What exists as types but is not
-  operational" should call out: TRC-20 withdrawals refused,
-  Tron Energy check unwired.
-- `ROADMAP.md` — add a phase for Tron protobuf signing + Energy
-  monitoring.
 
 ### Doc: signer-service capabilities
 
