@@ -90,8 +90,14 @@ impl WebhookSender {
     }
 
     /// Retry all pending deliveries that are due.
+    ///
+    /// Uses the claim variant so concurrent retry workers don't
+    /// double-deliver. Each row's lease is bumped forward by the
+    /// claim itself; a successful `mark_webhook_delivered` or
+    /// `record_webhook_failure` (which writes a real backoff)
+    /// supersedes the lease before it expires.
     pub async fn retry_pending(&self) -> Result<()> {
-        let pending = self.db.pending_webhook_deliveries().await?;
+        let pending = self.db.claim_pending_webhook_deliveries().await?;
 
         for delivery in pending {
             match self.deliver(&delivery.payload).await {

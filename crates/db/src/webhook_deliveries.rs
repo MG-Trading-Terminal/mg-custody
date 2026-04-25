@@ -46,6 +46,12 @@ impl CustodyDb {
         Ok(())
     }
 
+    /// Read-only listing of currently-due pending deliveries.
+    ///
+    /// Used by health/dashboard endpoints. Does NOT claim or
+    /// reserve rows — that's `claim_pending_webhook_deliveries`.
+    /// Kept separate so a dashboard refresh doesn't extend leases
+    /// and starve the retry worker.
     pub async fn pending_webhook_deliveries(&self) -> anyhow::Result<Vec<WebhookDelivery>> {
         let rows: Vec<WebhookDeliveryRow> = sqlx::query_as(
             "SELECT id, event_type, payload::text, attempts, max_attempts, status,
@@ -55,6 +61,55 @@ impl CustodyDb {
              ORDER BY created_at ASC
              LIMIT 100",
         )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|r| r.into_delivery()).collect())
+    }
+
+    /// Atomically claim due deliveries for retry, reserving them
+    /// against concurrent retry workers.
+    ///
+    /// Multiple workers used to read the same rows in parallel
+    /// and double-fire the HTTP delivery — at-least-once
+    /// semantics make that "OK" if the exchange is idempotent,
+    /// but the wasted POST plus log noise is avoidable.
+    ///
+    /// Mechanics: `UPDATE … RETURNING` over an inner
+    /// `SELECT … FOR UPDATE SKIP LOCKED`. The inner select grabs
+    /// the per-row lock and skips rows another worker already
+    /// holds; the outer update bumps `next_retry_at` forward by
+    /// the lease so a sibling worker checking the WHERE clause
+    /// (`next_retry_at <= NOW()`) won't re-claim the same row.
+    /// The lock itself is released when the autocommit statement
+    /// finishes; concurrency is then enforced by `next_retry_at`
+    /// being in the future.
+    ///
+    /// Crashed-worker rows reappear when the lease expires
+    /// (default 10 minutes) — long enough that a successful
+    /// delivery's `mark_webhook_delivered` always fires before
+    /// the lease, short enough that a stuck row doesn't stall
+    /// for hours. `record_webhook_failure` overwrites
+    /// `next_retry_at` with the real backoff time, so a fail-
+    /// then-re-claim race isn't a concern.
+    pub async fn claim_pending_webhook_deliveries(
+        &self,
+    ) -> anyhow::Result<Vec<WebhookDelivery>> {
+        const LEASE_SECONDS: i64 = 600;
+        let rows: Vec<WebhookDeliveryRow> = sqlx::query_as(
+            "UPDATE webhook_deliveries
+             SET next_retry_at = NOW() + make_interval(secs => $1)
+             WHERE id IN (
+                 SELECT id FROM webhook_deliveries
+                 WHERE status = 'pending'
+                   AND (next_retry_at IS NULL OR next_retry_at <= NOW())
+                 ORDER BY created_at ASC
+                 LIMIT 100
+                 FOR UPDATE SKIP LOCKED
+             )
+             RETURNING id, event_type, payload::text, attempts, max_attempts, status,
+                       next_retry_at, last_error, created_at, delivered_at",
+        )
+        .bind(LEASE_SECONDS)
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.into_iter().map(|r| r.into_delivery()).collect())

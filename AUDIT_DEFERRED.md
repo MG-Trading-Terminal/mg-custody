@@ -54,17 +54,6 @@
 
 ## Priority 2 — Audit-grade follow-ups (single-commit each)
 
-### Webhook retry: `SELECT FOR UPDATE SKIP LOCKED`
-
-- **Where:** `crates/db/src/webhook_deliveries.rs::pending_webhook_deliveries`.
-- **Today:** Multiple retry workers can pick the same row and
-  deliver twice. At-least-once semantics make this "OK" if the
-  exchange is idempotent, but it's wasteful + clearly noted in the
-  earlier audit.
-- **What's needed:** Add `FOR UPDATE SKIP LOCKED` to the SELECT
-  inside a transaction; commit after the per-row UPDATE
-  (`mark_webhook_delivered` or `record_webhook_failure`).
-
 ### Tracker / ledger UNIQUE constraint to close double-credit window
 
 - **Where:** `crates/db/src/custody_ledger.rs::credit_deposit`,

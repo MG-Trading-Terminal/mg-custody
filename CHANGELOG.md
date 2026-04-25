@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Webhook retry — atomic SKIP LOCKED claim (2026-04-26)
+
+- `db/webhook_deliveries`: split into read-only
+  `pending_webhook_deliveries` (dashboards) and the new
+  `claim_pending_webhook_deliveries` (retry worker).
+  The claim path runs `UPDATE … RETURNING` over an inner
+  `SELECT … FOR UPDATE SKIP LOCKED` and bumps `next_retry_at`
+  forward by a 10-minute lease, so concurrent workers can't
+  double-fire HTTP delivery for the same row. Crashed-worker
+  rows reappear when the lease expires.
+- `confirmations::webhook::retry_pending` switched to the claim
+  variant. The dashboard health route stays on the read-only
+  path (a refresh no longer extends every lease).
+- Closes AUDIT_DEFERRED P2.3.
+
 ### Audit log — Unknown variant + chain-walk verifier (2026-04-26)
 
 - `db/audit`: `AuditOperation::Unknown(String)` carries the raw
