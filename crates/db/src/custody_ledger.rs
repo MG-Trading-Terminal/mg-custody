@@ -103,9 +103,23 @@ impl CustodyDb {
 
         let mut tx = self.pool.begin().await?;
 
+        // ON CONFLICT DO NOTHING is a no-op for reference types
+        // that aren't covered by `idx_custody_ledger_deposit_idem`
+        // (no constraint can match → no conflict → row inserts as
+        // normal). For deposit / deposit_credit rows it makes the
+        // pair idempotent: a retry after a partial-write window
+        // (credit succeeded but status flip failed, see
+        // confirmations::tracker::check_deposits) now skips the
+        // duplicate insert instead of doubling the user's
+        // balance. The write is the LAST line of defence against
+        // the historical double-credit class — the tracker's
+        // own ordering (credit before status flip) still does
+        // the heavy lifting; this just removes the silent retry
+        // failure mode.
         sqlx::query(
             "INSERT INTO custody_ledger (id, entry_type, account, amount, asset, chain, counterpart_id, reference_id, reference_type, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             ON CONFLICT DO NOTHING"
         )
         .bind(debit.id)
         .bind(entry_type_debit)
@@ -122,7 +136,8 @@ impl CustodyDb {
 
         sqlx::query(
             "INSERT INTO custody_ledger (id, entry_type, account, amount, asset, chain, counterpart_id, reference_id, reference_type, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             ON CONFLICT DO NOTHING"
         )
         .bind(credit.id)
         .bind(entry_type_credit)

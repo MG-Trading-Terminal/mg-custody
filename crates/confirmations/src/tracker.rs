@@ -126,13 +126,15 @@ impl ConfirmationTracker {
                 // Detected and the next tick retries with the
                 // accumulated confirmation count.
                 //
-                // TODO: close the narrow double-credit window
-                // (credit succeeds, status update fails → next
-                // tick credits again) with a
-                // `UNIQUE (reference_id, reference_type)` index
-                // on custody_ledger so a duplicate insert
-                // becomes a loud constraint violation rather
-                // than a silent double-credit.
+                // The narrow double-credit window (credit
+                // succeeds, status update fails → next tick
+                // credits again) is closed by migration
+                // `041_custody_ledger_deposit_unique.sql` plus
+                // `ON CONFLICT DO NOTHING` in
+                // `insert_ledger_pair`: a retry's duplicate
+                // insert on (reference_id, reference_type,
+                // entry_type) is a no-op rather than a second
+                // credit.
                 if let Err(e) = self
                     .db
                     .credit_deposit(

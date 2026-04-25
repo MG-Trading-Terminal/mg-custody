@@ -54,22 +54,6 @@
 
 ## Priority 2 — Audit-grade follow-ups (single-commit each)
 
-### Tracker / ledger UNIQUE constraint to close double-credit window
-
-- **Where:** `crates/db/src/custody_ledger.rs::credit_deposit`,
-  `crates/confirmations/src/tracker.rs::check_deposits` (commit
-  `5e9775a` left this as a TODO).
-- **Today:** If `credit_deposit` succeeds but the subsequent
-  `update_deposit_status` fails, the next tracker tick re-credits.
-- **What's needed:** Migration adding
-  `CREATE UNIQUE INDEX ON custody_ledger (reference_id,
-  reference_type, entry_type) WHERE reference_type IN
-  ('deposit', 'deposit_credit')`. The existing schema reuses
-  `reference_id` across multiple pairs per deposit, so the index
-  has to include `entry_type` to not false-trip. Then handle the
-  duplicate-key error in `credit_deposit` as "already credited,
-  proceed with status update".
-
 ### DB row deserialization — port `parse_str` → `try_parse_str`
 
 - **Where:** ~14 sites still using `Chain::parse_str` (after

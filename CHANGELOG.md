@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Ledger — close deposit double-credit window (2026-04-26)
+
+- Migration `041_custody_ledger_deposit_unique.sql`: partial
+  `UNIQUE INDEX (reference_id, reference_type, entry_type)
+  WHERE reference_type IN ('deposit', 'deposit_credit')`. Each
+  deposit produces two pairs that share `reference_id` +
+  `reference_type` but legitimately differ on `entry_type`;
+  including all three is necessary to allow the legitimate pair
+  while blocking duplicates.
+- `insert_ledger_pair`: both INSERTs gain `ON CONFLICT DO
+  NOTHING`. For non-deposit references the partial index doesn't
+  match, so the clause is a no-op (regular INSERT). For deposit
+  references it makes the writer idempotent: a retry after the
+  ledger-credit-succeeded-but-status-flip-failed window now
+  skips the duplicate insert instead of doubling the user's
+  balance.
+- `confirmations::tracker::check_deposits` TODO comment
+  retired.
+- Closes AUDIT_DEFERRED P2.4.
+
 ### Webhook retry — atomic SKIP LOCKED claim (2026-04-26)
 
 - `db/webhook_deliveries`: split into read-only
