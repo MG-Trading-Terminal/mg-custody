@@ -54,31 +54,6 @@
 
 ## Priority 2 — Audit-grade follow-ups (single-commit each)
 
-### `AuditOperation::Unknown(String)` variant
-
-- **Where:** `crates/db/src/audit.rs` (commit `8cabd76` made it
-  WARN-on-unknown but still falls back to `SigningRequest`).
-- **Today:** A row whose `operation` column doesn't deserialize
-  into a known `AuditOperation` is reported in the API as
-  `SigningRequest`. The WARN log surfaces the real string, but the
-  UI lies about the row's type.
-- **What's needed:** Add `Unknown(String)` to `AuditOperation`,
-  return it from `recent_audit_entries` instead of the
-  SigningRequest fallback. UI can render "unknown:foo" verbatim.
-
-### Audit log chain-walk verification function
-
-- **Where:** `crates/db/src/audit.rs`.
-- **Today:** Inserts are now serialised (`8cabd76`) so the chain
-  is linear, but no function exists to verify the chain end-to-end.
-  Operators have no programmatic way to detect a row that was
-  modified or deleted between write time and now.
-- **What's needed:** `pub async fn verify_audit_chain(&self)
-  -> Result<u64>` that walks the log in `timestamp ASC` order,
-  recomputes each `prev_hash`, and returns the count of rows
-  verified or the id of the first row whose hash doesn't chain
-  to its predecessor.
-
 ### Webhook retry: `SELECT FOR UPDATE SKIP LOCKED`
 
 - **Where:** `crates/db/src/webhook_deliveries.rs::pending_webhook_deliveries`.

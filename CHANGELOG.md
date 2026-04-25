@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Audit log — Unknown variant + chain-walk verifier (2026-04-26)
+
+- `db/audit`: `AuditOperation::Unknown(String)` carries the raw
+  on-disk string for any operation this build doesn't know.
+  `recent_audit_entries` now exposes the verbatim value instead of
+  silently misreporting it as `SigningRequest`. Manual
+  Serialize/Deserialize wires Unknown to its raw wire form so a
+  round-trip is exact. Closes AUDIT_DEFERRED P2.1.
+- `db/audit::verify_audit_chain`: walks the log in `timestamp ASC`,
+  recomputes each row's hash via the new shared `compute_chain_hash`
+  helper, returns `AuditChainVerification::{Ok, BrokenAt}`. Forward-
+  drift rows (Unknown) are counted but not verified — the original
+  Debug format is unrecoverable, so propagate stored hash forward
+  instead of false-flagging. Closes AUDIT_DEFERRED P2.2.
+- Tests: round-trip Unknown JSON; deterministic + parent-sensitive
+  hash; status-tagged enum serialization; expanded
+  `audit_operations_serialize` to all 16 known variants.
+
 ### Added — TRC-20 signing + Tron Energy preflight (2026-04-25)
 
 - `signing/tron`: `prepare_trc20_transfer` + `sign_trc20_transfer`
