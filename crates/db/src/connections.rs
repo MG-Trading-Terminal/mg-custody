@@ -42,7 +42,7 @@ impl CustodyDb {
         .bind(id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| r.into_connection()))
+        row.map(|r| r.into_connection()).transpose()
     }
 
     pub async fn list_connections(&self) -> anyhow::Result<Vec<ExchangeConnection>> {
@@ -52,7 +52,7 @@ impl CustodyDb {
         )
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows.into_iter().map(|r| r.into_connection()).collect())
+        rows.into_iter().map(|r| r.into_connection()).collect()
     }
 
     pub async fn update_connection_status(&self, id: Uuid, status: &str) -> anyhow::Result<bool> {
@@ -100,7 +100,7 @@ struct ConnectionRow {
 }
 
 impl ConnectionRow {
-    fn into_connection(self) -> ExchangeConnection {
+    fn into_connection(self) -> anyhow::Result<ExchangeConnection> {
         let connection_type = match self.connection_type.as_str() {
             "otc_desk" => ConnectionType::OtcDesk,
             "custodian" => ConnectionType::Custodian,
@@ -113,17 +113,21 @@ impl ConnectionRow {
             "suspended" => ConnectionStatus::Suspended,
             _ => ConnectionStatus::Pending,
         };
-        ExchangeConnection {
+        let supported_chains = self.supported_chains.iter()
+            .map(|s| Chain::try_parse_str(s)
+                .ok_or_else(|| anyhow::anyhow!("exchange_connections row {}: unknown chain '{s}'", self.id)))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(ExchangeConnection {
             id: self.id,
             name: self.name,
             connection_type,
             status,
             api_url: self.api_url,
-            supported_chains: self.supported_chains.iter().map(|s| Chain::parse_str(s)).collect(),
+            supported_chains,
             auto_credit: self.auto_credit,
             created_at: self.created_at,
             updated_at: self.updated_at,
             last_heartbeat_at: self.last_heartbeat_at,
-        }
+        })
     }
 }

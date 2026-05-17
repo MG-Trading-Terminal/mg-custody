@@ -26,7 +26,7 @@ impl CustodyDb {
             "SELECT id, vault_id, asset, chain, destination_address, amount, scheduled_at, status, withdrawal_id, note, created_at, executed_at, cancelled_at
              FROM scheduled_transactions WHERE id = $1",
         ).bind(id).fetch_optional(&self.pool).await?;
-        Ok(row.map(|r| r.into_tx()))
+        row.map(|r| r.into_tx()).transpose()
     }
 
     pub async fn list_scheduled_tx(&self, vault_id: Option<Uuid>, status: Option<&str>) -> anyhow::Result<Vec<ScheduledTransaction>> {
@@ -48,7 +48,7 @@ impl CustodyDb {
                  FROM scheduled_transactions ORDER BY scheduled_at LIMIT 200",
             ).fetch_all(&self.pool).await?,
         };
-        Ok(rows.into_iter().map(|r| r.into_tx()).collect())
+        rows.into_iter().map(|r| r.into_tx()).collect()
     }
 
     pub async fn cancel_scheduled_tx(&self, id: Uuid) -> anyhow::Result<bool> {
@@ -71,7 +71,7 @@ impl CustodyDb {
             "SELECT id, vault_id, asset, chain, destination_address, amount, scheduled_at, status, withdrawal_id, note, created_at, executed_at, cancelled_at
              FROM scheduled_transactions WHERE status = 'pending' AND scheduled_at <= NOW() ORDER BY scheduled_at LIMIT 50",
         ).fetch_all(&self.pool).await?;
-        Ok(rows.into_iter().map(|r| r.into_tx()).collect())
+        rows.into_iter().map(|r| r.into_tx()).collect()
     }
 }
 
@@ -85,7 +85,7 @@ struct ScheduledTxRow {
 }
 
 impl ScheduledTxRow {
-    fn into_tx(self) -> ScheduledTransaction {
+    fn into_tx(self) -> anyhow::Result<ScheduledTransaction> {
         let status = match self.status.as_str() {
             "executed" => ScheduleStatus::Executed,
             "cancelled" => ScheduleStatus::Cancelled,
@@ -93,14 +93,16 @@ impl ScheduledTxRow {
             "expired" => ScheduleStatus::Expired,
             _ => ScheduleStatus::Pending,
         };
-        ScheduledTransaction {
+        let chain = Chain::try_parse_str(&self.chain)
+            .ok_or_else(|| anyhow::anyhow!("scheduled_transactions row {}: unknown chain '{}'", self.id, self.chain))?;
+        Ok(ScheduledTransaction {
             id: self.id, vault_id: self.vault_id,
-            asset: Asset::new(&self.asset), chain: Chain::parse_str(&self.chain),
+            asset: Asset::new(&self.asset), chain,
             destination_address: self.destination_address, amount: self.amount,
             scheduled_at: self.scheduled_at, status,
             withdrawal_id: self.withdrawal_id, note: self.note,
             created_at: self.created_at, executed_at: self.executed_at,
             cancelled_at: self.cancelled_at,
-        }
+        })
     }
 }

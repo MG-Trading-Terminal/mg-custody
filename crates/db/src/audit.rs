@@ -570,7 +570,7 @@ impl CustodyDb {
             .fetch_all(&self.pool)
             .await?;
 
-        Ok(rows.into_iter().map(|(id, timestamp, operation, actor, chain, derivation_path, details, prev_hash)| {
+        rows.into_iter().map(|(id, timestamp, operation, actor, chain, derivation_path, details, prev_hash)| {
             // `operation` is stored as a JSON-encoded string,
             // e.g. `"address_derivation"`. An unknown string
             // (forward schema drift or DB tampering) is now
@@ -595,9 +595,12 @@ impl CustodyDb {
                     AuditOperation::Unknown(operation.clone())
                 }
             };
-            let chain = chain.map(|c| custody_common::Chain::parse_str(&c));
-            AuditEntry { id, timestamp, operation: op, actor, chain, derivation_path, details, prev_hash }
-        }).collect())
+            let chain = chain.map(|c| {
+                custody_common::Chain::try_parse_str(&c)
+                    .ok_or_else(|| anyhow::anyhow!("audit_log row {id}: unknown chain '{c}'"))
+            }).transpose()?;
+            Ok(AuditEntry { id, timestamp, operation: op, actor, chain, derivation_path, details, prev_hash })
+        }).collect()
     }
 }
 

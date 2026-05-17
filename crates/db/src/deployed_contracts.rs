@@ -28,9 +28,11 @@ impl CustodyDb {
              FROM deployed_contracts WHERE address = $1 AND chain = $2",
         ).bind(address).bind(chain).fetch_optional(&self.pool).await?;
 
-        Ok(row.map(|(id, address, chain, name, abi_hash, deployer, tx, verified, created_at)| {
-            DeployedContract { id, address, chain: Chain::parse_str(&chain), name, abi_hash, deployer_vault_id: deployer, deploy_tx_hash: tx, verified, created_at }
-        }))
+        row.map(|(id, address, chain, name, abi_hash, deployer, tx, verified, created_at)| {
+            let c = Chain::try_parse_str(&chain)
+                .ok_or_else(|| anyhow::anyhow!("deployed_contracts row {id}: unknown chain '{chain}'"))?;
+            Ok(DeployedContract { id, address, chain: c, name, abi_hash, deployer_vault_id: deployer, deploy_tx_hash: tx, verified, created_at })
+        }).transpose()
     }
 
     pub async fn list_deployed_contracts(&self, chain_filter: Option<&str>) -> anyhow::Result<Vec<DeployedContract>> {
@@ -45,8 +47,10 @@ impl CustodyDb {
             ).fetch_all(&self.pool).await?,
         };
 
-        Ok(rows.into_iter().map(|(id, address, chain, name, abi_hash, deployer, tx, verified, created_at)| {
-            DeployedContract { id, address, chain: Chain::parse_str(&chain), name, abi_hash, deployer_vault_id: deployer, deploy_tx_hash: tx, verified, created_at }
-        }).collect())
+        rows.into_iter().map(|(id, address, chain, name, abi_hash, deployer, tx, verified, created_at)| {
+            let c = Chain::try_parse_str(&chain)
+                .ok_or_else(|| anyhow::anyhow!("deployed_contracts row {id}: unknown chain '{chain}'"))?;
+            Ok(DeployedContract { id, address, chain: c, name, abi_hash, deployer_vault_id: deployer, deploy_tx_hash: tx, verified, created_at })
+        }).collect()
     }
 }

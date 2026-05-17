@@ -39,7 +39,7 @@ impl CustodyDb {
         .bind(id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| r.into_entry()))
+        row.map(|r| r.into_entry()).transpose()
     }
 
     pub async fn find_address_book_by_address(&self, address: &str, chain: &str) -> anyhow::Result<Option<AddressBookEntry>> {
@@ -51,7 +51,7 @@ impl CustodyDb {
         .bind(chain)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| r.into_entry()))
+        row.map(|r| r.into_entry()).transpose()
     }
 
     pub async fn list_address_book(&self, chain_filter: Option<&str>) -> anyhow::Result<Vec<AddressBookEntry>> {
@@ -74,7 +74,7 @@ impl CustodyDb {
                 .await?
             }
         };
-        Ok(rows.into_iter().map(|r| r.into_entry()).collect())
+        rows.into_iter().map(|r| r.into_entry()).collect()
     }
 
     pub async fn update_address_book_entry(
@@ -148,7 +148,7 @@ impl CustodyDb {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(rows.into_iter().map(|r| r.into_entry()).collect())
+        rows.into_iter().map(|r| r.into_entry()).collect()
     }
 
     pub async fn delete_address_book_entry(&self, id: Uuid) -> anyhow::Result<bool> {
@@ -208,19 +208,21 @@ struct AddressBookRow {
 }
 
 impl AddressBookRow {
-    fn into_entry(self) -> AddressBookEntry {
-        AddressBookEntry {
+    fn into_entry(self) -> anyhow::Result<AddressBookEntry> {
+        let chain = Chain::try_parse_str(&self.chain)
+            .ok_or_else(|| anyhow::anyhow!("address_book row {}: unknown chain '{}'", self.id, self.chain))?;
+        Ok(AddressBookEntry {
             id: self.id,
             label: self.label,
             address: self.address,
-            chain: Chain::parse_str(&self.chain),
+            chain,
             tag: self.tag,
             whitelisted: self.whitelisted,
             notes: self.notes,
             last_used_at: self.last_used_at,
             created_at: self.created_at,
             updated_at: self.updated_at,
-        }
+        })
     }
 }
 
@@ -255,5 +257,7 @@ mod tests {
         let req: UpdateAddressLabelRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.label.as_deref(), Some("Binance"));
         assert!(req.notes.is_none());
+    }
+}
     }
 }

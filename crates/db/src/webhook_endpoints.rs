@@ -38,7 +38,7 @@ impl CustodyDb {
         .bind(id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| r.into_endpoint()))
+        row.map(|r| r.into_endpoint()).transpose()
     }
 
     pub async fn list_webhook_endpoints(&self) -> anyhow::Result<Vec<WebhookEndpoint>> {
@@ -48,7 +48,7 @@ impl CustodyDb {
         )
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows.into_iter().map(|r| r.into_endpoint()).collect())
+        rows.into_iter().map(|r| r.into_endpoint()).collect()
     }
 
     pub async fn list_active_webhook_endpoints(&self) -> anyhow::Result<Vec<WebhookEndpoint>> {
@@ -58,7 +58,7 @@ impl CustodyDb {
         )
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows.into_iter().map(|r| r.into_endpoint()).collect())
+        rows.into_iter().map(|r| r.into_endpoint()).collect()
     }
 
     pub async fn update_webhook_endpoint(
@@ -118,17 +118,21 @@ struct WebhookEndpointRow {
 }
 
 impl WebhookEndpointRow {
-    fn into_endpoint(self) -> WebhookEndpoint {
-        WebhookEndpoint {
+    fn into_endpoint(self) -> anyhow::Result<WebhookEndpoint> {
+        let chain_filter = self.chain_filter.iter()
+            .map(|c| Chain::try_parse_str(c)
+                .ok_or_else(|| anyhow::anyhow!("webhook_endpoints row {}: unknown chain '{c}'", self.id)))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(WebhookEndpoint {
             id: self.id,
             url: self.url,
             secret: self.secret,
             event_filter: self.event_filter,
-            chain_filter: self.chain_filter.iter().map(|c| Chain::parse_str(c)).collect(),
+            chain_filter,
             enabled: self.enabled,
             description: self.description,
             created_at: self.created_at,
             updated_at: self.updated_at,
-        }
+        })
     }
 }

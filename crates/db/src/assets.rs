@@ -28,7 +28,7 @@ impl CustodyDb {
                 .await?
             }
         };
-        Ok(rows.into_iter().map(|r| r.into_asset()).collect())
+        rows.into_iter().map(|r| r.into_asset()).collect()
     }
 
     pub async fn find_asset(&self, symbol: &str, chain: &str) -> anyhow::Result<Option<ManagedAsset>> {
@@ -40,7 +40,7 @@ impl CustodyDb {
         .bind(chain)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| r.into_asset()))
+        row.map(|r| r.into_asset()).transpose()
     }
 
     pub async fn find_asset_by_id(&self, id: Uuid) -> anyhow::Result<Option<ManagedAsset>> {
@@ -51,7 +51,7 @@ impl CustodyDb {
         .bind(id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| r.into_asset()))
+        row.map(|r| r.into_asset()).transpose()
     }
 
     pub async fn insert_asset(&self, a: &ManagedAsset) -> anyhow::Result<()> {
@@ -104,17 +104,19 @@ struct ManagedAssetRow {
 }
 
 impl ManagedAssetRow {
-    fn into_asset(self) -> ManagedAsset {
-        ManagedAsset {
+    fn into_asset(self) -> anyhow::Result<ManagedAsset> {
+        let chain = Chain::try_parse_str(&self.chain)
+            .ok_or_else(|| anyhow::anyhow!("managed_assets row {}: unknown chain '{}'", self.id, self.chain))?;
+        Ok(ManagedAsset {
             id: self.id,
             symbol: self.symbol,
-            chain: Chain::parse_str(&self.chain),
+            chain,
             contract_address: self.contract_address,
             decimals: self.decimals as u8,
             is_native: self.is_native,
             enabled: self.enabled,
             added_at: self.added_at,
-        }
+        })
     }
 }
 

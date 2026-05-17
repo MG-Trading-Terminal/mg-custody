@@ -74,8 +74,10 @@ impl CustodyDb {
              FROM embedded_accounts WHERE wallet_id = $1",
         ).bind(wallet_id).fetch_all(&self.pool).await?;
 
-        Ok(rows.into_iter().map(|(chain, address, path, deployed)| EmbeddedAccount {
-            chain: Chain::parse_str(&chain), address, derivation_path: path, is_deployed: deployed,
-        }).collect())
+        rows.into_iter().map(|(chain, address, path, deployed)| {
+            let c = Chain::try_parse_str(&chain)
+                .ok_or_else(|| anyhow::anyhow!("embedded_accounts wallet_id {wallet_id}: unknown chain '{chain}'"))?;
+            Ok(EmbeddedAccount { chain: c, address, derivation_path: path, is_deployed: deployed })
+        }).collect()
     }
 }

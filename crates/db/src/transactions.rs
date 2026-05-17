@@ -86,9 +86,11 @@ impl CustodyDb {
             .await?;
 
         if let Some((id, asset, chain, addr, amount, tx_hash, status, created_at)) = row {
+            let c = Chain::try_parse_str(&chain)
+                .ok_or_else(|| anyhow::anyhow!("deposits row {id}: unknown chain '{chain}'"))?;
             return Ok(Some(Transaction {
                 id, tx_type: TransactionType::Deposit,
-                asset: Asset::new(&asset), chain: Chain::parse_str(&chain),
+                asset: Asset::new(&asset), chain: c,
                 amount, fee: None, status,
                 source_vault_id: None, dest_vault_id: None,
                 source_address: Some(addr.clone()), dest_address: Some(addr),
@@ -107,9 +109,11 @@ impl CustodyDb {
             .await?;
 
         if let Some((id, asset, chain, dest, amount, fee, tx_hash, status, created_at)) = row {
+            let c = Chain::try_parse_str(&chain)
+                .ok_or_else(|| anyhow::anyhow!("withdrawals row {id}: unknown chain '{chain}'"))?;
             return Ok(Some(Transaction {
                 id, tx_type: TransactionType::Withdrawal,
-                asset: Asset::new(&asset), chain: Chain::parse_str(&chain),
+                asset: Asset::new(&asset), chain: c,
                 amount, fee, status,
                 source_vault_id: None, dest_vault_id: None,
                 source_address: None, dest_address: Some(dest),
@@ -128,9 +132,11 @@ impl CustodyDb {
             .await?;
 
         if let Some((id, src, dst, asset, chain, amount, status, created_at, completed_at)) = row {
+            let c = Chain::try_parse_str(&chain)
+                .ok_or_else(|| anyhow::anyhow!("internal_transfers row {id}: unknown chain '{chain}'"))?;
             return Ok(Some(Transaction {
                 id, tx_type: TransactionType::InternalTransfer,
-                asset: Asset::new(&asset), chain: Chain::parse_str(&chain),
+                asset: Asset::new(&asset), chain: c,
                 amount, fee: None, status,
                 source_vault_id: Some(src), dest_vault_id: Some(dst),
                 source_address: None, dest_address: None,
@@ -160,14 +166,20 @@ impl CustodyDb {
 
         let txs: Vec<Transaction> = rows
             .into_iter()
-            .map(|(id, asset, chain, addr, amount, tx_hash, status, created_at)| Transaction {
-                id, tx_type: TransactionType::Deposit,
-                asset: Asset::new(&asset), chain: Chain::parse_str(&chain),
-                amount, fee: None, status,
-                source_vault_id: None, dest_vault_id: None,
-                source_address: Some(addr.clone()), dest_address: Some(addr),
-                tx_hash, created_at, updated_at: None,
+            .map(|(id, asset, chain, addr, amount, tx_hash, status, created_at)| {
+                let c = Chain::try_parse_str(&chain)
+                    .ok_or_else(|| anyhow::anyhow!("deposits row {id}: unknown chain '{chain}'"))?;
+                Ok(Transaction {
+                    id, tx_type: TransactionType::Deposit,
+                    asset: Asset::new(&asset), chain: c,
+                    amount, fee: None, status,
+                    source_vault_id: None, dest_vault_id: None,
+                    source_address: Some(addr.clone()), dest_address: Some(addr),
+                    tx_hash, created_at, updated_at: None,
+                })
             })
+            .collect::<anyhow::Result<Vec<_>>>()?
+            .into_iter()
             .filter(|tx| apply_filter(tx, filter))
             .collect();
         Ok(txs)
@@ -187,14 +199,20 @@ impl CustodyDb {
 
         let txs: Vec<Transaction> = rows
             .into_iter()
-            .map(|(id, asset, chain, dest, amount, fee, tx_hash, status, created_at)| Transaction {
-                id, tx_type: TransactionType::Withdrawal,
-                asset: Asset::new(&asset), chain: Chain::parse_str(&chain),
-                amount, fee, status,
-                source_vault_id: None, dest_vault_id: None,
-                source_address: None, dest_address: Some(dest),
-                tx_hash, created_at, updated_at: None,
+            .map(|(id, asset, chain, dest, amount, fee, tx_hash, status, created_at)| {
+                let c = Chain::try_parse_str(&chain)
+                    .ok_or_else(|| anyhow::anyhow!("withdrawals row {id}: unknown chain '{chain}'"))?;
+                Ok(Transaction {
+                    id, tx_type: TransactionType::Withdrawal,
+                    asset: Asset::new(&asset), chain: c,
+                    amount, fee, status,
+                    source_vault_id: None, dest_vault_id: None,
+                    source_address: None, dest_address: Some(dest),
+                    tx_hash, created_at, updated_at: None,
+                })
             })
+            .collect::<anyhow::Result<Vec<_>>>()?
+            .into_iter()
             .filter(|tx| apply_filter(tx, filter))
             .collect();
         Ok(txs)
@@ -214,14 +232,20 @@ impl CustodyDb {
 
         let txs: Vec<Transaction> = rows
             .into_iter()
-            .map(|(id, src, dst, asset, chain, amount, status, created_at, completed_at)| Transaction {
-                id, tx_type: TransactionType::InternalTransfer,
-                asset: Asset::new(&asset), chain: Chain::parse_str(&chain),
-                amount, fee: None, status,
-                source_vault_id: Some(src), dest_vault_id: Some(dst),
-                source_address: None, dest_address: None,
-                tx_hash: None, created_at, updated_at: completed_at,
+            .map(|(id, src, dst, asset, chain, amount, status, created_at, completed_at)| {
+                let c = Chain::try_parse_str(&chain)
+                    .ok_or_else(|| anyhow::anyhow!("internal_transfers row {id}: unknown chain '{chain}'"))?;
+                Ok(Transaction {
+                    id, tx_type: TransactionType::InternalTransfer,
+                    asset: Asset::new(&asset), chain: c,
+                    amount, fee: None, status,
+                    source_vault_id: Some(src), dest_vault_id: Some(dst),
+                    source_address: None, dest_address: None,
+                    tx_hash: None, created_at, updated_at: completed_at,
+                })
             })
+            .collect::<anyhow::Result<Vec<_>>>()?
+            .into_iter()
             .filter(|tx| apply_filter(tx, filter))
             .collect();
         Ok(txs)

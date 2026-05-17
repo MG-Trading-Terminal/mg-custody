@@ -90,7 +90,8 @@ impl TravelRuleRow {
             beneficiary,
             amount: self.amount,
             asset: Asset::new(&self.asset),
-            chain: Chain::parse_str(&self.chain),
+            chain: Chain::try_parse_str(&self.chain)
+                .ok_or_else(|| anyhow::anyhow!("travel_rule row {}: unknown chain '{}'", self.id, self.chain))?,
             threshold_currency: self.threshold_currency,
             threshold_amount: self.threshold_amount,
             status,

@@ -315,20 +315,22 @@ impl CustodyDb {
             .fetch_all(&self.pool)
             .await?;
 
-        Ok(rows.into_iter().map(|(id, entry_type, account, amount, asset, chain, counterpart_id, reference_id, reference_type, created_at)| {
-            LedgerEntry {
+        rows.into_iter().map(|(id, entry_type, account, amount, asset, chain, counterpart_id, reference_id, reference_type, created_at)| {
+            let c = custody_common::Chain::try_parse_str(&chain)
+                .ok_or_else(|| anyhow::anyhow!("custody_ledger row {id}: unknown chain '{chain}'"))?;
+            Ok(LedgerEntry {
                 id,
                 entry_type: if entry_type == "credit" { EntryType::Credit } else { EntryType::Debit },
                 account,
                 amount,
                 asset,
-                chain: custody_common::Chain::parse_str(&chain),
+                chain: c,
                 counterpart_id,
                 reference_id,
                 reference_type,
                 created_at,
-            }
-        }).collect())
+            })
+        }).collect()
     }
 }
 

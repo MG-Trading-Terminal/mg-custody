@@ -200,7 +200,7 @@ impl CustodyDb {
         .bind(chain)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| r.into_vault_account()))
+        row.map(|r| r.into_vault_account()).transpose()
     }
 
     pub async fn list_vault_accounts(&self, vault_id: Uuid) -> anyhow::Result<Vec<VaultAccount>> {
@@ -211,7 +211,7 @@ impl CustodyDb {
         .bind(vault_id)
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows.into_iter().map(|r| r.into_vault_account()).collect())
+        rows.into_iter().map(|r| r.into_vault_account()).collect()
     }
 
     pub async fn find_vault_account_by_id(&self, id: Uuid) -> anyhow::Result<Option<VaultAccount>> {
@@ -222,7 +222,7 @@ impl CustodyDb {
         .bind(id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| r.into_vault_account()))
+        row.map(|r| r.into_vault_account()).transpose()
     }
 
     pub async fn find_vault_account_by_address(&self, address: &str) -> anyhow::Result<Option<VaultAccount>> {
@@ -233,7 +233,7 @@ impl CustodyDb {
         .bind(address)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| r.into_vault_account()))
+        row.map(|r| r.into_vault_account()).transpose()
     }
 
     pub async fn update_vault_account_balance(
@@ -312,7 +312,7 @@ impl CustodyDb {
         .bind(id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| r.into_transfer()))
+        row.map(|r| r.into_transfer()).transpose()
     }
 
     pub async fn find_internal_transfer_by_key(&self, key: &str) -> anyhow::Result<Option<InternalTransfer>> {
@@ -323,7 +323,7 @@ impl CustodyDb {
         .bind(key)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|r| r.into_transfer()))
+        row.map(|r| r.into_transfer()).transpose()
     }
 
     pub async fn complete_internal_transfer(&self, id: Uuid) -> anyhow::Result<()> {
@@ -356,19 +356,21 @@ struct VaultAccountRow {
 }
 
 impl VaultAccountRow {
-    fn into_vault_account(self) -> VaultAccount {
-        VaultAccount {
+    fn into_vault_account(self) -> anyhow::Result<VaultAccount> {
+        let chain = Chain::try_parse_str(&self.chain)
+            .ok_or_else(|| anyhow::anyhow!("vault_accounts row {}: unknown chain '{}'", self.id, self.chain))?;
+        Ok(VaultAccount {
             id: self.id,
             vault_id: self.vault_id,
             asset: Asset::new(&self.asset),
-            chain: Chain::parse_str(&self.chain),
+            chain,
             address: self.address,
             derivation_path: self.derivation_path,
             balance: self.balance,
             pending_balance: self.pending_balance,
             frozen: self.frozen,
             created_at: self.created_at,
-        }
+        })
     }
 }
 
@@ -388,25 +390,27 @@ struct InternalTransferRow {
 }
 
 impl InternalTransferRow {
-    fn into_transfer(self) -> InternalTransfer {
+    fn into_transfer(self) -> anyhow::Result<InternalTransfer> {
         let status = match self.status.as_str() {
             "completed" => InternalTransferStatus::Completed,
             "failed" => InternalTransferStatus::Failed,
             "cancelled" => InternalTransferStatus::Cancelled,
             _ => InternalTransferStatus::Pending,
         };
-        InternalTransfer {
+        let chain = Chain::try_parse_str(&self.chain)
+            .ok_or_else(|| anyhow::anyhow!("internal_transfers row {}: unknown chain '{}'", self.id, self.chain))?;
+        Ok(InternalTransfer {
             id: self.id,
             source_vault_id: self.source_vault_id,
             dest_vault_id: self.dest_vault_id,
             asset: Asset::new(&self.asset),
-            chain: Chain::parse_str(&self.chain),
+            chain,
             amount: self.amount,
             status,
             idempotency_key: self.idempotency_key,
             note: self.note,
             created_at: self.created_at,
             completed_at: self.completed_at,
-        }
+        })
     }
 }
