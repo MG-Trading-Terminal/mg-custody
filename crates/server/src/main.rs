@@ -134,6 +134,7 @@ async fn main() -> anyhow::Result<()> {
                 ("037_readiness_silences", include_str!("../../db/migrations/037_readiness_silences.sql")),
                 ("038_readiness_silence_starts_at", include_str!("../../db/migrations/038_readiness_silence_starts_at.sql")),
                 ("039_system_config", include_str!("../../db/migrations/039_system_config.sql")),
+                ("042_trust_dispatch", include_str!("../../db/migrations/042_trust_dispatch.sql")),
             ];
             for (name, sql) in migrations {
                 if let Err(e) = sqlx::raw_sql(sql).execute(&pool).await {
@@ -319,18 +320,27 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Emergency freeze inactive at startup");
     }
 
-    // Travel Rule provider (moved up so the pipeline builder can
-    // claim it before being finalized into Arc<_>). Creation stays
-    // env-driven: CUSTODY_TRAVELRULE__NOTABENE_API_KEY → wired,
-    // empty/absent → None (pipeline logs + proceeds; operator
-    // handles TR out-of-band).
-    let travel_rule_provider = std::env::var("CUSTODY_TRAVELRULE__NOTABENE_API_KEY")
+    let notabene_key = std::env::var("CUSTODY_TRAVELRULE__NOTABENE_API_KEY")
         .ok()
-        .filter(|s| !s.is_empty())
-        .map(|key| {
-            tracing::info!("Notabene Travel Rule provider enabled — pipeline will dispatch pre-broadcast");
-            std::sync::Arc::new(custody_compliance::travel_rule::NotabeneProvider::new(&key))
-        });
+        .filter(|key| !key.is_empty());
+    let mut trust_provider = None;
+    let notabene_key = match std::env::var("CUSTODY_TRAVELRULE__PROVIDER") {
+        Err(std::env::VarError::NotPresent) => notabene_key,
+        Ok(provider) if provider == "notabene" => {
+            anyhow::ensure!(notabene_key.is_some(), "Set CUSTODY_TRAVELRULE__NOTABENE_API_KEY");
+            notabene_key
+        }
+        Ok(provider) if provider == "21travel" => {
+            trust_provider = Some(Arc::new(custody_compliance::travel_rule::TwentyOneTravelConfig::from_env()?));
+            tracing::info!("21 Travel Rule enabled for post-broadcast TRUST dispatch");
+            None
+        }
+        _ => anyhow::bail!("CUSTODY_TRAVELRULE__PROVIDER must be notabene or 21travel"),
+    };
+    let travel_rule_provider = notabene_key.map(|key| {
+        tracing::info!("Notabene Travel Rule provider enabled for pre-broadcast dispatch");
+        Arc::new(custody_compliance::travel_rule::NotabeneProvider::new(&key))
+    });
 
     // ─── Withdrawal Pipeline with all deps ───────────────────────────
     let limits = &config.limits;
@@ -521,6 +531,9 @@ async fn main() -> anyhow::Result<()> {
     pipeline_builder = pipeline_builder.with_freeze_flag(freeze_flag.clone());
     if let Some(ref tr) = travel_rule_provider {
         pipeline_builder = pipeline_builder.with_travel_rule_provider(tr.clone());
+    }
+    if let Some(provider) = trust_provider.as_ref() {
+        pipeline_builder = pipeline_builder.with_trust_provider(provider.clone());
     }
     let withdrawal_pipeline = Arc::new(pipeline_builder);
 
@@ -948,16 +961,6 @@ async fn main() -> anyhow::Result<()> {
     let email_from = std::env::var("CUSTODY_EMAIL__FROM")
         .unwrap_or_else(|_| "MG Custody <no-reply@custody.local>".to_string());
     let email_mode = std::env::var("CUSTODY_EMAIL__MODE").unwrap_or_else(|_| "console".to_string());
-    // Travel Rule provider (Notabene). Read from env:
-    //   CUSTODY_TRAVELRULE__NOTABENE_API_KEY
-    // If unset, the `submit_travel_rule` handler persists the row with
-    // status = Required (awaiting out-of-band exchange). If set, the
-    // handler dispatches originator data to the counterparty VASP via
-    // the provider and flips the status based on success.
-    // (Travel Rule provider constructed earlier so the pipeline
-    // builder can take ownership. `travel_rule_provider` in scope
-    // here for the AppState field below.)
-
     let email_sender = match email_mode.as_str() {
         "noop" => custody_common::email::EmailSender::noop(),
         "smtp" => {
@@ -1030,7 +1033,7 @@ async fn main() -> anyhow::Result<()> {
     let admin_cooldown = std::sync::Arc::new(
         custody_gateway::admin_cooldown::AdminCooldown::new(),
     );
-    let initial = readiness_build::build(&config, &email_sender, travel_rule_configured).await;
+    let initial = readiness_build::build(&config, &email_sender, travel_rule_configured, trust_provider.as_deref()).await;
     custody_common::readiness::startup_log_report(&initial);
     initial.export_prometheus_gauges();
     let readiness = custody_common::readiness::ReadinessHandle::new(initial);
@@ -1081,6 +1084,7 @@ async fn main() -> anyhow::Result<()> {
         let cfg = config.clone();
         let email = email_sender.clone();
         let tr = travel_rule_configured;
+        let trust = trust_provider.clone();
         let history_db = db.clone();
         let chaos_map = chaos_overrides.clone();
         let acks = incident_acks.clone();
@@ -1101,7 +1105,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
                 let previous = handle.snapshot();
-                let mut report = readiness_build::build(&cfg, &email, tr).await;
+                let mut report = readiness_build::build(&cfg, &email, tr, trust.as_deref()).await;
                 // Overlay any chaos overrides on the freshly-probed
                 // report. An empty override map is the common case
                 // and a cheap RwLock read — no-op when nothing's set.
@@ -1549,6 +1553,13 @@ async fn main() -> anyhow::Result<()> {
             if let Err(e) = pipeline.run(Duration::from_secs(pipeline_interval)).await {
                 tracing::error!(error = %e, "Withdrawal pipeline failed");
             }
+        });
+    }
+
+    if trust_provider.is_some() {
+        let pipeline = withdrawal_pipeline.clone();
+        tokio::spawn(async move {
+            pipeline.run_trust_dispatches(Duration::from_secs(pipeline_interval)).await;
         });
     }
 

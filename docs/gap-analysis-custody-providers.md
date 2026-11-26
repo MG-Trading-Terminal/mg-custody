@@ -3,6 +3,8 @@
 **Date**: 2026-03-25
 **Scope**: Feature comparison of top 5 institutional custody providers vs. MG Custody (self-hosted)
 
+The MG Custody Travel Rule assessment was updated on 2026-11-26. The rest of the comparison reflects the original snapshot.
+
 ---
 
 ## 1. Provider Feature Matrix
@@ -42,11 +44,13 @@
 | Feature | Fireblocks | BitGo | Copper.co | Cobo | Liminal | MG Custody |
 |---------|-----------|-------|-----------|------|---------|------------|
 | **AML/KYT screening** | Integrated (Chainalysis, Elliptic) | Integrated | Integrated | Chainalysis + Elliptic | TRM Labs | Not implemented |
-| **Travel Rule** | Notabene/TRISA integration | Supported | Notabene partnership | Supported | Built-in checks | Not implemented |
+| **Travel Rule** | Notabene/TRISA integration | Supported | Notabene partnership | Supported | Built-in checks | 21 Analytics (TRUST) |
 | **OFAC/sanctions screening** | Real-time | Real-time | Real-time | Real-time | Real-time | Planned (Phase 4) |
 | **Regulatory licenses** | NYDFS Trust, MiCA-aligned | OCC national bank charter, BaFin (MiCA), Dubai VASP | Swiss registration | SOC 2 Type II, ISO 27001 | CCSS Level 3, SOC 2 Type 2, ISO 27001/27701 | None |
 | **Audit certifications** | SOC 2, NIST CSF 2.0 alignment | SOC 2 Type 2 | SOC 2 Type 2 | SOC 2 Type II, ISO 27001 | SOC 2 Type 2, CCSS Level 3, ISO 27001/27701 | None |
 | **Proof of Reserves** | Supported | Supported | Via trust structure | Supported | Not specified | Planned (Phase 5) |
+
+With 21 Analytics enabled, MG Custody checks the TRUST counterparty before broadcast for withdrawals subject to its Travel Rule gate. It sends automatically after broadcast, when the on-chain transaction ID required by TRUST is available. The custody API reports dispatch status and the receipt ID. Operators can look up counterparties and retrieve beneficiary data through `custody-admin trust`. [MG Custody setup and supported assets](../README.md#21-analytics-trust) · [21 Analytics outgoing workflow](https://docs.21analytics.ch/8.4.0/api/outgoing_integration.html)
 
 ### 1.5 DeFi & Staking
 
@@ -94,7 +98,7 @@
 | # | Gap | Industry Standard | MG Custody Current | Impact | Effort |
 |---|-----|-------------------|-------------------|--------|--------|
 | P1-1 | **Limited chain support (4 chains)** | 21-150+ chains | 4 chains (BTC, ETH, TRX, SOL) | Cannot serve multi-chain institutional portfolios. Missing L2s (Arbitrum, Optimism, Base), Cosmos ecosystem, Polkadot, etc. | 2-4 weeks per chain |
-| P1-2 | **No Travel Rule support** | Notabene or TRISA integration standard | Not implemented | Required by FATF/MiCA for transfers >EUR 1,000. Cannot serve EU-regulated clients. | 3-4 weeks (Notabene API) |
+| P1-2 | **Live TRUST validation** | Counterparty data exchange with traceable delivery | 21 Analytics TRUST flow implemented and verified with local PostgreSQL and an HTTPS mock. | Verify delivery and handling of unconfirmed sends with real counterparties before rollout. | Depends on TRUST onboarding and test access |
 | P1-3 | **No SOC 2 or ISO 27001 certification** | SOC 2 Type 2 is table stakes; CCSS Level 3 is gold standard | No certifications | Institutional clients require audit reports before onboarding. No cert = no enterprise sales. | 3-6 months (external audit engagement) |
 | P1-4 | **No policy management API** | All providers offer API-driven policy CRUD | Hardcoded circuit breaker limits | Operators cannot adjust limits without code changes and redeployment. | 2-3 weeks |
 | P1-5 | **No admin quorum for config changes** | SGX-enforced or multi-admin approval for policy changes | Single admin / env var changes | A single operator can modify limits, disable circuit breaker, or change withdrawal rules unilaterally. | 2-3 weeks |

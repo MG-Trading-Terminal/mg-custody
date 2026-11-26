@@ -335,7 +335,7 @@ curl -s -X POST http://localhost:8443/v1/notifications/channels \
 1. **Deploy Mode 2** — split signer for real funds (see [DEPLOYMENT_MODES.md](DEPLOYMENT_MODES.md))
 2. **Reconciliation** — set up scheduled on-chain vs ledger reconciliation
 3. **Proof of Reserves** — generate Merkle proofs for auditors
-4. **Compliance** — configure OFAC screening, Travel Rule thresholds
+4. **Compliance** — configure OFAC screening and 21 Analytics. Submit withdrawal identity data through the custody API and verify TRUST delivery in a test environment. [Travel Rule setup](../README.md#21-analytics-trust)
 5. **Backup & DR** — test seed reconstruction from Shamir shares
 
 ---

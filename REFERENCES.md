@@ -74,5 +74,7 @@ Every formula, mechanism, and design decision must trace to a documented source.
 |-----------|-----------|---------|
 | MiCA Custody (Art.70, 75) | [MiCA Regulation](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32023R1114) | compliance |
 | Travel Rule | [FATF Rec.16](https://www.fatf-gafi.org/en/topics/virtual-assets.html), [TFR 2023/1113](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32023R1113) | compliance |
+| TRUST counterparty lookup, post-broadcast dispatch and receipt reconciliation | [21 Analytics 8.4.0 API guide](https://docs.21analytics.ch/8.4.0/api/getting-started.html), [outgoing workflow](https://docs.21analytics.ch/8.4.0/api/outgoing_integration.html), 8.4.0 GraphQL schema and DTI registry | `custody-compliance`, `custody-withdrawal-pipeline`, `custody-admin` |
+| MG Custody Travel Rule setup and provider comparison | [Setup and workflow](README.md#21-analytics-trust), [custody provider gap analysis](docs/gap-analysis-custody-providers.md#14-compliance--aml) | Deployment and onboarding documentation |
 | OFAC Sanctions | [OFAC SDN List](https://www.treasury.gov/ofac/downloads/sdnlist.txt) | withdrawal-pipeline |
 | Proof of Reserves | [Vitalik PoR](https://vitalik.eth.limo/general/2022/11/19/proof_of_solvency.html) | reconciliation |

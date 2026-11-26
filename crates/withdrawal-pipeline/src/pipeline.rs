@@ -18,7 +18,7 @@ use custody_compliance::ofac::SanctionsChecker;
 use custody_confirmations::WebhookSender;
 use custody_db::CustodyDb;
 use custody_compliance::screening::ScreeningService;
-use custody_compliance::travel_rule::{self, NotabeneProvider, TravelRuleProvider as _};
+use custody_compliance::travel_rule::{self, NotabeneProvider, TravelRuleProvider as _, TwentyOneTravelConfig};
 use custody_fee_estimator::bitcoin::BitcoinFeeEstimator;
 use custody_fee_estimator::ethereum::EthereumFeeEstimator;
 use custody_fee_estimator::solana::SolanaFeeEstimator;
@@ -96,6 +96,7 @@ pub struct WithdrawalPipeline {
     /// compliance bug — same class as the AML fail-closed gate on
     /// the submit endpoint.
     travel_rule_provider: Option<Arc<NotabeneProvider>>,
+    trust_provider: Option<Arc<TwentyOneTravelConfig>>,
     /// Tron API URL for fetching latest block (ref_block_bytes/hash).
     trx_api_url: Option<String>,
     /// Solana RPC URL for fetching recent blockhash.
@@ -122,6 +123,7 @@ impl WithdrawalPipeline {
             webhook_sender: None, event_broadcaster: None,
             frozen: None,
             travel_rule_provider: None,
+            trust_provider: None,
             trx_api_url: None, sol_rpc_url: None,
             eth_chain_id: 1,
         }
@@ -137,6 +139,16 @@ impl WithdrawalPipeline {
     pub fn with_travel_rule_provider(mut self, p: Arc<NotabeneProvider>) -> Self {
         self.travel_rule_provider = Some(p);
         self
+    }
+    /// Configure TRUST dispatch after broadcast.
+    pub fn with_trust_provider(mut self, provider: Arc<TwentyOneTravelConfig>) -> Self {
+        self.trust_provider = Some(provider);
+        self
+    }
+
+    /// The configured TRUST connection settings, if this workflow is enabled.
+    pub fn trust_provider(&self) -> Option<&TwentyOneTravelConfig> {
+        self.trust_provider.as_deref()
     }
     pub fn with_policy_engine(mut self, e: Arc<PolicyEngine>) -> Self { self.policy_engine = Some(e); self }
     pub fn with_sanctions_checker(mut self, c: Arc<SanctionsChecker>) -> Self { self.sanctions_checker = Some(c); self }
@@ -420,6 +432,10 @@ impl WithdrawalPipeline {
             if travel_rule::requires_travel_rule(w.amount, "EU") {
                 match self.travel_rule_provider.as_ref() {
                     Some(provider) => {
+                        if self.db.trust_dispatch_status(w.id).await?.is_some() {
+                            tracing::warn!(id = %w.id, "Withdrawal already assigned to TRUST");
+                            continue;
+                        }
                         let tr_row = self
                             .db
                             .find_travel_rule_by_withdrawal(w.id)
@@ -473,6 +489,12 @@ impl WithdrawalPipeline {
                                     .await?;
                                 continue;
                             }
+                        }
+                    }
+                    None if self.trust_provider.is_some() => {
+                        if !self.db.has_trust_dispatch(w.id).await? {
+                            tracing::warn!(id = %w.id, "Waiting for TRUST data before validating withdrawal");
+                            continue;
                         }
                     }
                     None => {
@@ -1285,6 +1307,20 @@ impl WithdrawalPipeline {
                 tracing::warn!(id = %w.id, "Freeze flipped mid-tick — halting signed-stage loop");
                 return Ok(());
             }
+            if let Some(provider) = self.trust_provider()
+                && travel_rule::requires_travel_rule(w.amount, "EU")
+            {
+                if !self.db.has_trust_dispatch(w.id).await? { continue; }
+                let preflight = async {
+                    let asset = travel_rule::trust_asset(w.chain, w.asset.as_str())?;
+                    provider.connect().await?.preflight(&w.destination_address, w.chain, asset).await
+                }.await;
+                if let Err(e) = preflight {
+                    tracing::warn!(id = %w.id, error = %e, "TRUST preflight failed; withdrawal stays signed");
+                    continue;
+                }
+                if self.is_frozen() { return Ok(()); }
+            }
             let tx_bytes = match self.db.get_signed_tx_bytes(w.id).await? {
                 Some(b) => b,
                 None => { tracing::error!(id = %w.id, "No signed tx bytes"); continue; }
@@ -1325,6 +1361,48 @@ impl WithdrawalPipeline {
                     tracing::info!(id = %w.id, chain = ?w.chain, "Broadcast");
                 }
                 Err(e) => tracing::error!(id = %w.id, chain = ?w.chain, error = %e, "Broadcast failed"),
+            }
+        }
+        Ok(())
+    }
+
+    /// Dispatch broadcast withdrawals and reconcile unconfirmed attempts independently of signing.
+    pub async fn run_trust_dispatches(&self, interval: Duration) {
+        if self.trust_provider.is_none() { return; }
+        loop {
+            for reconcile in [false, true] {
+                if let Err(e) = self.process_trust_dispatch(reconcile).await {
+                    tracing::error!(error = %e, "TRUST dispatch worker failed");
+                }
+            }
+            tokio::time::sleep(interval).await;
+        }
+    }
+
+    async fn process_trust_dispatch(&self, reconcile: bool) -> Result<()> {
+        let Some(provider) = self.trust_provider() else { return Ok(()) };
+        if self.is_frozen() { return Ok(()) }
+        let Some(job) = self.db.claim_trust_dispatch(reconcile).await? else { return Ok(()) };
+        let result = async {
+            let chain = Chain::try_parse_str(&job.chain)
+                .ok_or_else(|| anyhow::anyhow!("Unknown chain for TRUST dispatch"))?;
+            let mut details = travel_rule::trust_withdrawal_details(
+                chain, &job.asset, job.amount, &job.trust_parties.0,
+            )?;
+            details["txId"] = serde_json::json!(job.tx_hash);
+            let client = provider.connect().await?;
+            let receipt = client.find_sent(&job.destination_address, chain, &details).await?;
+            if receipt.is_some() || reconcile { return Ok(receipt) }
+            client.send_withdrawal(&job.destination_address, chain, details).await.map(Some)
+        }.await;
+        match result {
+            Ok(Some(record_id)) => self.db.finish_trust_dispatch(job.id, Some(&record_id)).await?,
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!(id = %job.withdrawal_id, error = %e, "TRUST dispatch requires operator review");
+                if !reconcile && !e.is::<travel_rule::TrustSendUnconfirmed>() {
+                    self.db.finish_trust_dispatch(job.id, None).await?;
+                }
             }
         }
         Ok(())

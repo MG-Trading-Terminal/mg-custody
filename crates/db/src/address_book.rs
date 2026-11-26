@@ -259,5 +259,3 @@ mod tests {
         assert!(req.notes.is_none());
     }
 }
-    }
-}

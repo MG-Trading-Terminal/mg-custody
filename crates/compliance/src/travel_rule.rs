@@ -3,16 +3,20 @@
 //! For transfers above threshold ($1K EU / $3K US), originator and beneficiary
 //! information must be exchanged between VASPs.
 //!
-//! Integrates with Notabene or TRISA protocol for counterparty data exchange.
+//! Supports Notabene dispatch and 21 Travel Rule TRUST notifications.
 //!
 //! Reference:
 //! - FATF: <https://www.fatf-gafi.org/en/topics/virtual-assets.html>
 //! - TFR 2023/1113 (EU): <https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32023R1113>
 
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
+use reqwest::{Client, Url};
 use chrono::{DateTime, Utc};
+use custody_common::{Chain, platform::TrustParties};
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 /// Travel Rule threshold (EUR, per TFR 2023/1113).
@@ -386,10 +390,330 @@ impl TravelRuleProvider for NotabeneProvider {
     }
 }
 
+const TRUST_BITCOIN: &str = "DTI4H95J0R2X";
+const LOOKUP: &str = "query Lookup($address: String!, $asset: Asset!) {
+    trustd { lookupBulletinBoard(address: $address, asset: $asset) { id name lei status } }
+}";
+const SEND: &str = "mutation Send($address: String!, $ivms101: TrustdTxDetailsInput!) {
+    autod { sendTxToAddrOwner(address: $address, ivms101: $ivms101) {
+        __typename
+        ... on TrustdTx { trustd { id } }
+    } }
+}";
+const RECORDS: &str = "query Records($filter: TravelTxFilterInput!) {
+    autod { txDetails(limit: 2, filter: $filter) {
+        ... on TrustdTx { trustd { id txId asset amount type beneficiary {
+            walletAddress name { ... on TravelNaturalName { firstName lastName }
+                                 ... on TrpdLegalName { name } }
+        } } }
+    } }
+}";
+
+/// The API did not confirm the outcome of a mutation that may have reached the recipient.
+#[derive(Debug)]
+pub struct TrustSendUnconfirmed;
+
+impl std::fmt::Display for TrustSendUnconfirmed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("21 Travel Rule did not confirm a TRUST send. Check delivery before retrying.")
+    }
+}
+
+impl std::error::Error for TrustSendUnconfirmed {}
+
+/// Runtime settings shared by the withdrawal dispatcher and admin CLI.
+pub struct TwentyOneTravelConfig {
+    base_url: String,
+    client_id: String,
+    secret: String,
+}
+
+impl TwentyOneTravelConfig {
+    /// Load the HTTPS deployment and service-account credentials from the environment.
+    pub fn from_env() -> Result<Self> {
+        fn required(name: &str) -> Result<String> {
+            let value = std::env::var(name).with_context(|| format!("Set {name}"))?;
+            ensure!(!value.trim().is_empty(), "Set {name}");
+            Ok(value)
+        }
+
+        Ok(Self {
+            base_url: required("CUSTODY_21_TRAVEL__BASE_URL")?,
+            client_id: required("CUSTODY_21_TRAVEL__CLIENT_ID")?,
+            secret: required("CUSTODY_21_TRAVEL__CLIENT_SECRET")?,
+        })
+    }
+
+    /// Open an authenticated API session.
+    pub async fn connect(&self) -> Result<TwentyOneTravelProvider> {
+        TwentyOneTravelProvider::authenticate(&self.base_url, &self.client_id, &self.secret).await
+    }
+}
+
+/// The 8.4.0 DTI for a native asset or a token supported by the custody signing pipeline.
+pub fn trust_asset(chain: Chain, symbol: &str) -> Result<&'static str> {
+    Ok(match (chain, symbol) {
+        (Chain::Bitcoin, "BTC") => TRUST_BITCOIN,
+        (Chain::Ethereum, "ETH") => "DTIX9J9K872S",
+        (Chain::Ethereum, "USDT") => "DTI2QWSBDMNC",
+        (Chain::Ethereum, "USDC") => "DTICK9PW1MFH",
+        (Chain::Tron, "TRX") => "DTI993D8X1FB",
+        (Chain::Tron, "USDT") => "DTIC9N6ZVN7S",
+        (Chain::Tron, "USDC") => "DTIT6TQ8GN7L",
+        (Chain::Solana, "SOL") => "DTI20J63Z4N3",
+        _ => anyhow::bail!("Asset is unsupported for TRUST on this chain"),
+    })
+}
+
+/// Validate the withdrawal asset and scale and serialise the TRUST mutation input.
+pub fn trust_withdrawal_details(
+    chain: Chain,
+    symbol: &str,
+    amount: Decimal,
+    parties: &TrustParties,
+) -> Result<Value> {
+    let asset = trust_asset(chain, symbol)?;
+    let originator = &parties.originator;
+    let address = &originator.address;
+    let required = [&originator.id, &originator.customer_identification, &address.address_line,
+        &address.postal_code, &address.town];
+    ensure!(required.iter().all(|value| !value.trim().is_empty())
+            && address.country.len() == 2 && address.country.bytes().all(|b| b.is_ascii_uppercase()),
+            "TRUST originator requires identity and a complete postal address with a two-letter country code");
+    use custody_common::platform::TrustBeneficiaryName;
+    let valid_name = match &parties.beneficiary_name {
+        TrustBeneficiaryName::Natural { first_name, last_name } =>
+            !first_name.trim().is_empty() && !last_name.trim().is_empty(),
+        TrustBeneficiaryName::Legal { name } => !name.trim().is_empty(),
+    };
+    ensure!(valid_name, "TRUST requires the beneficiary name");
+    let registry = custody_common::token_registry::TokenRegistry::with_defaults();
+    let decimals = registry.decimals(symbol, chain).context("Missing asset decimals")?;
+    let amount = amount.checked_mul(Decimal::from(10u64.pow(decimals.into())))
+        .filter(|scaled| scaled.fract().is_zero())
+        .and_then(|scaled| scaled.to_u128())
+        .filter(|scaled| *scaled > 0)
+        .context("TRUST amount must be a positive whole number of base units")?;
+    let mut details = serde_json::to_value(parties)?;
+    details["asset"] = json!(asset);
+    details["amount"] = json!(amount.to_string());
+    Ok(details)
+}
+
+/// Authenticated client for one 21 Travel Rule operator command.
+pub struct TwentyOneTravelProvider {
+    http: Client,
+    graphql_url: Url,
+    token: String,
+}
+
+impl TwentyOneTravelProvider {
+    /// Obtain a bearer token using the deployment's OAuth client credentials.
+    pub async fn authenticate(base_url: &str, client_id: &str, secret: &str) -> Result<Self> {
+        let base = Url::parse(&format!("{}/", base_url.trim_end_matches('/')))
+            .context("Invalid 21 Travel Rule base URL")?;
+        ensure!(
+            base.scheme() == "https"
+                && base.username().is_empty()
+                && base.password().is_none()
+                && base.query().is_none()
+                && base.fragment().is_none(),
+            "21 Travel Rule base URL must use HTTPS and contain only a host and optional path"
+        );
+        let http = Client::builder()
+            .https_only(true)
+            .timeout(std::time::Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
+            .retry(reqwest::retry::never())
+            .build()?;
+        let response: Value = http
+            .post(base.join("auth/realms/21travel/protocol/openid-connect/token")?)
+            .form(&[
+                ("grant_type", "client_credentials"),
+                ("scope", "openid"),
+                ("client_id", client_id),
+                ("client_secret", secret),
+            ])
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        let token = response["access_token"]
+            .as_str()
+            .filter(|token| !token.is_empty())
+            .context("Missing 21 Travel Rule access token")?;
+        Ok(Self {
+            http,
+            graphql_url: base.join("graphql")?,
+            token: token.into(),
+        })
+    }
+
+    /// Return counterparty details, or JSON null when TRUST has no match.
+    pub async fn lookup(&self, address: &str) -> Result<Value> {
+        self.lookup_asset(address, Chain::Bitcoin, TRUST_BITCOIN).await
+    }
+
+    /// Look up the destination using the chain and DTI of the custody withdrawal.
+    pub async fn lookup_asset(&self, address: &str, chain: Chain, asset: &str) -> Result<Value> {
+        if chain == Chain::Bitcoin {
+            address.parse::<bitcoin::Address<_>>().context("Expected a Bitcoin wallet address")?;
+        } else {
+            ensure!(address.is_ascii(), "Expected an ASCII wallet address");
+            custody_common::validation::validate_address(chain, address).map_err(anyhow::Error::msg)?;
+        }
+        let mut data = self
+            .graphql(LOOKUP, json!({ "address": address, "asset": asset }))
+            .await?;
+        data["trustd"]
+            .as_object_mut()
+            .and_then(|trustd| trustd.remove("lookupBulletinBoard"))
+            .context("Missing TRUST lookup result")
+    }
+
+    /// Send Travel Rule details for a broadcast Bitcoin withdrawal and return the record ID.
+    pub async fn send(&self, address: &str, mut details: Value) -> Result<String> {
+        let amount = details["amount"].as_str().unwrap_or_default();
+        let txid = details["txId"].as_str().unwrap_or_default();
+        ensure!(
+            amount.bytes().all(|b| b.is_ascii_digit())
+                && amount.parse::<std::num::NonZeroU128>().is_ok(),
+            "Expected a positive string amount in satoshis"
+        );
+        ensure!(
+            txid.len() == 64 && txid.bytes().all(|b| b.is_ascii_hexdigit()),
+            "Expected an on-chain Bitcoin txId"
+        );
+        ensure!(
+            details["asset"].is_null() || details["asset"] == TRUST_BITCOIN,
+            "Only Bitcoin is supported"
+        );
+        details["asset"] = json!(TRUST_BITCOIN);
+        self.send_withdrawal(address, Chain::Bitcoin, details).await
+    }
+
+    /// Check routing and counterparty before a withdrawal or notification proceeds.
+    pub async fn preflight(&self, address: &str, chain: Chain, asset: &str) -> Result<()> {
+        let vasp = self.lookup_asset(address, chain, asset).await?;
+        ensure!(
+            vasp["id"].is_string() && vasp["lei"].is_string() && vasp["status"] == "TRUSTED",
+            "No trusted TRUST counterparty with an LEI found"
+        );
+        self.check_routing().await
+    }
+
+    /// Check that the connected deployment restricts outgoing messages to TRUST.
+    pub async fn check_routing(&self) -> Result<()> {
+        // In 8.4.0 the send mutation checks the directory first. The server's
+        // HTTP client rejects file URLs, leaving only the TRUST route.
+        let data = self
+            .graphql(
+                "{ trpd { configuration { directoryUrl syncAddressDirectory } } }",
+                json!({}),
+            )
+            .await?;
+        let config = &data["trpd"]["configuration"];
+        ensure!(
+            config["directoryUrl"] == "file:///" && config["syncAddressDirectory"] == false,
+            "Sending requires a 21 Travel Rule instance with the TRP directory disabled (see README)"
+        );
+        Ok(())
+    }
+
+    /// Notify the counterparty after custody has recorded the broadcast transaction ID.
+    pub async fn send_withdrawal(&self, address: &str, chain: Chain, details: Value) -> Result<String> {
+        let asset = details["asset"].as_str().context("Missing TRUST asset")?;
+        self.preflight(address, chain, asset).await?;
+        let data = self
+            .graphql(SEND, json!({ "address": address, "ivms101": details }))
+            .await
+            .context(TrustSendUnconfirmed)?;
+        let result = &data["autod"]["sendTxToAddrOwner"];
+        ensure!(result["__typename"] == "TrustdTx", TrustSendUnconfirmed);
+        result["trustd"]["id"]
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned)
+            .context(TrustSendUnconfirmed)
+    }
+
+    /// Fetch a TRUST transaction and its beneficiary data by 21 Travel Rule record ID.
+    pub async fn receive(&self, record_id: &str) -> Result<Option<Value>> {
+        let data = self.records(json!({"id": {"like": exact_pattern(record_id)}})).await?;
+        Ok(data.into_iter().map(|mut row| row["trustd"].take()).find(|row| row["id"] == record_id))
+    }
+
+    /// Find the receipt for the exact on-chain transfer without sending any data.
+    pub async fn find_sent(&self, address: &str, chain: Chain, details: &Value) -> Result<Option<String>> {
+        let tx_id = details["txId"].as_str().context("Missing TRUST txId")?;
+        let address_match = if chain == Chain::Ethereum { "ilike" } else { "like" };
+        let records = self.records(json!({
+            "txid": {"like": exact_pattern(tx_id)},
+            "type": ["SENT"],
+            "beneficiary": {"walletAddress": {(address_match): exact_pattern(address)}}
+        })).await?;
+        let matching = records.iter().map(|row| &row["trustd"]).find(|row| {
+            let found_address = row["beneficiary"]["walletAddress"].as_str().unwrap_or_default();
+            let same_address = if chain == Chain::Ethereum { found_address.eq_ignore_ascii_case(address) }
+                else { found_address == address };
+            same_address && row["txId"] == tx_id && row["type"] == "SENT"
+                && row["asset"] == details["asset"] && row["amount"] == details["amount"]
+        });
+        ensure!(matching.is_some() || records.len() < 2, "Could not disambiguate existing TRUST receipts");
+        Ok(matching.and_then(|row| row["id"].as_str()).map(str::to_owned))
+    }
+
+    async fn records(&self, condition: Value) -> Result<Vec<Value>> {
+        let mut data = self.graphql(RECORDS, json!({"filter": {"is": {"trustd": condition}}})).await?;
+        serde_json::from_value(data["autod"]["txDetails"].take()).context("Missing TRUST transactions")
+    }
+
+    async fn graphql(&self, query: &str, variables: Value) -> Result<Value> {
+        let mut response: Value = self
+            .http
+            .post(self.graphql_url.clone())
+            .bearer_auth(&self.token)
+            .json(&json!({ "query": query, "variables": variables }))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        ensure!(
+            (response["errors"].is_null()
+                || response["errors"].as_array().is_some_and(Vec::is_empty))
+                && response["data"].is_object(),
+            "21 Travel Rule GraphQL request failed"
+        );
+        Ok(response["data"].take())
+    }
+}
+
+fn exact_pattern(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use rust_decimal_macros::dec;
+
+    #[test]
+    fn trust_uses_withdrawal_chain_and_exact_base_units() {
+        let parties = serde_json::from_value(json!({
+            "originator": {"id": "originator-test", "customerIdentification": "customer-test",
+                "address": {"addressLine": "1 Example St", "postalCode": "8001", "town": "Zurich", "country": "CH"}},
+            "beneficiaryName": {"natural": {"firstName": "Jane", "lastName": "Example"}}
+        })).unwrap();
+        let eth = trust_withdrawal_details(Chain::Ethereum, "USDC", dec!(1.000001), &parties).unwrap();
+        let tron = trust_withdrawal_details(Chain::Tron, "USDC", dec!(1.000001), &parties).unwrap();
+        assert_eq!(eth["asset"], "DTICK9PW1MFH");
+        assert_eq!(tron["asset"], "DTIT6TQ8GN7L");
+        assert_eq!(eth["amount"], "1000001");
+        assert!(trust_withdrawal_details(Chain::Ethereum, "USDC", dec!(0.0000001), &parties).is_err());
+        assert!(trust_withdrawal_details(Chain::Bitcoin, "USDC", dec!(1), &parties).is_err());
+    }
 
     #[test]
     fn parse_notabene_ivms_shape_round_trip() {

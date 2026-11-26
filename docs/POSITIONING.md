@@ -46,7 +46,7 @@ A Rust-based custody service that manages private keys, signs transactions, moni
 - **Real cryptography**: BIP-143 (Bitcoin), EIP-1559 (Ethereum), SLIP-0010 (Solana)
 - **Security architecture**: threat model, attack simulation tests, circuit breakers
 - **Production patterns**: double-entry ledger, idempotent APIs, webhook retry
-- **Compliance ready**: OFAC screening, Travel Rule types, approval tiers
+- **Compliance tooling** includes OFAC screening, TRUST dispatch via 21 Analytics, and approval tiers. [Travel Rule setup](../README.md#21-analytics-trust)
 
 Building this from scratch takes 12-18 months for a team of 3-5 engineers.
 
