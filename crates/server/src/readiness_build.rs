@@ -18,16 +18,14 @@
 use custody_common::config::CustodyConfig;
 use custody_common::email::EmailSender;
 use custody_common::readiness::{FeatureState, FeatureStatus, ReadinessReport};
+use custody_compliance::travel_rule::TwentyOneTravelConfig;
 
 /// Build a fresh `ReadinessReport` by re-running every probe.
-///
-/// `travel_rule_configured` is passed in instead of the provider
-/// itself because the provider type pulls in a lot of transitive deps
-/// we don't need here — we only care whether one is wired at all.
 pub async fn build(
     config: &CustodyConfig,
     email_sender: &EmailSender,
     travel_rule_configured: bool,
+    trust: Option<&TwentyOneTravelConfig>,
 ) -> ReadinessReport {
     // Record wall-clock duration in a Prometheus histogram so drifting
     // vendor latency surfaces on the dashboard even when every probe
@@ -253,8 +251,18 @@ pub async fn build(
     } else {
         readiness.push(FeatureStatus::disabled(
             "travel_rule.notabene",
-            "Travel Rule. Set CUSTODY_TRAVELRULE__NOTABENE_API_KEY.",
+            "Automatic Notabene Travel Rule dispatch is disabled.",
         ));
+    }
+
+    if let Some(trust) = trust {
+        let probe = async { trust.connect().await?.check_routing().await }.await;
+        let feature = "travel_rule.21travel";
+        let description = "21 Travel Rule TRUST dispatch";
+        match probe {
+            Ok(()) => readiness.push(FeatureStatus::ready(feature, description)),
+            Err(e) => readiness.push(FeatureStatus::degraded(feature, description, e.to_string())),
+        }
     }
 
     // MPC multi-host receiver.

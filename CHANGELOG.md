@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added (2026-11-26)
+
+- Added [21 Analytics 8.4.0](https://docs.21analytics.ch/8.4.0/api/outgoing_integration.html) as a selectable Travel Rule provider. It preflights withdrawals, dispatches TRUST notifications after broadcast, records receipts, and provides operator lookup and beneficiary retrieval.
+- Updated the [custody provider gap analysis](docs/gap-analysis-custody-providers.md#14-compliance--aml) and onboarding docs to reflect the available Travel Rule workflows.
+- Fixed two extra closing braces in `custody-db` that prevented `custody-admin` from building.
+
 ### Ledger — close deposit double-credit window (2026-04-26)
 
 - Migration `041_custody_ledger_deposit_unique.sql`: partial

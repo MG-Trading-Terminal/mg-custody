@@ -196,12 +196,11 @@ Labeled by bite size so future-me knows where to start.
   inter-batch delay) that processes all addresses; aborts the tick
   and logs at warn level if > 10 % of RPC queries fail (partial
   totals can't be trusted against the full internal).
-- **Travel Rule Notabene receive path is honest.** `receive_beneficiary_data`
-  on a successfully-accepted transfer used to log "Beneficiary data
-  received" and return `Ok(None)`, indistinguishable from "still
-  waiting". It now returns `Err` so the caller has to record the
-  transfer for manual review instead of silently treating acceptance
-  as "data not yet available".
+- **Travel Rule Notabene receive path is honest.** In the earlier snapshot,
+  `receive_beneficiary_data` on a successfully accepted transfer changed from
+  logging "Beneficiary data received" and returning `Ok(None)` to returning
+  an error for manual review. The current implementation parses accepted
+  transfers and returns an error for malformed accepted responses.
 - **Dashboard env chip reflects reality.** The sidebar env selector
   was a local-state toggle — clicking "testnet" never re-routed to
   a different backend, it just changed a client-side variable.
@@ -229,11 +228,17 @@ Labeled by bite size so future-me knows where to start.
   that to a regulator would be material misrepresentation. Now 501.
   `list_reports` also 501 (was `[]` always, implying "you've filed
   nothing"). Report creation still works; listing/export await DB.
-- **Travel rule submit persists as `Required`, not `Submitted`.**
-  The previous handler stamped `Submitted` without ever calling the
-  counterparty VASP provider (`NotabeneProvider::send_originator_data`
-  is not wired). Persisted data is now flagged so the dashboard can
-  show "awaiting VASP dispatch" instead of "compliance done".
+- **Travel Rule submissions in the earlier snapshot.** At the time,
+  `NotabeneProvider::send_originator_data` was unwired. The handler changed
+  from stamping `Submitted` to persisting `Required` so the dashboard could
+  show "awaiting VASP dispatch". Configured dispatch now records its outcome.
+- **21 Analytics records the TRUST dispatch outcome.** Counterparty and
+  routing checks run before broadcast for withdrawals subject to the Travel
+  Rule gate.
+  A worker sends after broadcast and stores the provider receipt. An
+  unconfirmed send stays `Dispatching` while custody checks for the receipt.
+  The TRUST flow has been tested with local PostgreSQL and an HTTPS mock.
+  Live delivery remains unverified. [Setup and status details](README.md#21-analytics-trust)
 - **Vault keys expose real public keys.** `GET /v1/vaults/{id}/keys`
   and `/keys/{chain}` returned `public_key: ""` with a "would need
   to derive from seed" comment — now derive from the master seed via

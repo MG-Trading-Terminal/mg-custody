@@ -81,6 +81,34 @@ curl -X POST http://localhost:8443/v1/addresses \
 # → {"address":"0x95b1C733EE4ad41C726A25AFa57264dEB58c24CA","chain":"ethereum","memo":null}
 ```
 
+## 21 Analytics (TRUST)
+
+Set `CUSTODY_TRAVELRULE__PROVIDER=21travel` to enable automatic TRUST dispatch. Point `CUSTODY_21_TRAVEL__BASE_URL` to the HTTPS URL of a TRUST-enabled 21 Analytics deployment running version 8.4.0, and set `CUSTODY_21_TRAVEL__CLIENT_ID` and `CUSTODY_21_TRAVEL__CLIENT_SECRET`. On Enterprise, grant the service account `trustd.vasps.read`, `travel.configuration.read`, `travel.transactions.read`, and `travel.transactions.write`. [API setup](https://docs.21analytics.ch/8.4.0/api/getting-started.html) · [Service account permissions](https://docs.21analytics.ch/8.4.0/deployment/keycloak/authorisation.html)
+
+For sends, use a dedicated TRUST instance. Set `directoryUrl` to `file:///` and `syncAddressDirectory` to `false` in the instance's `trpd.updateConfiguration` settings, preserving the other inputs. Restart the instance and leave these settings in effect. In 8.4.0 the server's HTTP client rejects file URLs, which disables directory routing. MG Custody checks both settings before sending. [Outgoing API workflow](https://docs.21analytics.ch/8.4.0/api/outgoing_integration.html)
+
+Submit the identity data to `POST /v1/travel-rule` with the MG Custody withdrawal ID. The 21 Analytics Address Book entry must already exist for the asset. MG Custody supplies the destination, exact base-unit amount, asset and transaction ID directly from the withdrawal.
+
+```json
+{
+  "withdrawal_id": "<MG Custody withdrawal ID>",
+  "originator": { "name": "John Example" },
+  "beneficiary": { "name": "Jane Example" },
+  "trust": {
+    "originator": {
+      "id": "<21 Analytics Address Book entry ID>",
+      "address": { "addressLine": "1 Example Street", "postalCode": "8001", "town": "Zurich", "country": "CH" },
+      "customerIdentification": "example-customer-1"
+    },
+    "beneficiaryName": { "natural": { "firstName": "Jane", "lastName": "Example" } }
+  }
+}
+```
+
+The server holds withdrawals subject to the existing Travel Rule gate until TRUST data is queued and the counterparty and routing checks pass. After broadcast, the worker claims the notification and sends it. `GET /v1/travel-rule/{withdrawal_id}` reports `required`, `dispatching`, `submitted` with `trust_record_id`, or `failed`. Resubmit a `failed` record to retry a failure before sending. A send with an unconfirmed outcome stays `dispatching` and is checked against 21 Analytics without resending. If the status persists, verify delivery with the counterparty before intervening.
+
+The built-in asset mapping covers BTC, ETH, TRX, SOL, and USDC/USDT on Ethereum and Tron. Use `custody-admin trust lookup ADDRESS [CHAIN ASSET]` to look up a counterparty and `custody-admin trust receive RECORD_ID` to retrieve the beneficiary data. For a standalone Bitcoin transaction, `custody-admin trust send ADDRESS` reads the 21 Analytics details with a string satoshi `amount` and on-chain `txId` from standard input.
+
 ## What's Inside (17 Crates)
 
 | Crate | Purpose | Lines |

@@ -24,6 +24,8 @@
 | **Off Exchange** | CVA shared custody with exchanges | XL | Phase 13 | P4 |
 | **Payment Network** | 40+ providers, 100+ countries | XL | Phase 13 | P4 |
 
+MG Custody integrates with 21 Analytics for TRUST counterparty checks before broadcast, automatic dispatch after broadcast, and receipt tracking. [MG Custody setup](../README.md#21-analytics-trust)
+
 ## Key Fireblocks Technical Details
 
 ### MPC-CMP

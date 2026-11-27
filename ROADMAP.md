@@ -150,6 +150,7 @@
 - [x] Chainalysis KYT integration (stub + types ready)
 - [x] OFAC SDN SanctionsList + SanctionsChecker (multi-list, known Tornado Cash addresses)
 - [x] Travel Rule: NotabeneProvider stub, threshold checks (EU €1K / US $3K)
+- [x] Selectable 21 Analytics provider with TRUST lookup, automatic post-broadcast dispatch, receipt tracking, and beneficiary retrieval
 - [x] RiskAssessment aggregation (worst-of all checks, sanctions override)
 - [ ] Full Chainalysis/Elliptic API integration (needs API keys)
 - [x] OFAC auto-refresh (scheduled daily)

@@ -1,5 +1,13 @@
 # Sprint Log
 
+## 21 Analytics TRUST integration (2026-11-26)
+
+- Goal and result: added selectable TRUST dispatch, preflight, status tracking and reconciliation, plus operator lookup and beneficiary retrieval.
+- Metrics: 18 workspace crates, one database migration, and one exact base-unit regression test. Removed two stray braces in `custody-db` to unblock the admin build.
+- Verified with local PostgreSQL and an HTTPS mock that two workers claim a withdrawal once, dispatch waits for broadcast, and a lost receipt is reconciled without resending.
+- Updated the [custody provider gap analysis](docs/gap-analysis-custody-providers.md#14-compliance--aml), onboarding and comparison docs to reflect the implemented integration and remaining live validation.
+- References: [21 Analytics API setup](https://docs.21analytics.ch/8.4.0/api/getting-started.html) and [outgoing workflow](https://docs.21analytics.ch/8.4.0/api/outgoing_integration.html).
+
 ## Sprint P1-P4 — Production Hardening, Testnet E2E, HSM, Monitoring (2026-04-16)
 
 ### Goals

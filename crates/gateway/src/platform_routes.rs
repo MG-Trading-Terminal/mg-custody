@@ -377,6 +377,17 @@ async fn submit_travel_rule(
         .map_err(|e| ApiError::internal(&e.to_string()))?
         .ok_or_else(|| ApiError::not_found("Withdrawal not found"))?;
 
+    let trust = state.withdrawal_pipeline.trust_provider();
+    let trust_status = if trust.is_some() || state.travel_rule_provider.is_some() {
+        state.db.trust_dispatch_status(withdrawal.id).await
+            .map_err(|e| ApiError::internal(&e.to_string()))?
+    } else {
+        None
+    };
+    if trust.is_none() && req.trust.is_some() {
+        return Err(ApiError::bad_request("TRUST is not configured"));
+    }
+
     // Determine threshold based on jurisdiction (EU: €1K, US: $3K)
     let (threshold_currency, threshold_amount) = if withdrawal.amount > dec!(3000) {
         ("USD".to_string(), dec!(3000))
@@ -402,10 +413,38 @@ async fn submit_travel_rule(
         threshold_currency,
         threshold_amount,
         status: TravelRuleStatus::Required,
+        trust_record_id: None,
         created_at: Utc::now(),
     };
 
+    if let Some(provider) = trust {
+        if trust_status.as_deref().is_some_and(|status| status != "failed") {
+            return get_travel_rule_data(&state, tr_data.withdrawal_id).await
+                .map(|data| (StatusCode::ACCEPTED, Json(data)));
+        }
+        if trust_status.is_none()
+            && state.db.find_travel_rule_by_withdrawal(withdrawal.id).await
+                .map_err(|e| ApiError::internal(&e.to_string()))?
+                .is_some_and(|row| row.status != TravelRuleStatus::Required)
+        {
+            return Err(ApiError::conflict("This withdrawal already has a Travel Rule dispatch"));
+        }
+        let parties = req.trust.ok_or_else(|| ApiError::bad_request("Missing TRUST parties"))?;
+        let details = custody_compliance::travel_rule::trust_withdrawal_details(
+            withdrawal.chain, withdrawal.asset.as_str(), withdrawal.amount, &parties,
+        ).map_err(|e| ApiError::bad_request(&e.to_string()))?;
+        let client = provider.connect().await.map_err(|_| ApiError::internal("Could not authenticate to 21 Travel Rule"))?;
+        client.preflight(&withdrawal.destination_address, withdrawal.chain, details["asset"].as_str().unwrap_or_default())
+            .await.map_err(|e| ApiError::bad_request(&e.to_string()))?;
+        let row = state.db.queue_trust_dispatch(&tr_data, &parties).await
+            .map_err(|e| ApiError::internal(&e.to_string()))?;
+        return Ok((StatusCode::ACCEPTED, Json(row)));
+    }
+
     if let Some(provider) = state.travel_rule_provider.as_ref() {
+        if trust_status.is_some() {
+            return Err(ApiError::conflict("This withdrawal is assigned to TRUST"));
+        }
         use custody_compliance::travel_rule::TravelRuleProvider;
         let mapped = custody_compliance::travel_rule::data_from_persisted(&tr_data);
         match provider.send_originator_data(&mapped).await {
@@ -443,8 +482,11 @@ async fn get_travel_rule(
     State(state): State<AppState>,
     Path(withdrawal_id): Path<Uuid>,
 ) -> Result<Json<TravelRuleData>, ApiError> {
-    let tr = state.db.find_travel_rule_by_withdrawal(withdrawal_id).await
+    get_travel_rule_data(&state, withdrawal_id).await.map(Json)
+}
+
+async fn get_travel_rule_data(state: &AppState, withdrawal_id: Uuid) -> Result<TravelRuleData, ApiError> {
+    state.db.find_travel_rule_by_withdrawal(withdrawal_id).await
         .map_err(|e| ApiError::internal(&e.to_string()))?
-        .ok_or_else(|| ApiError::not_found("Travel rule data not found"))?;
-    Ok(Json(tr))
+        .ok_or_else(|| ApiError::not_found("Travel rule data not found"))
 }

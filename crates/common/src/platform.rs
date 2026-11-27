@@ -205,6 +205,9 @@ pub struct TravelRuleData {
     pub threshold_currency: String,
     pub threshold_amount: Decimal,
     pub status: TravelRuleStatus,
+    /// 21 Travel Rule record ID returned after successful TRUST dispatch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trust_record_id: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -232,6 +235,7 @@ pub struct PhysicalAddress {
 #[serde(rename_all = "snake_case")]
 pub enum TravelRuleStatus {
     Required,
+    Dispatching,
     Submitted,
     Verified,
     Exempted,
@@ -243,6 +247,51 @@ pub struct SubmitTravelRuleRequest {
     pub withdrawal_id: Uuid,
     pub originator: TravelRuleParty,
     pub beneficiary: TravelRuleParty,
+    /// TRUST identity fields. Custody supplies the asset, amount and transaction ID.
+    #[serde(default)]
+    pub trust: Option<TrustParties>,
+}
+
+/// Identity details from the 21 Travel Rule Address Book and the withdrawal request.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TrustParties {
+    pub originator: TrustOriginator,
+    pub beneficiary_name: TrustBeneficiaryName,
+}
+
+/// Registered 21 Travel Rule originator for the asset being withdrawn.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TrustOriginator {
+    pub id: String,
+    pub address: TrustAddress,
+    pub customer_identification: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub legal_id: Option<String>,
+}
+
+/// Postal address in the TRUST GraphQL input format.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TrustAddress {
+    pub address_line: String,
+    pub postal_code: String,
+    pub town: String,
+    pub country: String,
+}
+
+/// TRUST beneficiary name with exactly one of the accepted IVMS name types.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub enum TrustBeneficiaryName {
+    Natural {
+        #[serde(rename = "firstName")]
+        first_name: String,
+        #[serde(rename = "lastName")]
+        last_name: String,
+    },
+    Legal { name: String },
 }
 
 #[cfg(test)]

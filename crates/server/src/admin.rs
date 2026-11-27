@@ -1,5 +1,8 @@
 //! custody-admin CLI binary.
 
+use anyhow::{Context, Result, bail};
+use custody_compliance::travel_rule::{TwentyOneTravelConfig, trust_asset};
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -19,6 +22,7 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "postgres://custody:custody_dev_password@localhost:5432/custody".into());
 
     match args[1].as_str() {
+        "trust" => trust(&args[2..]).await?,
         "status" => {
             println!("MG Custody Admin");
             println!("  Database: {}", db_url);
@@ -146,6 +150,31 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn trust(args: &[String]) -> Result<()> {
+    let config = TwentyOneTravelConfig::from_env;
+    match args {
+        [action, address] if action == "lookup" => {
+            println!("{}", config()?.connect().await?.lookup(address).await?);
+        }
+        [action, address, chain, symbol] if action == "lookup" => {
+            let chain = custody_common::Chain::try_parse_str(chain).context("Unknown chain")?;
+            let asset = trust_asset(chain, symbol)?;
+            println!("{}", config()?.connect().await?.lookup_asset(address, chain, asset).await?);
+        }
+        [action, address] if action == "send" => {
+            let details = serde_json::from_reader(std::io::stdin().lock())
+                .context("Expected TRUST details JSON on stdin")?;
+            println!("{}", config()?.connect().await?.send(address, details).await?);
+        }
+        [action, record_id] if action == "receive" => {
+            let record = config()?.connect().await?.receive(record_id).await?;
+            println!("{}", serde_json::to_string(&record)?);
+        }
+        _ => bail!("Usage: custody-admin trust lookup <address> [chain asset] | send <bitcoin-address> | receive <record-id>"),
+    }
+    Ok(())
+}
+
 fn print_usage() {
     eprintln!("Usage: custody-admin <command>");
     eprintln!("  status                                  Show system status");
@@ -154,4 +183,7 @@ fn print_usage() {
     eprintln!("  rescan --chain <chain> --from-block <n>  Rescan deposits");
     eprintln!("  freeze --reason <reason>                 Emergency freeze");
     eprintln!("  unfreeze                                 Lift freeze");
+    eprintln!("  trust lookup <address> [chain asset]    Look up a TRUST counterparty (Bitcoin by default)");
+    eprintln!("  trust send <bitcoin-address>            Send broadcast withdrawal details from JSON on stdin");
+    eprintln!("  trust receive <record-id>               Retrieve a 21 Travel Rule TRUST record");
 }
